@@ -219,8 +219,9 @@ async function mios() {
       <div class="meta">Tel. ${esc(l.telefono)} · DNI ${esc(l.dni || '—')} · cita ${fmt(l.fecha_cita)}</div>
       <div class="meta">${esc([l.direccion, l.localidad, l.provincia].filter(Boolean).join(', '))} · ${esc(l.operador_actual || '')}</div>
       ${l.notas ? `<div class="meta">Nota: ${esc(l.notas)}</div>` : ''}
-      ${abierto ? `<div class="row" style="margin-top:8px"><select class="est"><option value="">Cambiar estado…</option><option>CONTACTADO</option><option>NO_CONTESTA</option><option>RECONTACTAR</option><option>RECHAZA</option><option>VENDIDO</option></select>
-        <input class="com" placeholder="Comentario"><button class="ok">Guardar</button><button class="sec lib">Liberar</button></div>` : ''}
+            ${abierto ? `<div class="row" style="margin-top:8px"><select class="est"><option value="">Cambiar estado…</option><option>CONTACTADO</option><option>NO_CONTESTA</option><option>RECONTACTAR</option><option>RECHAZA</option></select>
+        <input class="com" placeholder="Comentario"><button class="ok">Guardar</button><button class="sec lib">Liberar</button></div>
+        <p style="margin:8px 0 0"><button class="vta">Registrar venta</button></p>` : ''}
       <div><button class="sec h" style="margin-top:8px">Ver historial</button><div class="hist"></div></div>`;
     d.querySelector('.h').onclick = () => timeline(l.id, d.querySelector('.hist'));
     if (abierto) {
@@ -238,6 +239,7 @@ async function mios() {
         if (error) return toast(limpio(error.message), true);
         toast('Lead devuelto a la bolsa'); mios(); bolsa();
       };
+            d.querySelector('.vta').onclick = () => ventaForm(l);
     }
     el.appendChild(d);
   });
