@@ -100,6 +100,7 @@ async function entrar() {
   if (perfil.rol === 'concertador') concertadorView();
   else if (perfil.rol === 'cerrador') cerradorView();
     else if (perfil.rol === 'back') backView();
+      else if (perfil.rol === 'admin') adminView();
   else $('#main').innerHTML = '<div class="card"><h2>Vista en preparación</h2><p>La pantalla de ' + esc(perfil.rol) + ' se entrega en la siguiente parte.</p></div>';
 }
 
@@ -293,6 +294,98 @@ function tarjetaBack(l, activo) {
     cargarBack(true);
   };
   return d;
+}
+  // ================= ADMIN =================
+const ORDEN = ['CITA_AGENDADA', 'EN_REVISION', 'FALTAN_DATOS', 'VIABLE', 'NO_VIABLE', 'CONTACTADO', 'NO_CONTESTA', 'RECONTACTAR', 'RECHAZA', 'VENDIDO'];
+const soles = m => 'S/ ' + Number(m || 0).toFixed(2);
+const enBolsaL = l => !l.cerrador_id && ((l.tipo_cita === 'INTERESADO' && l.estado === 'CITA_AGENDADA') || (l.tipo_cita === 'CALENTAR' && l.estado === 'VIABLE'));
+const fila = 'padding:6px 0;border-bottom:1px solid var(--line)';
+
+function adminView() {
+  $('#main').innerHTML = `<div class="stats" id="astats"></div>
+  <div class="grid two"><div>
+    <div class="card" style="margin-bottom:16px"><h2>Embudo</h2><div class="stats" id="embudo"></div></div>
+    <div class="card" style="margin-bottom:16px"><h2>Conversión por concertador</h2><div id="conv"></div></div>
+    <div class="card" style="margin-bottom:16px"><h2>Cerradores</h2><div id="cerr"></div></div>
+    <div class="card"><h2>Comisión del concertador</h2><div id="reglas"></div><h2 style="margin-top:16px">Últimas generadas</h2><div id="gen"></div></div>
+  </div><div><h2>Derivar leads</h2><div id="deriva"></div></div></div>`;
+  cargarAdmin(true);
+  chan = sb.channel('admin-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => cargarAdmin(false)).subscribe();
+}
+
+async function cargarAdmin(forzar) {
+  // No borrar un comentario a medio escribir cuando llega un cambio en vivo
+  if (!forzar && [...document.querySelectorAll('#deriva .com')].some(i => i.value.trim())) return;
+  const [L, P, S] = await Promise.all([
+    sb.from('leads').select('*').order('created_at', { ascending: false }),
+    sb.from('perfiles').select('id,nombre,rol,activo,disponible'),
+    sb.rpc('estado_bolsa')]);
+  if (L.error || P.error) return toast(limpio((L.error || P.error).message), true);
+  if (!$('#embudo')) return;
+  const leads = L.data, per = P.data, nom = Object.fromEntries(per.map(p => [p.id, p.nombre]));
+  const st = S.data && S.data[0];
+  const cerr = per.filter(p => p.rol === 'cerrador' && p.activo);
+  const conc = per.filter(p => p.rol === 'concertador' && p.activo);
+
+  $('#astats').innerHTML = `<div><b>${leads.length}</b><small>leads en total</small></div><div><b>${st ? st.leads_en_bolsa : '—'}</b><small>en la bolsa</small></div><div><b>${st ? st.cerradores_disponibles : '—'}</b><small>cerradores disponibles</small></div><div><b>${st ? st.cupo : '—'}</b><small>cupo por cerrador</small></div>`;
+  $('#embudo').innerHTML = ORDEN.map(e => `<div><b>${leads.filter(l => l.estado === e).length}</b><small>${e.replace('_', ' ').toLowerCase()}</small></div>`).join('');
+
+  $('#conv').innerHTML = conc.length ? conc.map(c => {
+    const m = leads.filter(l => l.concertador_id === c.id), v = m.filter(l => l.estado === 'VENDIDO').length;
+    return `<div class="row" style="${fila}"><b>${esc(c.nombre)}</b><span>${m.length} leads</span><span>${v} vendidos (${m.length ? Math.round(v * 100 / m.length) : 0}%)</span></div>`;
+  }).join('') : '<div class="empty">No hay concertadores activos.</div>';
+
+  $('#cerr').innerHTML = cerr.length ? cerr.map(c => {
+    const suyos = leads.filter(l => l.cerrador_id === c.id);
+    return `<div class="row" style="${fila}"><b>${esc(c.nombre)}</b><span>${c.disponible ? 'Disponible' : 'No disponible'}</span><span>${suyos.filter(l => ABIERTOS.includes(l.estado)).length} abiertos · ${suyos.filter(l => l.estado === 'VENDIDO').length} vendidos</span></div>`;
+  }).join('') : '<div class="empty">No hay cerradores activos.</div>';
+
+  // Derivar: leads en la bolsa y leads abiertos que ya tienen cerrador
+  const der = leads.filter(l => enBolsaL(l) || (l.cerrador_id && ABIERTOS.includes(l.estado))).sort((a, b) => enBolsaL(b) - enBolsaL(a)).slice(0, 40);
+  const opts = cerr.map(c => `<option value="${c.id}">${esc(c.nombre)}${c.disponible ? '' : ' (no disponible)'}</option>`).join('');
+  $('#deriva').innerHTML = der.length ? '' : '<div class="empty">No hay leads para derivar.</div>';
+  der.forEach(l => {
+    const d = document.createElement('div'); d.className = 'lead';
+    d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge">${l.cerrador_id ? 'Con ' + esc(nom[l.cerrador_id] || '?') : 'En la bolsa'}</span></h3>
+      <div class="meta">${esc(l.tipo_cita)} · ${esc(l.estado.replace('_', ' ').toLowerCase())} · cita ${fmt(l.fecha_cita)}</div>
+      <div class="row" style="margin-top:8px"><select class="cr"><option value="">Derivar a…</option>${opts}</select><input class="com" placeholder="Comentario (opcional)"><button class="ok">Derivar</button></div>`;
+    d.querySelector('.ok').onclick = async ev => {
+      const cr = d.querySelector('.cr').value;
+      if (!cr) return toast('Elige el cerrador', true);
+      ev.target.disabled = true;
+      const { error } = await sb.rpc('asignar_lead', { p_lead: l.id, p_cerrador: cr, p_comentario: d.querySelector('.com').value.trim() || null });
+      ev.target.disabled = false;
+      if (error) return toast(limpio(error.message), true);
+      toast('Lead derivado'); d.querySelector('.com').value = ''; cargarAdmin(true);
+    };
+    $('#deriva').appendChild(d);
+  });
+
+  // Comisiones: solo se redibuja al cargar o guardar, para no pisar un monto a medio escribir
+  if (!forzar) return;
+  const [R, G] = await Promise.all([
+    sb.from('reglas_comision').select('*').eq('activa', true),
+    sb.from('comisiones_generadas').select('*').order('generada_en', { ascending: false }).limit(20)]);
+  const el = $('#reglas'); if (!el) return;
+  el.innerHTML = (R.data && R.data.length) ? '' : '<div class="empty">No hay una regla de comisión activa.</div>';
+  (R.data || []).forEach(r => {
+    const d = document.createElement('div'); d.className = 'row'; d.style.cssText = fila;
+    d.innerHTML = `<b>${esc(r.concepto)}${r.campana ? ' · ' + esc(r.campana) : ''}</b><input type="number" min="0" step="0.01" value="${esc(r.monto)}"><button>Guardar</button>`;
+    d.querySelector('button').onclick = async ev => {
+      const m = parseFloat(d.querySelector('input').value);
+      if (isNaN(m) || m < 0) return toast('Escribe un monto válido', true);
+      ev.target.disabled = true;
+      const { error } = await sb.rpc('cambiar_monto_regla', { p_concepto: r.concepto, p_monto: m });
+      ev.target.disabled = false;
+      if (error) return toast(limpio(error.message), true);
+      toast('Monto guardado. Aplica a ventas que se activen desde hoy.'); cargarAdmin(true);
+    };
+    el.appendChild(d);
+  });
+  el.insertAdjacentHTML('beforeend', '<div class="meta" style="margin-top:6px">Un monto nuevo solo afecta a ventas que se activen desde hoy.</div>');
+  $('#gen').innerHTML = (G.data && G.data.length) ? G.data.map(g =>
+    `<div class="row" style="${fila}"><b>${esc(g.id_venta)}</b><span>${esc(nom[g.concertador_id] || '?')}</span><span>${soles(g.monto)} · ${esc(g.estado_pago)}</span></div>`).join('')
+    : '<div class="empty">Aún no hay comisiones generadas.</div>';
 }
  </script>
 </body>
