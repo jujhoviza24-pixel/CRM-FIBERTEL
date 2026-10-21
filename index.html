@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CRM Fibertel</title>
+<style>
+:root{--bg:#f3f5f4;--card:#fff;--ink:#16232b;--mut:#5d6b73;--line:#d9e0e3;--acc:#0b6e69;--acc2:#e8f3f2;--bad:#b3261e;--warn:#9a6700}
+@media(prefers-color-scheme:dark){:root{--bg:#0f171c;--card:#172229;--ink:#e6eef1;--mut:#9aabb3;--line:#2a3a43;--acc:#4fc3bb;--acc2:#16312f;--bad:#ff8a80;--warn:#e3b341}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Segoe UI",system-ui,sans-serif}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 18px;background:var(--card);border-bottom:1px solid var(--line)}
+header b{font-size:1.05em}header span{color:var(--mut);font-size:.9em}
+main{max-width:1000px;margin:0 auto;padding:16px}
+.grid{display:grid;gap:16px;grid-template-columns:1fr}
+@media(min-width:860px){.grid.two{grid-template-columns:380px 1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px}
+h2{font-size:1.05em;margin:0 0 10px}
+label{display:block;font-size:.85em;color:var(--mut);margin:8px 0 3px}
+input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+button{padding:8px 14px;border:0;border-radius:6px;background:var(--acc);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+html:not(.x) button{color:#fff}
+@media(prefers-color-scheme:dark){button{color:#0b1a19}}
+button.sec{background:transparent;color:var(--acc);border:1px solid var(--acc)}
+button:disabled{opacity:.5;cursor:wait}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>*{flex:1 1 120px}.row>button{flex:0 0 auto}
+.lead{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px}
+.lead h3{margin:0;font-size:1em;display:flex;justify-content:space-between;gap:8px}
+.meta{color:var(--mut);font-size:.88em;margin-top:3px}
+.badge{font-size:.78em;padding:2px 8px;border-radius:10px;background:var(--acc2);color:var(--acc);white-space:nowrap;font-weight:600}
+.warn{background:#fff4d6;color:#6b4e00;border:1px solid #e6c66a;border-radius:6px;padding:8px 10px;margin-top:8px;font-size:.9em}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.stats div{flex:1 1 110px;background:var(--acc2);border-radius:8px;padding:8px 12px}
+.stats b{display:block;font-size:1.5em}.stats small{color:var(--mut)}
+.tl{margin:8px 0 0;padding-left:14px;border-left:2px solid var(--line);font-size:.88em}
+.tl li{list-style:none;margin-bottom:6px}
+.empty{color:var(--mut);padding:10px 0}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);padding:10px 16px;border-radius:8px;background:var(--ink);color:var(--bg);max-width:90%;display:none;z-index:9}
+#toast.err{background:var(--bad);color:#fff}
+.login{max-width:340px;margin:12vh auto}
+.switch{display:flex;align-items:center;gap:8px}.switch input{width:auto}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+// ====== CONFIGURACIÓN: pega aquí tus dos datos (Project URL y clave publishable) ======
+const CONFIG = { URL: 'PEGA_AQUI_TU_PROJECT_URL', KEY: 'PEGA_AQUI_TU_CLAVE_PUBLISHABLE' };
+// =====================================================================================
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = d => d ? new Date(d).toLocaleString('es-PE', {dateStyle:'short', timeStyle:'short'}) : '—';
+const ABIERTOS = ['VIABLE','CITA_AGENDADA','CONTACTADO','NO_CONTESTA','RECONTACTAR'];
+let sb, me, perfil, timer, chan;
+
+function toast(msg, err) {
+  const t = $('#toast'); t.textContent = msg; t.className = err ? 'err' : ''; t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 4500);
+}
+function limpio(m) { return (m || 'Error inesperado').replace(/^.*?:\s*/, ''); }
+
+// ---------- Arranque ----------
+(async function init() {
+  if (CONFIG.URL.startsWith('PEGA') || CONFIG.KEY.startsWith('PEGA')) {
+    $('#app').innerHTML = '<main><div class="card"><h2>Falta la configuración</h2><p>Abre index.html y pega tu Project URL y tu clave publishable en el bloque CONFIG.</p></div></main>';
+    return;
+  }
+  sb = supabase.createClient(CONFIG.URL, CONFIG.KEY);
+  const { data } = await sb.auth.getSession();
+  if (data.session) { me = data.session.user; await entrar(); } else loginView();
+})();
+
+function loginView() {
+  clearInterval(timer); if (chan) sb.removeChannel(chan);
+  $('#app').innerHTML = `<div class="login card"><h2>CRM Fibertel</h2>
+    <form id="f"><label>Usuario</label><input id="u" autocomplete="username" required>
+    <label>PIN</label><input id="p" type="password" inputmode="numeric" autocomplete="current-password" required>
+    <p style="margin:14px 0 0"><button style="width:100%">Entrar</button></p></form></div>`;
+  $('#f').onsubmit = async e => {
+    e.preventDefault();
+    let u = $('#u').value.trim();
+    const email = u.includes('@') ? u : u.toLowerCase().replace(/\s+/g, '') + '@crm-fibertel.com';
+    const { data, error } = await sb.auth.signInWithPassword({ email, password: $('#p').value });
+    if (error) return toast('Usuario o PIN incorrectos', true);
+    me = data.user; entrar();
+  };
+}
+
+async function entrar() {
+  const { data, error } = await sb.from('perfiles').select('nombre,rol,disponible').eq('id', me.id).maybeSingle();
+  if (error || !data) { toast('Tu usuario no tiene perfil activo. Avisa al administrador.', true); await sb.auth.signOut(); return loginView(); }
+  perfil = data;
+  $('#app').innerHTML = `<header><div><b>CRM Fibertel</b> <span>${esc(perfil.nombre)} · ${esc(perfil.rol)}</span></div><button class="sec" id="out">Salir</button></header><main id="main"></main>`;
+  $('#out').onclick = async () => { await sb.auth.signOut(); loginView(); };
+  if (perfil.rol === 'concertador') concertadorView();
+  else if (perfil.rol === 'cerrador') cerradorView();
+  else $('#main').innerHTML = '<div class="card"><h2>Vista en preparación</h2><p>La pantalla de ' + esc(perfil.rol) + ' se entrega en la siguiente parte.</p></div>';
+}
+
+// ---------- Línea de tiempo ----------
+async function timeline(leadId, box) {
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  const { data } = await sb.from('lead_historial').select('estado,comentario,autor_nombre,created_at').eq('lead_id', leadId).order('created_at');
+  box.innerHTML = '<ul class="tl">' + (data || []).map(h =>
+    `<li><b>${esc(h.estado)}</b> · ${fmt(h.created_at)} · ${esc(h.autor_nombre)}${h.comentario ? '<br>' + esc(h.comentario) : ''}</li>`).join('') + '</ul>';
+}
+
+// ================= CONCERTADOR =================
+function concertadorView() {
+  $('#main').innerHTML = `<div class="grid two">
+  <div class="card"><h2>Nuevo cliente y cita</h2><form id="nf">
+    <label>Cliente</label><input id="cliente" required>
+    <div class="row"><div><label>DNI</label><input id="dni"></div><div><label>Teléfono</label><input id="tel" inputmode="tel" required></div></div>
+    <div id="dup"></div>
+    <div class="row"><div><label>Provincia</label><input id="prov"></div><div><label>Localidad</label><input id="loc"></div></div>
+    <label>Dirección</label><input id="dir">
+    <label>Operador actual</label><input id="op">
+    <div class="row"><div><label>Tipo de cita</label><select id="tipo"><option value="LLAMADA">Llamada (sin revisión de zona)</option><option value="VENTA">Venta (pasa por el back)</option></select></div>
+    <div><label>Fecha y hora de la cita</label><input id="fecha" type="datetime-local" required></div></div>
+    <label>Notas</label><textarea id="notas" rows="2"></textarea>
+    <p style="margin:12px 0 0"><button id="guardar">Guardar cita</button></p></form></div>
+  <div><h2>Mis leads</h2><div id="lista"></div></div></div>`;
+  ['dni','tel'].forEach(id => $('#' + id).addEventListener('blur', revisarDup));
+  $('#nf').onsubmit = guardarLead;
+  cargarMios();
+  chan = sb.channel('mis-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, cargarMios).subscribe();
+}
+
+async function revisarDup() {
+  const dni = $('#dni').value.trim(), tel = $('#tel').value.trim();
+  if (!dni && !tel) { $('#dup').innerHTML = ''; return; }
+  const { data } = await sb.rpc('verificar_duplicado', { p_dni: dni, p_tel: tel });
+  $('#dup').innerHTML = data && data.length
+    ? `<div class="warn">Este cliente ya fue registrado por <b>${esc(data[0].concertador)}</b> (${esc(data[0].estado)}, ${fmt(data[0].desde)}). Revisa antes de guardar.</div>` : '';
+}
+
+async function guardarLead(e) {
+  e.preventDefault();
+  const b = $('#guardar'); b.disabled = true;
+  const { error } = await sb.from('leads').insert({
+    concertador_id: me.id, cliente: $('#cliente').value.trim(), dni: $('#dni').value.trim() || null,
+    telefono: $('#tel').value.trim(), provincia: $('#prov').value.trim() || null, localidad: $('#loc').value.trim() || null,
+    direccion: $('#dir').value.trim() || null, operador_actual: $('#op').value.trim() || null,
+    tipo_cita: $('#tipo').value, fecha_cita: new Date($('#fecha').value).toISOString(),
+    estado: 'CITA_AGENDADA', notas: $('#notas').value.trim() || null });
+  b.disabled = false;
+  if (error) return toast('No se pudo guardar: ' + limpio(error.message), true);
+  toast('Cita guardada'); $('#nf').reset(); $('#dup').innerHTML = ''; cargarMios();
+}
+
+async function cargarMios() {
+  const { data, error } = await sb.from('leads').select('*').order('created_at', { ascending: false });
+  if (error) return toast(limpio(error.message), true);
+  const el = $('#lista'); if (!el) return;
+  el.innerHTML = data.length ? '' : '<div class="empty">Aún no registraste clientes. Completa el formulario para agendar tu primera cita.</div>';
+  data.forEach(l => {
+    const d = document.createElement('div'); d.className = 'lead';
+    d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge">${esc(l.estado)}</span></h3>
+      <div class="meta">${esc(l.telefono)} · ${esc(l.tipo_cita)} · cita ${fmt(l.fecha_cita)}</div>
+      <div><button class="sec" style="margin-top:8px">Ver historial</button><div class="hist"></div></div>`;
+    d.querySelector('button').onclick = () => timeline(l.id, d.querySelector('.hist'));
+    el.appendChild(d);
+  });
+}
+
+// ================= CERRADOR =================
+function cerradorView() {
+  $('#main').innerHTML = `<div class="card" style="margin-bottom:16px"><div class="switch"><input type="checkbox" id="disp" ${perfil.disponible ? 'checked' : ''}><label for="disp" style="margin:0;color:var(--ink)">Estoy disponible hoy</label></div></div>
+  <div class="stats" id="stats"></div>
+  <div class="grid two"><div><h2>Bolsa de leads</h2><div id="bolsa"></div></div><div><h2>Mis leads</h2><div id="mios"></div></div></div>`;
+  $('#disp').onchange = async e => {
+    const { error } = await sb.rpc('set_disponible', { p_disponible: e.target.checked });
+    if (error) { e.target.checked = !e.target.checked; return toast(limpio(error.message), true); }
+    perfil.disponible = e.target.checked; toast(e.target.checked ? 'Estás disponible' : 'Ya no estás disponible'); bolsa();
+  };
+  const todo = () => { bolsa(); mios(); };
+  todo(); timer = setInterval(bolsa, 15000);
+}
+
+async function bolsa() {
+  const [s, b] = await Promise.all([sb.rpc('estado_bolsa'), sb.rpc('bolsa_leads')]);
+  const st = s.data && s.data[0];
+  if (st && $('#stats')) $('#stats').innerHTML =
+    `<div><b>${st.leads_en_bolsa}</b><small>en la bolsa</small></div><div><b>${st.cerradores_disponibles}</b><small>cerradores disponibles</small></div><div><b>${st.mis_abiertos} / ${st.cupo}</b><small>mis leads abiertos / cupo</small></div>`;
+  const el = $('#bolsa'); if (!el) return;
+  if (b.error) { el.innerHTML = '<div class="empty">No se pudo cargar la bolsa.</div>'; return; }
+  el.innerHTML = b.data.length ? '' : '<div class="empty">No hay leads en la bolsa por ahora. Se actualiza solo cada 15 segundos.</div>';
+  b.data.forEach(l => {
+    const d = document.createElement('div'); d.className = 'lead';
+    d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge">${esc(l.tipo_cita)}</span></h3>
+      <div class="meta">${esc([l.localidad, l.provincia].filter(Boolean).join(', ') || 'Sin zona')} · ${esc(l.operador_actual || 'Sin operador')} · cita ${fmt(l.fecha_cita)}</div>
+      <p style="margin:8px 0 0"><button>Tomar</button></p>`;
+    d.querySelector('button').onclick = async ev => {
+      ev.target.disabled = true;
+      const { error } = await sb.rpc('tomar_lead', { p_lead: l.id });
+      if (error) { toast(limpio(error.message), true); } else toast('Lead tomado. Ya aparece en Mis leads.');
+      bolsa(); mios();
+    };
+    el.appendChild(d);
+  });
+}
+
+async function mios() {
+  const { data, error } = await sb.from('leads').select('*').eq('cerrador_id', me.id).order('fecha_cita');
+  const el = $('#mios'); if (!el) return;
+  if (error) { el.innerHTML = '<div class="empty">No se pudo cargar tus leads.</div>'; return; }
+  el.innerHTML = data.length ? '' : '<div class="empty">Aún no tienes leads. Toma uno de la bolsa.</div>';
+  data.forEach(l => {
+    const abierto = ABIERTOS.includes(l.estado);
+    const d = document.createElement('div'); d.className = 'lead';
+    d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge">${esc(l.estado)}</span></h3>
+      <div class="meta">Tel. ${esc(l.telefono)} · DNI ${esc(l.dni || '—')} · cita ${fmt(l.fecha_cita)}</div>
+      <div class="meta">${esc([l.direccion, l.localidad, l.provincia].filter(Boolean).join(', '))} · ${esc(l.operador_actual || '')}</div>
+      ${l.notas ? `<div class="meta">Nota: ${esc(l.notas)}</div>` : ''}
+      ${abierto ? `<div class="row" style="margin-top:8px"><select class="est"><option value="">Cambiar estado…</option><option>CONTACTADO</option><option>NO_CONTESTA</option><option>RECONTACTAR</option><option>RECHAZA</option><option>VENDIDO</option></select>
+        <input class="com" placeholder="Comentario"><button class="ok">Guardar</button><button class="sec lib">Liberar</button></div>` : ''}
+      <div><button class="sec h" style="margin-top:8px">Ver historial</button><div class="hist"></div></div>`;
+    d.querySelector('.h').onclick = () => timeline(l.id, d.querySelector('.hist'));
+    if (abierto) {
+      d.querySelector('.ok').onclick = async () => {
+        const est = d.querySelector('.est').value;
+        if (!est) return toast('Elige el nuevo estado', true);
+        const { error } = await sb.rpc('cambiar_estado', { p_lead: l.id, p_estado: est, p_comentario: d.querySelector('.com').value.trim() || null });
+        if (error) return toast(limpio(error.message), true);
+        toast('Estado guardado'); mios(); bolsa();
+      };
+      d.querySelector('.lib').onclick = async () => {
+        const motivo = prompt('¿Por qué devuelves este lead a la bolsa?');
+        if (!motivo || !motivo.trim()) return;
+        const { error } = await sb.rpc('liberar_lead', { p_lead: l.id, p_comentario: motivo.trim() });
+        if (error) return toast(limpio(error.message), true);
+        toast('Lead devuelto a la bolsa'); mios(); bolsa();
+      };
+    }
+    el.appendChild(d);
+  });
+}
+</script>
+</body>
+</html>
