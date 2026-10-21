@@ -4,43 +4,126 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CRM Fibertel</title>
+<meta name="theme-color" content="#0f766e">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f3f5f4;--card:#fff;--ink:#16232b;--mut:#5d6b73;--line:#d9e0e3;--acc:#0b6e69;--acc2:#e8f3f2;--bad:#b3261e;--warn:#9a6700}
-@media(prefers-color-scheme:dark){:root{--bg:#0f171c;--card:#172229;--ink:#e6eef1;--mut:#9aabb3;--line:#2a3a43;--acc:#4fc3bb;--acc2:#16312f;--bad:#ff8a80;--warn:#e3b341}}
+:root{
+  --bg:#f4f6f8;--card:#fff;--ink:#0f1f2a;--mut:#64748b;--line:#e3e8ee;--line2:#cfd8e1;
+  --acc:#0f766e;--acc-h:#0b5f58;--acc2:#e6f4f2;--on-acc:#fff;
+  --ok:#15803d;--ok-bg:#e8f6ed;--info:#1d4ed8;--info-bg:#e8effd;
+  --warn:#b45309;--warn-bg:#fdf1dc;--bad:#b3261e;--bad-bg:#fcebea;
+  --r:14px;--sh:0 1px 2px rgba(15,31,42,.05),0 4px 16px rgba(15,31,42,.06);
+  --sh-lg:0 20px 60px rgba(15,31,42,.25)}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#0b1318;--card:#121d24;--ink:#e8f0f4;--mut:#93a4ae;--line:#223540;--line2:#2f4653;
+  --acc:#2dd4bf;--acc-h:#5eead4;--acc2:#12302e;--on-acc:#06201d;
+  --ok:#4ade80;--ok-bg:#12301f;--info:#7aa7ff;--info-bg:#15233f;
+  --warn:#fbbf24;--warn-bg:#352a10;--bad:#ff8a80;--bad-bg:#3a1a18;
+  --sh:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25);--sh-lg:0 20px 60px rgba(0,0,0,.6)}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Segoe UI",system-ui,sans-serif}
-header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 18px;background:var(--card);border-bottom:1px solid var(--line)}
-header b{font-size:1.05em}header span{color:var(--mut);font-size:.9em}
-main{max-width:1000px;margin:0 auto;padding:16px}
-.grid{display:grid;gap:16px;grid-template-columns:1fr}
-@media(min-width:860px){.grid.two{grid-template-columns:380px 1fr}}
-.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px}
-h2{font-size:1.05em;margin:0 0 10px}
-label{display:block;font-size:.85em;color:var(--mut);margin:8px 0 3px}
-input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
-input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
-button{padding:8px 14px;border:0;border-radius:6px;background:var(--acc);color:#fff;font:inherit;font-weight:600;cursor:pointer}
-html:not(.x) button{color:#fff}
-@media(prefers-color-scheme:dark){button{color:#0b1a19}}
-button.sec{background:transparent;color:var(--acc);border:1px solid var(--acc)}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Inter,"Segoe UI",system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(900px 380px at 85% -80px,color-mix(in srgb,var(--acc) 14%,transparent),transparent 70%)}
+
+/* ---------- Cabecera ---------- */
+header{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px clamp(14px,3vw,28px);
+  background:color-mix(in srgb,var(--card) 86%,transparent);backdrop-filter:saturate(1.4) blur(12px);-webkit-backdrop-filter:saturate(1.4) blur(12px);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em}
+.logo{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:.8em;font-weight:800;color:var(--on-acc);
+  background:linear-gradient(135deg,var(--acc),color-mix(in srgb,var(--acc) 55%,#38bdf8));box-shadow:0 4px 12px color-mix(in srgb,var(--acc) 35%,transparent)}
+.user{display:flex;align-items:center;gap:10px}
+.avatar{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-size:.8em;font-weight:700;background:var(--acc2);color:var(--acc);border:1px solid var(--line)}
+.who{display:flex;flex-direction:column;line-height:1.2;text-align:right}
+.who b{font-size:.9em}.who small{color:var(--mut);font-size:.75em;text-transform:capitalize}
+main{max-width:1120px;margin:0 auto;padding:clamp(14px,3vw,28px)}
+
+/* ---------- Estructura ---------- */
+.grid{display:grid;gap:20px;grid-template-columns:1fr}
+@media(min-width:860px){.grid.two{grid-template-columns:390px 1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--sh)}
+h2{font-size:1.02em;font-weight:700;letter-spacing:-.01em;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+.grid>div>h2::before{content:"";width:4px;height:16px;border-radius:2px;background:var(--acc)}
+.card h2::before{display:none}
+
+/* ---------- Formularios ---------- */
+label{display:block;font-size:.78em;font-weight:600;color:var(--mut);margin:12px 0 5px;letter-spacing:.01em}
+input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line2);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;transition:border-color .15s,box-shadow .15s}
+input::placeholder,textarea::placeholder{color:color-mix(in srgb,var(--mut) 70%,transparent)}
+input:hover,select:hover,textarea:hover{border-color:color-mix(in srgb,var(--acc) 45%,var(--line2))}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 4px color-mix(in srgb,var(--acc) 18%,transparent)}
+textarea{resize:vertical}
+select{appearance:none;-webkit-appearance:none;padding-right:34px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+button{padding:10px 16px;border:0;border-radius:10px;background:var(--acc);color:var(--on-acc);font:inherit;font-weight:600;cursor:pointer;transition:background .15s,transform .05s,box-shadow .15s;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+button:hover{background:var(--acc-h)}
+button:active{transform:translateY(1px)}
+button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button.sec{background:transparent;color:var(--acc);border:1px solid color-mix(in srgb,var(--acc) 45%,var(--line2));box-shadow:none}
+button.sec:hover{background:var(--acc2)}
 button:disabled{opacity:.5;cursor:wait}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.row>*{flex:1 1 120px}.row>button{flex:0 0 auto}
-.lead{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px}
-.lead h3{margin:0;font-size:1em;display:flex;justify-content:space-between;gap:8px}
-.meta{color:var(--mut);font-size:.88em;margin-top:3px}
-.badge{font-size:.78em;padding:2px 8px;border-radius:10px;background:var(--acc2);color:var(--acc);white-space:nowrap;font-weight:600}
-.warn{background:#fff4d6;color:#6b4e00;border:1px solid #e6c66a;border-radius:6px;padding:8px 10px;margin-top:8px;font-size:.9em}
-.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
-.stats div{flex:1 1 110px;background:var(--acc2);border-radius:8px;padding:8px 12px}
-.stats b{display:block;font-size:1.5em}.stats small{color:var(--mut)}
-.tl{margin:8px 0 0;padding-left:14px;border-left:2px solid var(--line);font-size:.88em}
-.tl li{list-style:none;margin-bottom:6px}
-.empty{color:var(--mut);padding:10px 0}
-#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);padding:10px 16px;border-radius:8px;background:var(--ink);color:var(--bg);max-width:90%;display:none;z-index:9}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.row>*{flex:1 1 130px;min-width:0}.row>button{flex:0 0 auto}
+.switch{display:flex;align-items:center;gap:12px}
+.switch input{appearance:none;-webkit-appearance:none;width:44px;height:26px;padding:0;border-radius:99px;border:0;background:var(--line2);position:relative;cursor:pointer;flex:none;transition:background .2s}
+.switch input::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s}
+.switch input:checked{background:var(--acc)}
+.switch input:checked::after{transform:translateX(18px)}
+.switch input:focus{box-shadow:0 0 0 4px color-mix(in srgb,var(--acc) 18%,transparent)}
+
+/* ---------- Tarjetas de lead ---------- */
+.lead{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin-bottom:12px;box-shadow:var(--sh);transition:border-color .15s,transform .15s}
+.lead:hover{border-color:color-mix(in srgb,var(--acc) 40%,var(--line))}
+.lead h3{margin:0;font-size:1em;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:10px;letter-spacing:-.01em}
+.meta{color:var(--mut);font-size:.86em;margin-top:4px}
+.lead p{margin:10px 0 0}
+.badge{font-size:.72em;padding:3px 10px;border-radius:99px;background:var(--acc2);color:var(--acc);white-space:nowrap;font-weight:700;letter-spacing:.02em}
+.b-ok{background:var(--ok-bg);color:var(--ok)}.b-info{background:var(--info-bg);color:var(--info)}
+.b-warn{background:var(--warn-bg);color:var(--warn)}.b-bad{background:var(--bad-bg);color:var(--bad)}
+.warn{background:var(--warn-bg);color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 30%,transparent);border-radius:10px;padding:9px 12px;margin-top:10px;font-size:.88em}
+.empty{color:var(--mut);padding:22px 16px;text-align:center;border:1.5px dashed var(--line2);border-radius:var(--r);font-size:.92em}
+
+/* ---------- Indicadores ---------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:18px}
+.stats div{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;box-shadow:var(--sh);position:relative;overflow:hidden}
+.stats div::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--acc)}
+.stats b{display:block;font-size:1.9em;line-height:1.1;font-weight:800;letter-spacing:-.03em}
+.stats small{color:var(--mut);font-size:.78em;font-weight:500;text-transform:capitalize}
+.card .stats{margin-bottom:0}
+.card .stats div{box-shadow:none;background:var(--bg)}
+
+/* ---------- Línea de tiempo ---------- */
+.tl{margin:10px 0 0;padding:0 0 0 18px;border-left:2px solid var(--line);font-size:.86em}
+.tl li{list-style:none;margin-bottom:10px;position:relative;color:var(--mut)}
+.tl li::before{content:"";position:absolute;left:-25px;top:5px;width:8px;height:8px;border-radius:50%;background:var(--acc);box-shadow:0 0 0 3px var(--card)}
+.tl li b{color:var(--ink)}
+
+/* ---------- Aviso emergente ---------- */
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:12px 18px;border-radius:12px;background:var(--ink);color:var(--bg);max-width:92%;display:none;z-index:20;box-shadow:var(--sh-lg);font-size:.92em;font-weight:500}
 #toast.err{background:var(--bad);color:#fff}
-.login{max-width:340px;margin:12vh auto}
-.switch{display:flex;align-items:center;gap:8px}.switch input{width:auto}
+
+/* ---------- Inicio de sesión ---------- */
+.login{max-width:380px;margin:11vh auto 0;padding:30px 26px;border-radius:20px;box-shadow:var(--sh-lg)}
+.login .logo{width:48px;height:48px;border-radius:14px;font-size:1em;margin:0 auto 14px}
+.login h2{justify-content:center;font-size:1.3em;margin:0}
+.login .sub{text-align:center;color:var(--mut);font-size:.9em;margin:4px 0 8px}
+.login button{padding:12px}
+
+/* ---------- Registro de venta (ventana) ---------- */
+.ov{position:fixed;inset:0;background:rgba(8,16,22,.6);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);z-index:15;overflow:auto;padding:clamp(0px,3vw,28px)}
+.ov .card{max-width:720px;margin:0 auto;padding:0;overflow:hidden;box-shadow:var(--sh-lg)}
+.mh{padding:18px 22px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--acc2),transparent)}
+.mh h2{margin:0;font-size:1.15em}.mh small{color:var(--mut)}
+#vf{padding:6px 22px 0}
+.sec-t{font-size:.72em;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--acc);margin:20px 0 2px;display:flex;align-items:center;gap:10px}
+.sec-t::after{content:"";flex:1;height:1px;background:var(--line)}
+.prow{display:grid;grid-template-columns:150px 1fr 140px auto auto;gap:8px;margin-bottom:8px;padding:10px;background:var(--bg);border:1px solid var(--line);border-radius:12px}
+.prow button{padding:8px 12px}
+.actions{position:sticky;bottom:0;margin:18px -22px 0!important;padding:14px 22px;background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);border-top:1px solid var(--line)}
+.actions>*{flex:1 1 0}
+@media(max-width:640px){.prow{grid-template-columns:1fr 1fr}.prow .pp{grid-column:1/-1}.ov{padding:0}.ov .card{border-radius:0;min-height:100%}}
+@media(max-width:560px){.who{display:none}header{padding:10px 14px}}
 </style>
 </head>
 <body>
@@ -63,6 +146,9 @@ function toast(msg, err) {
   clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 4500);
 }
 function limpio(m) { return (m || 'Error inesperado').replace(/^.*?:\s*/, ''); }
+const TONO = { CITA_AGENDADA:'b-info', INTERESADO:'b-info', CALENTAR:'b-warn', EN_REVISION:'b-warn', VIABLE:'b-ok', NO_VIABLE:'b-bad', FALTAN_DATOS:'b-warn', CONTACTADO:'b-info', NO_CONTESTA:'b-warn', RECONTACTAR:'b-warn', RECHAZA:'b-bad', VENDIDO:'b-ok' };
+const tono = s => TONO[s] || '';
+const iniciales = n => String(n || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
 
 // ---------- Arranque ----------
 (async function init() {
@@ -77,7 +163,7 @@ function limpio(m) { return (m || 'Error inesperado').replace(/^.*?:\s*/, ''); }
 
 function loginView() {
   clearInterval(timer); if (chan) sb.removeChannel(chan);
-  $('#app').innerHTML = `<div class="login card"><h2>CRM Fibertel</h2>
+  $('#app').innerHTML = `<div class="login card"><div class="logo">FC</div><h2>CRM Fibertel</h2><p class="sub">Ingresa con tu usuario y PIN</p>
     <form id="f"><label>Usuario</label><input id="u" autocomplete="username" required>
     <label>PIN</label><input id="p" type="password" inputmode="numeric" autocomplete="current-password" required>
     <p style="margin:14px 0 0"><button style="width:100%">Entrar</button></p></form></div>`;
@@ -95,7 +181,7 @@ async function entrar() {
   const { data, error } = await sb.from('perfiles').select('nombre,rol,disponible').eq('id', me.id).maybeSingle();
   if (error || !data) { toast('Tu usuario no tiene perfil activo. Avisa al administrador.', true); await sb.auth.signOut(); return loginView(); }
   perfil = data;
-  $('#app').innerHTML = `<header><div><b>CRM Fibertel</b> <span>${esc(perfil.nombre)} · ${esc(perfil.rol)}</span></div><button class="sec" id="out">Salir</button></header><main id="main"></main>`;
+  $('#app').innerHTML = `<header><div class="brand"><div class="logo">FC</div>CRM Fibertel</div><div class="user"><div class="who"><b>${esc(perfil.nombre)}</b><small>${esc(perfil.rol)}</small></div><div class="avatar">${esc(iniciales(perfil.nombre))}</div><button class="sec" id="out">Salir</button></div></header><main id="main"></main>`;
   $('#out').onclick = async () => { await sb.auth.signOut(); loginView(); };
   if (perfil.rol === 'concertador') concertadorView();
   else if (perfil.rol === 'cerrador') cerradorView();
@@ -162,7 +248,7 @@ async function cargarMios() {
   el.innerHTML = data.length ? '' : '<div class="empty">Aún no registraste clientes. Completa el formulario para agendar tu primera cita.</div>';
   data.forEach(l => {
     const d = document.createElement('div'); d.className = 'lead';
-    d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge">${esc(l.estado)}</span></h3>
+    d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge ${tono(l.estado)}">${esc(l.estado)}</span></h3>
       <div class="meta">${esc(l.telefono)} · ${esc(l.tipo_cita)} · cita ${fmt(l.fecha_cita)}</div>
       <div><button class="sec" style="margin-top:8px">Ver historial</button><div class="hist"></div></div>`;
     d.querySelector('button').onclick = () => timeline(l.id, d.querySelector('.hist'));
@@ -194,7 +280,7 @@ async function bolsa() {
   el.innerHTML = b.data.length ? '' : '<div class="empty">No hay leads en la bolsa por ahora. Se actualiza solo cada 15 segundos.</div>';
   b.data.forEach(l => {
     const d = document.createElement('div'); d.className = 'lead';
-    d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge">${esc(l.tipo_cita)}</span></h3>
+    d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge ${tono(l.tipo_cita)}">${esc(l.tipo_cita)}</span></h3>
       <div class="meta">${esc([l.localidad, l.provincia].filter(Boolean).join(', ') || 'Sin zona')} · ${esc(l.operador_actual || 'Sin operador')} · cita ${fmt(l.fecha_cita)}</div>
       <p style="margin:8px 0 0"><button>Tomar</button></p>`;
     d.querySelector('button').onclick = async ev => {
@@ -215,7 +301,7 @@ async function mios() {
   data.forEach(l => {
     const abierto = ABIERTOS.includes(l.estado);
     const d = document.createElement('div'); d.className = 'lead';
-    d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge">${esc(l.estado)}</span></h3>
+    d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge ${tono(l.estado)}">${esc(l.estado)}</span></h3>
       <div class="meta">Tel. ${esc(l.telefono)} · DNI ${esc(l.dni || '—')} · cita ${fmt(l.fecha_cita)}</div>
       <div class="meta">${esc([l.direccion, l.localidad, l.provincia].filter(Boolean).join(', '))} · ${esc(l.operador_actual || '')}</div>
       ${l.notas ? `<div class="meta">Nota: ${esc(l.notas)}</div>` : ''}
@@ -274,7 +360,7 @@ async function cargarBack(forzar) {
 function tarjetaBack(l, activo) {
   const otro = activo && l.estado === 'EN_REVISION' && l.back_id && l.back_id !== me.id;
   const d = document.createElement('div'); d.className = 'lead';
-  d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge">${esc(etq(l.estado))}</span></h3>
+  d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge ${tono(l.estado)}">${esc(etq(l.estado))}</span></h3>
     <div class="meta">Tel. ${esc(l.telefono)} · DNI ${esc(l.dni || '—')} · cita ${fmt(l.fecha_cita)}</div>
     <div class="meta">${esc([l.direccion, l.localidad, l.provincia].filter(Boolean).join(', ') || 'Sin zona')} · ${esc(l.operador_actual || 'Sin operador')}</div>
     ${l.notas ? `<div class="meta">Nota: ${esc(l.notas)}</div>` : ''}
@@ -349,7 +435,7 @@ async function cargarAdmin(forzar) {
   $('#deriva').innerHTML = der.length ? '' : '<div class="empty">No hay leads para derivar.</div>';
   der.forEach(l => {
     const d = document.createElement('div'); d.className = 'lead';
-    d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge">${l.cerrador_id ? 'Con ' + esc(nom[l.cerrador_id] || '?') : 'En la bolsa'}</span></h3>
+    d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge ${l.cerrador_id ? 'b-info' : 'b-ok'}">${l.cerrador_id ? 'Con ' + esc(nom[l.cerrador_id] || '?') : 'En la bolsa'}</span></h3>
       <div class="meta">${esc(l.tipo_cita)} · ${esc(l.estado.replace('_', ' ').toLowerCase())} · cita ${fmt(l.fecha_cita)}</div>
       <div class="row" style="margin-top:8px"><select class="cr"><option value="">Derivar a…</option>${opts}</select><input class="com" placeholder="Comentario (opcional)"><button class="ok">Derivar</button></div>`;
     d.querySelector('.ok').onclick = async ev => {
@@ -395,16 +481,6 @@ async function cargarAdmin(forzar) {
 const TIPOS_VENTA = ['CONVERGENTE', 'LINEA_PAGA', 'LINEA_GRATIS', 'LINEA FIJA', 'TELEVISION'];
 const CAMPANAS = ['MOVISTAR', 'VODAFONE', 'ORANGE', 'LOWI', 'MASMOVIL', 'YOIGO'];
 
-(function estiloVenta() {
-  const s = document.createElement('style');
-  s.textContent = '.ov{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:8;overflow:auto;padding:16px}' +
-    '.ov .card{max-width:680px;margin:0 auto}' +
-    '.prow{display:grid;grid-template-columns:150px 1fr 140px auto auto;gap:6px;margin-bottom:6px}' +
-    '.prow button{padding:8px 10px}' +
-    '@media(max-width:640px){.prow{grid-template-columns:1fr 1fr}.prow .pp{grid-column:1/-1}}';
-  document.head.appendChild(s);
-})();
-
 // Validación del IBAN (dígitos de control, módulo 97)
 function ibanOk(s) {
   if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(s)) return false;
@@ -434,24 +510,26 @@ function ventaForm(l) {
   if (document.querySelector('.ov')) return;
   const ov = document.createElement('div'); ov.className = 'ov';
   const q = s => ov.querySelector(s);
-  ov.innerHTML = `<div class="card"><h2>Registrar venta</h2><form id="vf">
-    <label>Campaña</label><select id="v_camp" required><option value="">Elige…</option>${CAMPANAS.map(c => `<option>${c}</option>`).join('')}</select>
-    <label>Cliente</label><input id="v_cli" required value="${esc(l.cliente)}">
+  ov.innerHTML = `<div class="card"><div class="mh"><h2>Registrar venta</h2><small>${esc(l.cliente)}</small></div><form id="vf">
+    <div class="sec-t">Campaña</div><label>Campaña</label><select id="v_camp" required><option value="">Elige…</option>${CAMPANAS.map(c => `<option>${c}</option>`).join('')}</select>
+    <div class="sec-t">Cliente</div><label>Cliente</label><input id="v_cli" required value="${esc(l.cliente)}">
     <div class="row"><div><label>DNI / NIE</label><input id="v_dni" required value="${esc(l.dni)}"></div>
       <div><label>Teléfono</label><input id="v_tel" inputmode="tel" value="${esc(l.telefono)}"></div></div>
+    <div class="sec-t">Ubicación</div>
     <div class="row"><div><label>Provincia</label><input id="v_prov" value="${esc(l.provincia)}"></div>
       <div><label>Localidad</label><input id="v_loc" value="${esc(l.localidad)}"></div></div>
     <label>Dirección</label><input id="v_dir" value="${esc(l.direccion)}">
+    <div class="sec-t">Titular y pago</div>
     <div class="row"><div><label>Operador donante</label><input id="v_op" value="${esc(l.operador_actual)}"></div>
       <div><label>Fecha de nacimiento</label><input id="v_nac" type="date"></div></div>
     <div class="row"><div><label>Email</label><input id="v_email" type="email"></div>
       <div><label>IBAN</label><input id="v_iban" autocomplete="off" placeholder="ES00 0000 0000 0000 0000 0000"></div></div>
-    <label>Productos</label><div id="v_prods"></div>
+    <div class="sec-t">Productos</div><div id="v_prods" style="margin-top:10px"></div>
     <div class="meta">La primera LINEA_PAGA de la lista es la que cuenta para la comisión del concertador. Usa ↑ para ordenarlas.</div>
     <p style="margin:8px 0 0"><button type="button" class="sec" id="v_add">+ Agregar producto</button></p>
-    <label>Observaciones</label><textarea id="v_obs" rows="2"></textarea>
+    <div class="sec-t">Notas y documentos</div><label>Observaciones</label><textarea id="v_obs" rows="2"></textarea>
     <label>Enlaces a documentos</label><textarea id="v_enl" rows="2" placeholder="Enlaces a DNI, grabación, etc."></textarea>
-    <div class="row" style="margin-top:14px"><button type="button" class="sec" id="v_cancel">Cancelar</button><button id="v_ok">Registrar venta</button></div>
+    <div class="row actions"><button type="button" class="sec" id="v_cancel">Cancelar</button><button id="v_ok">Registrar venta</button></div>
   </form></div>`;
   document.body.appendChild(ov);
   q('#v_prods').appendChild(filaProducto('CONVERGENTE'));
