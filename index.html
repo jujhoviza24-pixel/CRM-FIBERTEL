@@ -99,6 +99,7 @@ async function entrar() {
   $('#out').onclick = async () => { await sb.auth.signOut(); loginView(); };
   if (perfil.rol === 'concertador') concertadorView();
   else if (perfil.rol === 'cerrador') cerradorView();
+    else if (perfil.rol === 'back') backView();
   else $('#main').innerHTML = '<div class="card"><h2>Vista en preparación</h2><p>La pantalla de ' + esc(perfil.rol) + ' se entrega en la siguiente parte.</p></div>';
 }
 
@@ -239,6 +240,61 @@ async function mios() {
     }
     el.appendChild(d);
   });
+}
+  // ================= BACK =================
+// Pega este bloque completo en index.html, justo antes de la etiqueta </script> del final.
+
+const ETQ = { CITA_AGENDADA: 'Por calentar', EN_REVISION: 'En gestión', VIABLE: 'Listo para cerrador', NO_VIABLE: 'No procede', FALTAN_DATOS: 'No contesta / faltan datos' };
+const etq = s => ETQ[s] || s;
+
+function backView() {
+  $('#main').innerHTML = `<div class="stats" id="bstats"></div>
+  <div class="grid two"><div><h2>Por calentar</h2><div id="cola"></div></div><div><h2>Gestionados por mí</h2><div id="hechos"></div></div></div>`;
+  cargarBack(true);
+  chan = sb.channel('back-leads').on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => cargarBack(false)).subscribe();
+}
+
+async function cargarBack(forzar) {
+  // No borrar un comentario a medio escribir cuando llega un cambio en vivo
+  if (!forzar && [...document.querySelectorAll('#cola .com')].some(i => i.value.trim())) return;
+  const { data, error } = await sb.from('leads').select('*').eq('tipo_cita', 'CALENTAR').order('fecha_cita', { ascending: true, nullsFirst: false });
+  if (error) return toast(limpio(error.message), true);
+  const cola = data.filter(l => !l.cerrador_id && ['CITA_AGENDADA', 'EN_REVISION', 'FALTAN_DATOS'].includes(l.estado));
+  const hechos = data.filter(l => !cola.includes(l) && l.back_id === me.id).slice(0, 30);
+  const n = e => cola.filter(l => l.estado === e).length;
+  if (!$('#cola')) return;
+  $('#bstats').innerHTML = `<div><b>${n('CITA_AGENDADA')}</b><small>sin gestionar</small></div><div><b>${n('EN_REVISION')}</b><small>en gestión</small></div><div><b>${n('FALTAN_DATOS')}</b><small>sin respuesta</small></div>`;
+  $('#cola').innerHTML = cola.length ? '' : '<div class="empty">No hay leads por calentar. Se actualiza solo cuando un concertador registra uno.</div>';
+  cola.forEach(l => $('#cola').appendChild(tarjetaBack(l, true)));
+  $('#hechos').innerHTML = hechos.length ? '' : '<div class="empty">Aún no gestionaste leads.</div>';
+  hechos.forEach(l => $('#hechos').appendChild(tarjetaBack(l, false)));
+}
+
+function tarjetaBack(l, activo) {
+  const otro = activo && l.estado === 'EN_REVISION' && l.back_id && l.back_id !== me.id;
+  const d = document.createElement('div'); d.className = 'lead';
+  d.innerHTML = `<h3><span>${esc(l.cliente)}</span><span class="badge">${esc(etq(l.estado))}</span></h3>
+    <div class="meta">Tel. ${esc(l.telefono)} · DNI ${esc(l.dni || '—')} · cita ${fmt(l.fecha_cita)}</div>
+    <div class="meta">${esc([l.direccion, l.localidad, l.provincia].filter(Boolean).join(', ') || 'Sin zona')} · ${esc(l.operador_actual || 'Sin operador')}</div>
+    ${l.notas ? `<div class="meta">Nota: ${esc(l.notas)}</div>` : ''}
+    ${otro ? '<div class="warn">Otro back ya lo tiene en gestión.</div>' : ''}
+    ${activo ? `<div class="row" style="margin-top:8px"><select class="est"><option value="">Resultado…</option><option value="EN_REVISION">En gestión (lo estoy llamando)</option><option value="VIABLE">Listo para cerrador</option><option value="NO_VIABLE">No procede</option><option value="FALTAN_DATOS">No contesta / faltan datos</option></select>
+      <input class="com" placeholder="Comentario (obligatorio)"><button class="ok">Guardar</button></div>` : ''}
+    <div><button class="sec h" style="margin-top:8px">Ver historial</button><div class="hist"></div></div>`;
+  d.querySelector('.h').onclick = () => timeline(l.id, d.querySelector('.hist'));
+  if (activo) d.querySelector('.ok').onclick = async ev => {
+    const est = d.querySelector('.est').value, com = d.querySelector('.com').value.trim();
+    if (!est) return toast('Elige el resultado', true);
+    if (!com) return toast('Escribe un comentario', true);
+    ev.target.disabled = true;
+    const { error } = await sb.rpc('cambiar_estado', { p_lead: l.id, p_estado: est, p_comentario: com });
+    ev.target.disabled = false;
+    if (error) return toast(limpio(error.message), true);
+    toast(est === 'VIABLE' ? 'Lead enviado a la bolsa de cerradores' : 'Estado guardado');
+    d.querySelector('.com').value = '';
+    cargarBack(true);
+  };
+  return d;
 }
 </script>
 </body>
