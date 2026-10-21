@@ -86,7 +86,7 @@ function loginView() {
     let u = $('#u').value.trim();
     const email = u.includes('@') ? u : u.toLowerCase().replace(/\s+/g, '') + '@crm-fibertel.com';
     const { data, error } = await sb.auth.signInWithPassword({ email, password: $('#p').value });
-    if (error) return toast('Usuario o PIN incorrectos', true);
+    if (error) return toast('Error: ' + error.message, true);
     me = data.user; entrar();
   };
 }
