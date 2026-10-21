@@ -297,6 +297,7 @@ function tarjetaBack(l, activo) {
   };
   return d;
 }
+  
   // ================= ADMIN =================
 const ORDEN = ['CITA_AGENDADA', 'EN_REVISION', 'FALTAN_DATOS', 'VIABLE', 'NO_VIABLE', 'CONTACTADO', 'NO_CONTESTA', 'RECONTACTAR', 'RECHAZA', 'VENDIDO'];
 const soles = m => 'S/ ' + Number(m || 0).toFixed(2);
@@ -388,6 +389,99 @@ async function cargarAdmin(forzar) {
   $('#gen').innerHTML = (G.data && G.data.length) ? G.data.map(g =>
     `<div class="row" style="${fila}"><b>${esc(g.id_venta)}</b><span>${esc(nom[g.concertador_id] || '?')}</span><span>${soles(g.monto)} · ${esc(g.estado_pago)}</span></div>`).join('')
     : '<div class="empty">Aún no hay comisiones generadas.</div>';
+}
+  // ================= REGISTRO DE VENTA (cerrador) =================
+// PEGAR ANTES del </script> final de index.html (después de la función cargarAdmin).
+const TIPOS_VENTA = ['CONVERGENTE', 'LINEA_PAGA', 'LINEA_GRATIS', 'LINEA FIJA', 'TELEVISION'];
+const CAMPANAS = ['MOVISTAR', 'VODAFONE', 'ORANGE', 'LOWI', 'MASMOVIL', 'YOIGO'];
+
+(function estiloVenta() {
+  const s = document.createElement('style');
+  s.textContent = '.ov{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:8;overflow:auto;padding:16px}' +
+    '.ov .card{max-width:680px;margin:0 auto}' +
+    '.prow{display:grid;grid-template-columns:150px 1fr 140px auto auto;gap:6px;margin-bottom:6px}' +
+    '.prow button{padding:8px 10px}' +
+    '@media(max-width:640px){.prow{grid-template-columns:1fr 1fr}.prow .pp{grid-column:1/-1}}';
+  document.head.appendChild(s);
+})();
+
+// Validación del IBAN (dígitos de control, módulo 97)
+function ibanOk(s) {
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(s)) return false;
+  const r = s.slice(4) + s.slice(0, 4);
+  let n = '';
+  for (const c of r) n += (c >= 'A' && c <= 'Z') ? String(c.charCodeAt(0) - 55) : c;
+  let rem = 0;
+  for (let i = 0; i < n.length; i += 7) rem = parseInt(String(rem) + n.slice(i, i + 7), 10) % 97;
+  return rem === 1;
+}
+
+function filaProducto(tipo) {
+  const d = document.createElement('div'); d.className = 'prow';
+  d.innerHTML = `<select class="pt">${TIPOS_VENTA.map(t => `<option${t === tipo ? ' selected' : ''}>${t}</option>`).join('')}</select>
+    <input class="pp" placeholder="Tarifa o producto (ej. MOVIL 50GB)">
+    <input class="pn" placeholder="Número a portar" inputmode="tel">
+    <button type="button" class="sec up" title="Subir">↑</button>
+    <button type="button" class="sec rm" title="Quitar">✕</button>`;
+  d.querySelector('.up').onclick = () => { if (d.previousElementSibling) d.parentNode.insertBefore(d, d.previousElementSibling); };
+  d.querySelector('.rm').onclick = () => {
+    if (d.parentNode.children.length > 1) d.remove(); else toast('La venta necesita al menos un producto', true);
+  };
+  return d;
+}
+
+function ventaForm(l) {
+  if (document.querySelector('.ov')) return;
+  const ov = document.createElement('div'); ov.className = 'ov';
+  const q = s => ov.querySelector(s);
+  ov.innerHTML = `<div class="card"><h2>Registrar venta</h2><form id="vf">
+    <label>Campaña</label><select id="v_camp" required><option value="">Elige…</option>${CAMPANAS.map(c => `<option>${c}</option>`).join('')}</select>
+    <label>Cliente</label><input id="v_cli" required value="${esc(l.cliente)}">
+    <div class="row"><div><label>DNI / NIE</label><input id="v_dni" required value="${esc(l.dni)}"></div>
+      <div><label>Teléfono</label><input id="v_tel" inputmode="tel" value="${esc(l.telefono)}"></div></div>
+    <div class="row"><div><label>Provincia</label><input id="v_prov" value="${esc(l.provincia)}"></div>
+      <div><label>Localidad</label><input id="v_loc" value="${esc(l.localidad)}"></div></div>
+    <label>Dirección</label><input id="v_dir" value="${esc(l.direccion)}">
+    <div class="row"><div><label>Operador donante</label><input id="v_op" value="${esc(l.operador_actual)}"></div>
+      <div><label>Fecha de nacimiento</label><input id="v_nac" type="date"></div></div>
+    <div class="row"><div><label>Email</label><input id="v_email" type="email"></div>
+      <div><label>IBAN</label><input id="v_iban" autocomplete="off" placeholder="ES00 0000 0000 0000 0000 0000"></div></div>
+    <label>Productos</label><div id="v_prods"></div>
+    <div class="meta">La primera LINEA_PAGA de la lista es la que cuenta para la comisión del concertador. Usa ↑ para ordenarlas.</div>
+    <p style="margin:8px 0 0"><button type="button" class="sec" id="v_add">+ Agregar producto</button></p>
+    <label>Observaciones</label><textarea id="v_obs" rows="2"></textarea>
+    <label>Enlaces a documentos</label><textarea id="v_enl" rows="2" placeholder="Enlaces a DNI, grabación, etc."></textarea>
+    <div class="row" style="margin-top:14px"><button type="button" class="sec" id="v_cancel">Cancelar</button><button id="v_ok">Registrar venta</button></div>
+  </form></div>`;
+  document.body.appendChild(ov);
+  q('#v_prods').appendChild(filaProducto('CONVERGENTE'));
+  q('#v_add').onclick = () => q('#v_prods').appendChild(filaProducto('LINEA_PAGA'));
+  q('#v_cancel').onclick = () => ov.remove();
+
+  q('#vf').onsubmit = async e => {
+    e.preventDefault();
+    const cli = q('#v_cli').value.trim();
+    const iban = q('#v_iban').value.replace(/\s+/g, '').toUpperCase();
+    if (iban && !ibanOk(iban)) return toast('El IBAN no es válido. Revísalo.', true);
+    const prods = [...ov.querySelectorAll('.prow')].map(r => ({
+      tipo: r.querySelector('.pt').value,
+      producto: r.querySelector('.pp').value.trim(),
+      numero_linea: r.querySelector('.pn').value.trim() }));
+    if (prods.some(p => !p.producto)) return toast('Cada producto necesita su tarifa', true);
+    if (!confirm('¿Registrar la venta de ' + cli + ' con ' + prods.length + ' producto(s)? No se puede deshacer.')) return;
+    const b = q('#v_ok'); b.disabled = true;
+    const { data, error } = await sb.rpc('registrar_venta', {
+      p_lead: l.id, p_campana: q('#v_camp').value, p_cliente: cli, p_dni: q('#v_dni').value.trim(),
+      p_telefono: q('#v_tel').value.trim(), p_provincia: q('#v_prov').value.trim(), p_localidad: q('#v_loc').value.trim(),
+      p_direccion: q('#v_dir').value.trim(), p_operador_donante: q('#v_op').value.trim(),
+      p_fecha_nac: q('#v_nac').value || null, p_email: q('#v_email').value.trim(), p_iban: iban,
+      p_observaciones: q('#v_obs').value.trim(), p_enlaces: q('#v_enl').value.trim(), p_productos: prods });
+    b.disabled = false;
+    if (error) return toast(limpio(error.message), true);
+    ov.remove();
+    toast('Venta registrada: ' + data + '. Llega a MATRIZ en unos minutos.');
+    mios(); bolsa();
+  };
 }
  </script>
 </body>
