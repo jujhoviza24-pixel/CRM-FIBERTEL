@@ -2664,6 +2664,289 @@ function ventaForm(l) {
     };
   }
 })();
+  /* 16 · Ventas con filtro de fechas + ficha completa por cliente + pestaña «Análisis» (admin)
+   PEGAR al final, DESPUÉS del bloque 15 y antes del cierre. Nada se borra.
+   - Pestaña Ventas (cerrador, concertador, back, admin): elige Año + Mes (o Desde/Hasta). Solo se descarga ese periodo.
+     Cada venta muestra cliente, DNI, teléfono, operador vendido (campaña), operador donante, zona, agente,
+     y cada servicio con su estado y la FECHA de ese estado. Buscador por nombre, DNI, teléfono, servicio o número.
+     Botón para exportar el periodo a CSV.
+   - Admin: pestaña «Análisis» con KPIs y gráficos: provincias, campañas, tipo de servicio, operador donante,
+     hora del día, día de la semana, evolución diaria/mensual, ranking de cerradores y concertadores, estados.
+   - El Resumen deja de listar todas las ventas (ahora se ven en la pestaña Ventas, por periodo). */
+(function () {
+  var MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  var DIAS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  var HOY = new Date(), ROL = null;
+  function mk() { return { y: HOY.getFullYear(), m: HOY.getMonth() + 1, d: '', h: '', q: '', f: 'TODAS', max: 30, data: null, t: 0, busy: false, dirty: false }; }
+  var EST = { ven: mk(), ana: mk() };
+  var MAC = { TRA: ['En trámite', 'info'], INC: ['Con incidencia', 'warn'], ACT: ['Activas', 'ok'], CAI: ['Caídas', 'bad'] };
+  var TIPO = { CONVERGENTE: 'Internet', LINEA_PAGA: 'Línea móvil', 'LINEA PAGA': 'Línea móvil', LINEA_GRATIS: 'Línea gratis', 'LINEA GRATIS': 'Línea gratis', 'LINEA FIJA': 'Línea fija', LINEA_FIJA: 'Línea fija', TELEVISION: 'TV' };
+
+  function N(s) { return String(s == null ? '' : s).trim().toUpperCase(); }
+  function p2(n) { return (n < 10 ? '0' : '') + n; }
+  function iso(d) { return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+  function pd(s) { s = String(s); if (/^\d{4}-\d\d-\d\d$/.test(s)) s += 'T00:00'; return new Date(s); }
+  function fd(d) { if (!d) return '—'; var x = pd(d); return isNaN(x) ? '—' : x.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: '2-digit' }); }
+  function ini(s) { return String(s || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || '?'; }
+  function tipoL(t) { t = N(t); return TIPO[t] || (t ? t.charAt(0) + t.slice(1).toLowerCase() : 'Servicio'); }
+  function mac(e) {
+    e = N(e);
+    if (/ACTIV|INSTAL|COMPLET/.test(e)) return 'ACT';
+    if (/CANCEL|DECOMIS|ANUL|BAJA/.test(e)) return 'CAI';
+    if (/INCID|CONTRAOF|SCORING/.test(e)) return 'INC';
+    return 'TRA';
+  }
+  function rango(s) {
+    if (s.d && s.h) { var f = pd(s.h); f.setDate(f.getDate() + 1); return [s.d, iso(f)]; }
+    if (+s.m === 0) return [s.y + '-01-01', (+s.y + 1) + '-01-01'];
+    return [iso(new Date(s.y, s.m - 1, 1)), iso(new Date(s.y, s.m, 1))];
+  }
+
+  /* ================= DATOS ================= */
+  async function todo(make) {
+    var out = [];
+    for (var i = 0; i < 8; i++) {
+      var r = await make().range(i * 1000, i * 1000 + 999);
+      if (r.error) throw r.error;
+      out = out.concat(r.data || []);
+      if ((r.data || []).length < 1000) break;
+    }
+    return out;
+  }
+  async function cargar(s, extra) {
+    var R = rango(s);
+    var rows = await todo(function () {
+      return sb.from('ventas_sync').select('*').gte('fecha_estado', R[0]).lt('fecha_estado', R[1])
+        .order('fecha_estado', { ascending: false }).order('id_venta').order('fila_matriz');
+    });
+    var ids = [], vi = {}, lm = {}, pn = {}, i;
+    rows.forEach(function (r) { if (r.lead_id && !vi[r.lead_id]) { vi[r.lead_id] = 1; ids.push(r.lead_id); } });
+    var tr = [];
+    for (i = 0; i < ids.length; i += 150) tr.push(ids.slice(i, i + 150));
+    var res = await Promise.all(tr.map(function (t) { return sb.from('leads').select('*').in('id', t); }).concat([sb.from('perfiles').select('id,nombre')]));
+    res.forEach(function (r, j) {
+      (r.data || []).forEach(function (x) { if (j < tr.length) lm[x.id] = x; else pn[x.id] = x.nombre; });
+    });
+    var g = {}, o = [];
+    rows.forEach(function (r) {
+      var k = r.id_venta + '|' + (r.lead_id || ''), x = g[k];
+      if (!x) {
+        var L = lm[r.lead_id] || null;
+        x = g[k] = { id: r.id_venta, lead: L, campana: r.campana, agente: r.agente, items: [], f: null,
+          nombre: (L && L.cliente) || r.cliente || r.nombre_cliente || '', dni: (L && L.dni) || r.dni || '',
+          donante: (L && L.operador_actual) || r.operador_donante || r.operador || '' };
+        o.push(x);
+      }
+      x.items.push(r);
+      if (r.fecha_estado && (!x.f || r.fecha_estado > x.f)) x.f = r.fecha_estado;
+    });
+    o.forEach(function (x) {
+      x.n = x.items.length;
+      x.act = x.items.filter(function (i) { return mac(i.estado) === 'ACT'; }).length;
+      var pend = x.items.filter(function (i) { var m = mac(i.estado); return m === 'TRA' || m === 'INC'; });
+      x.est = pend.length ? (pend.some(function (i) { return mac(i.estado) === 'INC'; }) ? 'INC' : 'TRA') : (x.act ? 'ACT' : 'CAI');
+      var L = x.lead || {};
+      x.txt = N([x.nombre, x.dni, L.telefono, x.id, x.campana, x.agente, L.provincia, x.donante]
+        .concat(x.items.map(function (i) { return [i.producto, i.numero_linea, i.tipo_producto].join(' '); })).join(' '));
+    });
+    var D = { rows: rows, o: o, lm: lm, pn: pn, ventas: null, leadsN: null };
+    if (extra) {
+      var a = new Date(R[0] + 'T00:00:00').toISOString(), b = new Date(R[1] + 'T00:00:00').toISOString();
+      try { D.ventas = await todo(function () { return sb.from('ventas').select('codigo_venta,created_at,campana').gte('created_at', a).lt('created_at', b).order('created_at'); }); } catch (e) { D.ventas = null; }
+      try { var c = await sb.from('leads').select('id', { count: 'exact', head: true }).gte('created_at', a).lt('created_at', b); D.leadsN = c.count; } catch (e) { }
+    }
+    return D;
+  }
+
+  /* ================= CONTROLES ================= */
+  function ctl(k) {
+    var s = EST[k], ys = '', i, y0 = HOY.getFullYear();
+    for (i = y0; i >= y0 - 3; i--) ys += '<option' + (i == s.y ? ' selected' : '') + '>' + i + '</option>';
+    var ms = '<option value="0">Todo el año</option>' + MESES.map(function (n, j) { return '<option value="' + (j + 1) + '"' + ((j + 1) == s.m ? ' selected' : '') + '>' + n + '</option>'; }).join('');
+    return '<div class="d15-sec"><div class="d15-sh"><h3>' + (k === 'ana' ? 'Análisis del negocio' : (ROL === 'admin' || ROL === 'back' ? 'Ventas del equipo' : 'Mis ventas')) + '</h3>' +
+      '<span class="meta">Se descarga solo el periodo elegido, por fecha del estado</span></div>' +
+      '<div class="d15-form" style="margin-bottom:14px"><div><label>Año</label><select data-f="y">' + ys + '</select></div>' +
+      '<div><label>Mes</label><select data-f="m">' + ms + '</select></div>' +
+      '<div><label>Desde (opcional)</label><input type="date" data-f="d"></div><div><label>Hasta (opcional)</label><input type="date" data-f="h"></div>' +
+      (k === 'ven' ? '<div><label>Buscar</label><input data-f="q" data-minus placeholder="Cliente, DNI, teléfono, servicio…"></div>' : '') + '</div>' +
+      '<div id="r16-' + k + '"><div class="d15-vacio">Cargando…</div></div></div>';
+  }
+  async function refrescar(k) {
+    var s = EST[k], out = document.getElementById('r16-' + k);
+    if (s.busy) { s.dirty = true; return; }
+    s.busy = true;
+    if (out) out.innerHTML = '<div class="d15-vacio">Cargando…</div>';
+    try { s.data = await cargar(s, k === 'ana'); s.t = Date.now(); }
+    catch (e) { s.data = null; out = document.getElementById('r16-' + k); if (out) out.innerHTML = '<div class="d15-vacio">No se pudo cargar: ' + esc(limpio(e.message || '')) + '</div>'; }
+    s.busy = false;
+    if (s.dirty) { s.dirty = false; return refrescar(k); }
+    if (s.data) pinta(k);
+  }
+  function pinta(k) { if (k === 'ana') pintaA(); else pintaV(); }
+  function abre(k) { var s = EST[k]; if (!s.data || Date.now() - s.t > 60000) refrescar(k); }
+
+  /* ================= PESTAÑA VENTAS ================= */
+  function card(x) {
+    var m = MAC[x.est], L = x.lead, pct = x.n ? Math.round(x.act * 100 / x.n) : 0, zona = L ? [L.localidad, L.provincia].filter(Boolean).join(', ') : '';
+    return '<div class="d15-vc' + (L ? ' click' : '') + '"' + (L ? ' data-x="ficha" data-id="' + esc(L.id) + '"' : '') + '>' +
+      '<div class="d15-vh"><div class="d15-av">' + esc(ini(x.nombre || x.campana)) + '</div><div class="d15-vt"><b>' + esc(x.nombre || 'Venta ' + x.id) + '</b>' +
+      '<small>DNI ' + esc(x.dni || '—') + (L && L.telefono ? ' · ' + esc(L.telefono) : '') + '</small></div><span class="badge b-' + m[1] + '">' + m[0] + '</span></div>' +
+      '<div class="meta" style="margin-top:8px">Vendido a <b>' + esc(x.campana || '—') + '</b>' + (x.donante ? ' · viene de ' + esc(x.donante) : '') + '</div>' +
+      '<div class="meta">' + (zona ? esc(zona) + ' · ' : '') + (x.agente ? 'Agente ' + esc(x.agente) + ' · ' : '') + esc(x.id) + '</div>' +
+      '<div class="d15-prog"><i style="width:' + pct + '%"></i></div><div class="d15-pm">' + x.act + ' de ' + x.n + ' servicios activos · último estado ' + fd(x.f) + '</div>' +
+      x.items.map(function (i) {
+        var mm = MAC[mac(i.estado)];
+        return '<div class="meta" style="display:flex;justify-content:space-between;gap:8px;margin-top:6px"><span>' + esc(tipoL(i.tipo_producto)) + (i.producto ? ' · ' + esc(i.producto) : '') +
+          (i.numero_linea ? ' · ' + esc(i.numero_linea) : '') + '</span><span style="text-align:right;white-space:nowrap"><span class="badge b-' + mm[1] + '">' + esc(N(i.estado) || '—') + '</span> <small>' + fd(i.fecha_estado) + '</small></span></div>';
+      }).join('') + '</div>';
+  }
+  function pintaV() {
+    var s = EST.ven, D = s.data, out = document.getElementById('r16-ven'); if (!out || !D) return;
+    var q = N(s.q), base = D.o.filter(function (x) { return !q || x.txt.indexOf(q) >= 0; }), c = { TODAS: base.length };
+    ['TRA', 'INC', 'ACT', 'CAI'].forEach(function (m) { c[m] = base.filter(function (x) { return x.est === m; }).length; });
+    var lista = base.filter(function (x) { return s.f === 'TODAS' || x.est === s.f; }).sort(function (a, b) { return (b.f || '') > (a.f || '') ? 1 : -1; });
+    var svc = lista.reduce(function (n, x) { return n + x.n; }, 0);
+    var pills = [['TODAS', 'Todas']].concat(['TRA', 'INC', 'ACT', 'CAI'].map(function (m) { return [m, MAC[m][0]]; })).map(function (p) {
+      return '<button class="d15-pill' + (s.f === p[0] ? ' on' : '') + '" data-x="f" data-v="' + p[0] + '">' + p[1] + '<b>' + c[p[0]] + '</b></button>';
+    }).join('');
+    out.innerHTML = '<div class="d15-vbar"><div class="d15-pills">' + pills + '</div><button class="sec" data-x="csv" style="margin-left:auto">⬇ Exportar CSV</button></div>' +
+      '<div class="meta" style="margin-bottom:10px">' + lista.length + ' venta(s) · ' + svc + ' servicio(s) con movimiento en el periodo</div>' +
+      (lista.length ? '<div class="d15-vl">' + lista.slice(0, s.max).map(card).join('') + '</div>' +
+        (lista.length > s.max ? '<p style="text-align:center;margin:14px 0 0"><button class="sec" data-x="mas">Ver más (' + (lista.length - s.max) + ')</button></p>' : '') :
+        '<div class="d15-vacio">No hay ventas en este periodo con ese filtro.</div>');
+  }
+  function csv() {
+    var s = EST.ven, D = s.data; if (!D) return;
+    var q = N(s.q), f = [], cab = ['Cliente', 'DNI', 'Teléfono', 'Provincia', 'Localidad', 'Operador donante', 'Campaña', 'Agente', 'ID venta', 'Tipo', 'Producto', 'Número', 'Estado', 'Fecha estado'];
+    function cel(v) { var t = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; }
+    D.o.forEach(function (x) {
+      if ((q && x.txt.indexOf(q) < 0) || (s.f !== 'TODAS' && x.est !== s.f)) return;
+      var L = x.lead || {};
+      x.items.forEach(function (i) { f.push([x.nombre, x.dni, L.telefono, L.provincia, L.localidad, x.donante, x.campana, x.agente, x.id, i.tipo_producto, i.producto, i.numero_linea, i.estado, i.fecha_estado]); });
+    });
+    var url = URL.createObjectURL(new Blob(['\ufeff' + [cab].concat(f).map(function (r) { return r.map(cel).join(';'); }).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+    var a = document.createElement('a'); a.href = url; a.download = 'ventas_' + rango(s)[0] + '.csv';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    toast('Exportadas ' + f.length + ' filas');
+  }
+
+  /* ================= PESTAÑA ANÁLISIS (admin) ================= */
+  function bar(l, v, mx, t) {
+    return '<div class="k-br"><div class="k-bl" title="' + esc(l) + '">' + esc(l) + '</div><div class="k-bt"><i style="width:' + (v > 0 ? Math.max(2, Math.round(v * 100 / mx)) : 0) + '%"></i></div><div class="k-bv">' + esc(t) + '</div></div>';
+  }
+  function cols(l, v) {
+    var mx = Math.max.apply(null, v.concat([1]));
+    return '<div style="overflow-x:auto"><div class="k-dias" style="min-width:' + (l.length * 24) + 'px">' + l.map(function (t, i) {
+      return '<div class="k-dia" title="' + v[i] + '"><span>' + (v[i] || '') + '</span><i style="height:' + Math.round(v[i] * 80 / mx) + '%"></i><span>' + t + '</span></div>';
+    }).join('') + '</div></div>';
+  }
+  function by(arr, fn, ok) {
+    var m = {};
+    arr.forEach(function (x) { var k = fn(x) || 'SIN DATO'; m[k] = m[k] || { n: 0, a: 0 }; m[k].n++; if (ok(x)) m[k].a++; });
+    return m;
+  }
+  function bars(m, lim) {
+    var t = Object.keys(m).sort(function (a, b) { return m[b].n - m[a].n; }).slice(0, lim || 10);
+    var mx = Math.max.apply(null, t.map(function (k) { return m[k].n; }).concat([1]));
+    return t.length ? t.map(function (k) { return bar(k, m[k].n, mx, m[k].n + ' · ' + Math.round(m[k].a * 100 / m[k].n) + '% act.'); }).join('') : '<div class="meta">Sin datos.</div>';
+  }
+  function pintaA() {
+    var s = EST.ana, D = s.data, out = document.getElementById('r16-ana'); if (!out || !D) return;
+    var o = D.o, R = D.rows, r = rango(s), nom = D.pn;
+    var okV = function (x) { return x.est === 'ACT'; }, okS = function (x) { return mac(x.estado) === 'ACT'; };
+    var sAct = R.filter(okS).length, sCai = R.filter(function (x) { return mac(x.estado) === 'CAI'; }).length;
+    var vInc = o.filter(function (x) { return x.est === 'INC'; }).length, crm = o.filter(function (x) { return x.lead; }).length;
+    var kp = [[o.length, 'ventas'], [R.length, 'servicios'], [R.length ? Math.round(sAct * 100 / R.length) + '%' : '—', 'servicios activos'],
+      [R.length ? Math.round(sCai * 100 / R.length) + '%' : '—', 'servicios caídos'], [vInc, 'ventas con incidencia'],
+      [R.filter(function (x) { return x.es_internet && okS(x); }).length, 'internet activos'], [R.filter(function (x) { return x.es_movil; }).length, 'líneas móviles'],
+      [D.leadsN == null ? '—' : D.leadsN, 'leads captados'], [D.leadsN ? Math.round(crm * 100 / D.leadsN) + '%' : '—', 'ventas CRM / leads']];
+    var kHtml = '<div class="stats" style="margin:0 0 6px">' + kp.map(function (k) { return '<div><b>' + k[0] + '</b><small>' + k[1] + '</small></div>'; }).join('') + '</div>';
+
+    /* horario, día de semana y evolución: usan la fecha de registro (tabla ventas) si se puede leer */
+    var fechas = D.ventas ? D.ventas.map(function (v) { return v.created_at; }) : o.map(function (x) { return x.f; }).filter(Boolean);
+    var hs = [], dw = [0, 0, 0, 0, 0, 0, 0], i;
+    for (i = 0; i < 24; i++) hs.push(0);
+    if (D.ventas) fechas.forEach(function (f) { var d = new Date(f); hs[d.getHours()]++; dw[d.getDay()]++; });
+    var pico = hs.indexOf(Math.max.apply(null, hs));
+    var mes = (pd(r[1]) - pd(r[0])) / 864e5 > 62, keys = [], labs = [], cnt = {};
+    for (var d = pd(r[0]), fin = pd(r[1]); d < fin; mes ? d.setMonth(d.getMonth() + 1) : d.setDate(d.getDate() + 1)) {
+      keys.push(mes ? d.getFullYear() + '-' + p2(d.getMonth() + 1) : iso(d)); labs.push(mes ? MESES[d.getMonth()].slice(0, 3) : String(d.getDate()));
+    }
+    fechas.forEach(function (f) { var x = pd(f), k = mes ? x.getFullYear() + '-' + p2(x.getMonth() + 1) : iso(x); cnt[k] = (cnt[k] || 0) + 1; });
+    var ev = keys.map(function (k) { return cnt[k] || 0; });
+    var sinV = '<div class="meta">No se puede leer la tabla «ventas» con este usuario; no hay datos de horario.</div>';
+    var hMax = Math.max.apply(null, hs.concat([1]));
+
+    var porLead = function (f) { return function (x) { return x.lead && f(x.lead); }; };
+    out.innerHTML = kHtml + '<div class="k-g">' +
+      '<div><h4>Ventas por provincia (top 10)</h4>' + bars(by(o, porLead(function (L) { return L.provincia; }), okV), 10) + '<div class="meta">Solo ventas ligadas a un lead del CRM (' + crm + ' de ' + o.length + ').</div></div>' +
+      '<div><h4>Ventas por campaña (operador vendido)</h4>' + bars(by(o, function (x) { return x.campana; }, okV), 10) + '</div>' +
+      '<div><h4>Servicios por tipo</h4>' + bars(by(R, function (x) { return tipoL(x.tipo_producto); }, okS), 8) + '</div>' +
+      '<div><h4>Operador donante (de dónde vienen)</h4>' + bars(by(o, function (x) { return x.donante; }, okV), 10) + '</div>' +
+      '<div><h4>Ventas por hora de registro</h4>' + (D.ventas ? cols(hs.map(function (_, h) { return h; }), hs) + '<div class="meta" style="margin-top:6px">Hora pico: ' + pico + ':00' + (hs[pico] ? ' (' + hs[pico] + ' ventas, ' + Math.round(hs[pico] * 100 / (fechas.length || 1)) + '%)' : '') + '</div>' : sinV) + '</div>' +
+      '<div><h4>Ventas por día de la semana</h4>' + (D.ventas ? [1, 2, 3, 4, 5, 6, 0].map(function (j) { return bar(DIAS[j], dw[j], Math.max.apply(null, dw.concat([1])), String(dw[j])); }).join('') : sinV) + '</div>' +
+      '<div style="grid-column:1/-1"><h4>Evolución ' + (mes ? 'mensual' : 'diaria') + ' de ventas' + (D.ventas ? '' : ' (por fecha de estado)') + '</h4>' + cols(labs, ev) + '</div>' +
+      '<div><h4>Ranking de cerradores</h4>' + bars(by(o, function (x) { return x.lead && x.lead.cerrador_id ? nom[x.lead.cerrador_id] : x.agente; }, okV), 10) + '</div>' +
+      '<div><h4>Ranking de concertadores</h4>' + bars(by(o, porLead(function (L) { return nom[L.concertador_id]; }), okV), 10) + '</div>' +
+      '<div><h4>Estados de los servicios</h4>' + bars(by(R, function (x) { return N(x.estado); }, okS), 10) + '</div></div>' +
+      '<div class="meta" style="margin-top:10px">«act.» = porcentaje de ventas (o servicios) que quedaron activos. Periodo: ' + fd(r[0]) + ' al ' + fd(iso(new Date(pd(r[1]).getTime() - 864e5))) + '.</div>';
+  }
+
+  /* ================= MONTAJE ================= */
+  function ligar(el, k) {
+    el.addEventListener('change', function (e) {
+      var t = e.target, f = t.getAttribute('data-f'); if (!f || f === 'q') return;
+      var s = EST[k]; s[f] = t.value; s.max = 30;
+      if (f === 'y' || f === 'm') { s.d = ''; s.h = ''; el.querySelectorAll('input[type=date]').forEach(function (x) { x.value = ''; }); }
+      if ((f === 'd' || f === 'h') && !(s.d && s.h)) return;
+      refrescar(k);
+    });
+    el.addEventListener('input', function (e) {
+      if (e.target.getAttribute('data-f') === 'q') { EST.ven.q = e.target.value; EST.ven.max = 30; pintaV(); }
+    });
+    el.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-x]'); if (!b) return;
+      var x = b.getAttribute('data-x'), s = EST.ven;
+      if (x === 'f') { s.f = b.getAttribute('data-v'); s.max = 30; pintaV(); }
+      else if (x === 'mas') { s.max += 30; pintaV(); }
+      else if (x === 'csv') csv();
+      else if (x === 'ficha' && s.data) {
+        var L = s.data.lm[b.getAttribute('data-id')];
+        if (L && typeof window.fichaLead === 'function') window.fichaLead(L, [L], 0);
+      }
+    });
+  }
+  function montar(rol) {
+    var bar = document.getElementById('tabs15'), pv = document.getElementById('p15-ven');
+    if (!bar || !pv || pv.getAttribute('data-x16')) return;
+    pv.setAttribute('data-x16', '1'); ROL = rol; EST = { ven: mk(), ana: mk() };
+    pv.innerHTML = ctl('ven'); ligar(pv, 'ven');
+    if (rol === 'admin') {
+      var sec = document.createElement('section'); sec.className = 'p15'; sec.id = 'p15-ana'; sec.hidden = true;
+      sec.innerHTML = ctl('ana'); document.getElementById('panels15').appendChild(sec); ligar(sec, 'ana');
+      var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'ana'); bt.innerHTML = '<span>📈</span>Análisis';
+      var ate = bar.querySelector('[data-k="ate"]');
+      if (ate) ate.insertAdjacentElement('beforebegin', bt); else bar.appendChild(bt);
+    }
+    bar.addEventListener('click', function (e) {
+      var b = e.target.closest('.t15'); if (!b) return;
+      var k = b.getAttribute('data-k'); if (k === 'ven' || k === 'ana') abre(k);
+    });
+    var rb = document.getElementById('res15b');   // el Resumen ya no lista todas las ventas
+    if (rb) {
+      var quita = function () { var x = rb.querySelectorAll('.d15-sec'); if (x.length > 1) x[x.length - 1].remove(); };
+      new MutationObserver(quita).observe(rb, { childList: true }); quita();
+    }
+  }
+  [['concertadorView', 'concertador'], ['cerradorView', 'cerrador'], ['backView', 'back'], ['adminView', 'admin']].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () {
+      var r = o.apply(this, arguments);
+      try { montar(p[1]); } catch (e) { console.error(e); }
+      return r;
+    };
+  });
+})();
  </script>
 </body>
 </html>
