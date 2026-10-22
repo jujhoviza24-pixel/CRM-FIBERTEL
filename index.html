@@ -641,7 +641,7 @@ function ventaForm(l) {
     try { await cargarCat(); } catch (e) { aviso('No se pudo cargar el catálogo: ' + msgErr(e), true); return; }
     if (!cat.length) { aviso('El catálogo está vacío. Ejecuta catSincronizar en el libro B.', true); return; }
 
-    var camps = CAMPANAS.filter(function (c) { return cat.some(function (x) { return x.campana === c; }); });
+    var camps = []; cat.forEach(function (x) { if (x.campana && camps.indexOf(x.campana) < 0) camps.push(x.campana); }); camps.sort();
     if (!camps.length) camps = CAMPANAS;
     var provs = vals('PROVINCIA'), lp = String(l.provincia || '').toUpperCase();
     if (lp && provs.indexOf(lp) < 0) provs = [lp].concat(provs);
