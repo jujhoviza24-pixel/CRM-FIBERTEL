@@ -1063,6 +1063,142 @@ function ventaForm(l) {
      }
    }, 1500);
 })();
+  /* 12 · Estado de las ventas en vivo (cerrador y concertador)
+   PEGAR antes del cierre final del script, DESPUÉS de todos los demás bloques (el último de todos).
+   - Cerrador: tarjeta "Mis ventas" arriba del panel.  Concertador: "Ventas de mis clientes".
+   - Lee ventas_sync (ya protegida: cada uno ve solo las ventas de sus leads) y se actualiza sola
+     con Realtime; además refresca cada 30 s por si Realtime se cae.
+   - Avisa con un mensaje cuando el back cambia el estado de un producto.
+   - Si la venta aún no llegó a ventas_sync, muestra "en cola hacia MATRIZ" (si tu rol puede leer la tabla ventas). */
+(function () {
+  var chV = null, prev = null, tmr = null, poll = null, busy = false;
+
+  function norm(s) { return String(s == null ? '' : s).trim().toUpperCase(); }
+  function tonoEstado(s) {
+    s = norm(s);
+    if (/ACTIV|INSTAL|COMPLET/.test(s)) return 'b-ok';
+    if (/CANCEL|ANUL|RECHAZ|BAJA|ERROR/.test(s)) return 'b-bad';
+    if (/PEND|ESPERA|COLA/.test(s)) return 'b-warn';
+    return 'b-info';
+  }
+  function resumen(g) {
+    var n = g.items.length, a = 0, c = 0;
+    g.items.forEach(function (i) { var t = tonoEstado(i.estado); if (t === 'b-ok') a++; else if (t === 'b-bad') c++; });
+    if (a === n) return { t: 'ACTIVA', c: 'b-ok' };
+    if (c === n) return { t: 'CANCELADA', c: 'b-bad' };
+    if (a > 0) return { t: a + ' DE ' + n + ' ACTIVOS', c: 'b-info' };
+    return { t: 'EN PROCESO', c: 'b-warn' };
+  }
+
+  async function datos() {
+    var r = await sb.from('ventas_sync')
+      .select('id,id_venta,lead_id,campana,producto,tipo_producto,numero_linea,estado,fecha_estado,updated_at')
+      .not('lead_id', 'is', null).order('updated_at', { ascending: false }).limit(600);
+    if (r.error) throw r.error;
+    var rows = r.data || [], ids = [], vistos = {}, nombres = {};
+    rows.forEach(function (x) { if (ids.indexOf(x.lead_id) < 0) ids.push(x.lead_id); vistos[x.id_venta] = 1; });
+    if (ids.length) {
+      var L = await sb.from('leads').select('id,cliente').in('id', ids.slice(0, 300));
+      (L.data || []).forEach(function (l) { nombres[l.id] = l.cliente; });
+    }
+    var enCola = [];
+    try {   // puede no estar permitido según el rol: entonces simplemente no se muestra
+      var V = await sb.from('ventas').select('codigo_venta,lead_id,cliente,campana,created_at,exportada_at')
+        .order('created_at', { ascending: false }).limit(30);
+      if (!V.error) enCola = (V.data || []).filter(function (v) { return !vistos[v.codigo_venta]; });
+    } catch (e) { }
+    return { rows: rows, nombres: nombres, enCola: enCola };
+  }
+
+  function pinta(d) {
+    var el = document.getElementById('ventasBody'); if (!el) return;
+
+    // avisos de cambio de estado
+    var actual = {};
+    d.rows.forEach(function (r) { actual[r.id] = norm(r.estado); });
+    if (prev) {
+      var cambios = d.rows.filter(function (r) { return prev[r.id] !== undefined && prev[r.id] !== actual[r.id]; });
+      if (cambios.length) {
+        var c = cambios[0];
+        toast('Venta de ' + (d.nombres[c.lead_id] || c.id_venta) + ': ' + c.producto + ' → ' + norm(c.estado) +
+          (cambios.length > 1 ? ' (y ' + (cambios.length - 1) + ' cambio(s) más)' : ''));
+      }
+    }
+    prev = actual;
+
+    var grupos = {}, orden = [];
+    d.rows.forEach(function (r) {
+      var g = grupos[r.id_venta];
+      if (!g) { g = grupos[r.id_venta] = { id: r.id_venta, lead: r.lead_id, campana: r.campana, items: [], ult: r.updated_at }; orden.push(g); }
+      g.items.push(r);
+      if (new Date(r.updated_at) > new Date(g.ult)) g.ult = r.updated_at;
+    });
+    orden.sort(function (a, b) { return new Date(b.ult) - new Date(a.ult); });
+
+    var html = '';
+    d.enCola.forEach(function (v) {
+      html += '<div class="lead"><h3><span>' + esc(v.cliente) + ' · ' + esc(v.campana) + '</span>' +
+        '<span class="badge b-warn">' + (v.exportada_at ? 'EN MATRIZ · ESPERANDO ESTADO' : 'EN COLA HACIA MATRIZ') + '</span></h3>' +
+        '<div class="meta">' + esc(v.codigo_venta) + ' · registrada ' + fmt(v.created_at) + '</div></div>';
+    });
+    orden.slice(0, 60).forEach(function (g) {
+      var s = resumen(g);
+      html += '<div class="lead"><h3><span>' + esc(d.nombres[g.lead] || 'Cliente') + ' · ' + esc(g.campana) + '</span>' +
+        '<span class="badge ' + s.c + '">' + esc(s.t) + '</span></h3>' +
+        '<div class="meta">' + esc(g.id) + ' · actualizado ' + fmt(g.ult) + '</div>';
+      g.items.forEach(function (i) {
+        html += '<div class="meta" style="display:flex;justify-content:space-between;gap:8px;margin-top:6px"><span>' +
+          esc(i.tipo_producto) + ' · ' + esc(i.producto) + (i.numero_linea ? ' · ' + esc(i.numero_linea) : '') +
+          '</span><span><span class="badge ' + tonoEstado(i.estado) + '">' + esc(norm(i.estado) || '—') + '</span> ' +
+          (i.fecha_estado ? fmt(i.fecha_estado) : '') + '</span></div>';
+      });
+      html += '</div>';
+    });
+    el.innerHTML = html || '<div class="empty">Aún no hay ventas con estado. Aparecen aquí unos minutos después de registrarlas.</div>';
+  }
+
+  async function refrescar() {
+    if (!document.getElementById('ventasBody')) { detener(); return; }
+    if (busy) return;
+    busy = true;
+    try { pinta(await datos()); }
+    catch (e) {
+      var el = document.getElementById('ventasBody');
+      if (el && !el.querySelector('.lead')) el.innerHTML = '<div class="empty">No se pudo cargar el estado de las ventas.</div>';
+    }
+    busy = false;
+  }
+  function pedir() { clearTimeout(tmr); tmr = setTimeout(refrescar, 700); }
+
+  function detener() {
+    if (chV) { try { sb.removeChannel(chV); } catch (e) { } chV = null; }
+    clearInterval(poll); poll = null; prev = null;
+  }
+
+  function montar() {
+    var main = document.getElementById('main');
+    if (!main || document.getElementById('ventasPanel')) return false;
+    var c = document.createElement('div'); c.className = 'card'; c.id = 'ventasPanel'; c.style.marginBottom = '16px';
+    c.innerHTML = '<h2>' + (perfil.rol === 'cerrador' ? 'Mis ventas' : 'Ventas de mis clientes') + ' · estado en vivo</h2>' +
+      '<div id="ventasBody" style="max-height:360px;overflow:auto"><div class="empty">Cargando…</div></div>';
+    main.insertBefore(c, main.firstChild);
+    return true;
+  }
+
+  function iniciar() {
+    detener();
+    if (!montar()) return;
+    refrescar();
+    chV = sb.channel('ventas-estado').on('postgres_changes', { event: '*', schema: 'public', table: 'ventas_sync' }, pedir).subscribe();
+    poll = setInterval(refrescar, 30000);
+  }
+
+  ['cerradorView', 'concertadorView'].forEach(function (n) {
+    var o = window[n];
+    if (typeof o !== 'function') return;
+    window[n] = function () { var r = o.apply(this, arguments); try { iniciar(); } catch (e) { console.error(e); } return r; };
+  });
+})();
  </script>
 </body>
 </html>
