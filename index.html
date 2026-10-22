@@ -3738,6 +3738,420 @@ function ventaForm(l) {
     };
   });
 })();
+    /* 22 · Liquidación del cerrador: «Mi liquidación» (cerrador) y «Liquidaciones» (admin)
+   PEGAR al final, DESPUÉS del bloque 21 y antes del cierre del script. Antes ejecuta 22_liquidacion.sql en Supabase.
+   Cerrador: ve su sueldo, comisiones, bonos y ajustes del mes elegido, con el detalle de cada servicio.
+   Admin: elige cerrador y mes, ve lo mismo, carga descuentos/extras y ve el resumen de todo el equipo.
+   Usa solo las variables de color del diseño (claro y oscuro). */
+(function () {
+  var MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  var HOY = new Date(), ROL = null, cer = [];
+  var ST = { y: HOY.getFullYear(), m: HOY.getMonth() + 1, base: 'ESTADO', ag: '', busy: false, d: null };
+
+  function $(i) { return document.getElementById(i); }
+  function soles(m) { return 'S/ ' + Number(m || 0).toFixed(2); }
+  function falta(e) { return /PGRST202|PGRST205|42883|42P01|liquidacion_/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 22_liquidacion.sql en Supabase' : limpio(e.message || ''); }
+  function fd(d) { if (!d) return '—'; var x = new Date(String(d).slice(0, 10) + 'T00:00:00'); return isNaN(x) ? '—' : x.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' }); }
+  function ini(s) { return String(s || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || '?'; }
+  function p2(n) { return (n < 10 ? '0' : '') + n; }
+
+  var css = document.createElement('style');
+  css.textContent = [
+    '.l22-tot{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:22px 24px;border-radius:20px;color:var(--on-acc);background:linear-gradient(120deg,var(--acc),color-mix(in srgb,var(--acc) 45%,#38bdf8));box-shadow:var(--sh)}',
+    '.l22-tot small{opacity:.9;text-transform:capitalize}.l22-tot b{display:block;font-size:2.3em;letter-spacing:-.03em;line-height:1.1}',
+    '.l22-r{display:flex;justify-content:space-between;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line);font-size:.94em}',
+    '.l22-r:last-child{border-bottom:0}.l22-r span:first-child{color:var(--mut)}.l22-r b{font-variant-numeric:tabular-nums}',
+    '.l22-r.neg b{color:var(--bad)}.l22-r.pos b{color:var(--ok)}.l22-r.fin{font-size:1.05em;border-top:2px solid var(--line2);margin-top:4px}.l22-r.fin span:first-child{color:var(--ink);font-weight:700}',
+    '.l22-bar{height:8px;border-radius:99px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:8px 0 4px}',
+    '.l22-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),color-mix(in srgb,var(--acc) 55%,#38bdf8));border-radius:99px}'
+  ].join('');
+  document.head.appendChild(css);
+
+  function controles(admin) {
+    var ys = '', y0 = HOY.getFullYear(), i;
+    for (i = y0; i >= y0 - 2; i--) ys += '<option' + (i === ST.y ? ' selected' : '') + '>' + i + '</option>';
+    var ms = MESES.map(function (n, j) { return '<option value="' + (j + 1) + '"' + ((j + 1) === ST.m ? ' selected' : '') + '>' + n + '</option>'; }).join('');
+    var ag = admin ? '<div><label>Cerrador</label><select data-l="ag"><option value="">Elige…</option>' +
+      cer.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === ST.ag ? ' selected' : '') + '>' + esc(p.nombre) + '</option>'; }).join('') + '</select></div>' : '';
+    var base = admin ? '<div><label>El mes cuenta según</label><select data-l="base"><option value="ESTADO"' + (ST.base === 'ESTADO' ? ' selected' : '') + '>Fecha en que quedó activo</option><option value="VENTA"' + (ST.base === 'VENTA' ? ' selected' : '') + '>Fecha de la venta</option></select></div>' : '';
+    return '<div class="d15-sec"><div class="d15-sh"><h3>' + (admin ? 'Liquidación por cerrador' : 'Mi liquidación') + '</h3><span class="meta">Sueldo + comisiones + bonos ± ajustes</span></div>' +
+      '<div class="d15-form">' + ag + '<div><label>Año</label><select data-l="y">' + ys + '</select></div><div><label>Mes</label><select data-l="m">' + ms + '</select></div>' + base + '</div></div>';
+  }
+
+  function detalle(d, admin) {
+    var per = MESES[new Date(d.periodo + 'T00:00:00').getMonth()] + ' ' + new Date(d.periodo + 'T00:00:00').getFullYear();
+    var nInt = (d.servicios || []).filter(function (s) { return s.tipo === 'INTERNET'; }).length, nMov = (d.servicios || []).filter(function (s) { return s.tipo === 'MOVIL'; }).length;
+    var h = '<div class="l22-tot"><div><small>' + esc(per) + (admin ? ' · ' + esc(d.nombre) : '') + '</small><b>' + soles(d.total) + '</b><small>a cobrar</small></div></div>';
+
+    /* tramo */
+    var pct = Math.min(100, Math.round(d.internet_activos * 100 / d.tramo_min));
+    h += '<div class="d15-sec"><h3>Tu tramo</h3><div class="d15-k ' + (d.aplica ? 'ok' : 'warn') + '" style="margin-top:10px;box-shadow:none"><div class="d15-ki">' + (d.aplica ? '✅' : '⏳') + '</div><div><div class="d15-kv">' + d.internet_activos + '</div><div class="d15-kl">convergentes activos en el mes</div>' +
+      '<div class="d15-ks">' + (d.aplica ? 'Tramo ' + d.tramo + ' (se comisiona desde el ' + d.tramo_min + ')' : 'Faltan ' + (d.tramo_min - d.internet_activos) + ' para empezar a comisionar (tramo ' + d.tramo_min + ')') + '</div></div></div>' +
+      (d.aplica ? '' : '<div class="l22-bar"><i style="width:' + pct + '%"></i></div>') + '</div>';
+
+    /* desglose */
+    h += '<div class="d15-sec"><h3>Desglose</h3>' +
+      '<div class="l22-r"><span>Sueldo</span><b>' + soles(d.sueldo) + '</b></div>' +
+      '<div class="l22-r"><span>Comisión internet (' + nInt + ' servicios)</span><b>' + soles(d.comision_internet) + '</b></div>' +
+      '<div class="l22-r"><span>Comisión móviles (' + nMov + ' líneas)</span><b>' + soles(d.comision_movil) + '</b></div>' +
+      '<div class="l22-r"><span>Bonos</span><b>' + soles(d.bonos_total) + '</b></div>' +
+      (Number(d.extras) ? '<div class="l22-r pos"><span>Extras</span><b>+ ' + soles(d.extras) + '</b></div>' : '') +
+      (Number(d.descuentos) ? '<div class="l22-r neg"><span>Descuentos</span><b>− ' + soles(d.descuentos) + '</b></div>' : '') +
+      '<div class="l22-r fin"><span>Total a cobrar</span><b>' + soles(d.total) + '</b></div>' +
+      (d.sin_tarifa ? '<div class="warn">' + d.sin_tarifa + ' servicio(s) activos no encontraron su tarifa en la hoja COMISIONES y se cuentan como S/ 0.00' + (admin ? '. Revisa la lista «sin tarifa» en la pestaña Comisiones.' : '. Avisa al administrador.') + '</div>' : '') + '</div>';
+
+    /* bonos */
+    h += '<div class="d15-sec"><h3>Bonos</h3>' + ((d.bonos || []).length ? d.bonos.map(function (b) {
+      var sig = b.siguiente ? 'Siguiente escalón: ' + b.siguiente + ' activas (faltan ' + (b.siguiente - b.activas) + ')' : 'Escalón máximo alcanzado';
+      return '<div class="l22-r"><span><b style="color:var(--ink)">' + esc(b.nombre) + '</b><br><small>' + b.activas + ' activas · ' + sig + '</small></span><b>' + soles(b.pago) + '</b></div>';
+    }).join('') : '<div class="d15-vacio">No hay bonos activos configurados.</div>') + '</div>';
+
+    /* ajustes */
+    h += '<div class="d15-sec"><h3>Ajustes del mes</h3>' + ((d.ajustes || []).length ? d.ajustes.map(function (a) {
+      return '<div class="l22-r ' + (a.tipo === 'DESCUENTO' ? 'neg' : 'pos') + '"><span>' + esc(a.concepto) + '</span><b>' + (a.tipo === 'DESCUENTO' ? '− ' : '+ ') + soles(a.monto) +
+        (admin ? ' <button class="sec" data-l="deladj" data-id="' + esc(a.id) + '" style="padding:2px 8px;font-size:.78em;margin-left:6px">Quitar</button>' : '') + '</b></div>';
+    }).join('') : '<div class="meta">Sin descuentos ni extras este mes.</div>') +
+      (admin ? '<h4>Agregar ajuste</h4><div class="d15-form"><div><label>Concepto</label><input id="l-con" data-minus placeholder="Ej. Tardanza, falta, deco"></div>' +
+        '<div><label>Tipo</label><select id="l-tip"><option value="DESCUENTO">Descuento</option><option value="EXTRA">Extra</option></select></div>' +
+        '<div><label>Monto (S/)</label><input id="l-mon" type="number" min="0.01" step="0.01"></div><div><button data-l="addadj" style="width:100%">Agregar</button></div></div>' : '') + '</div>';
+
+    /* detalle de servicios */
+    var sv = d.servicios || [];
+    h += '<div class="d15-sec"><div class="d15-sh"><h3>Detalle de servicios</h3><span class="meta">' + sv.length + ' servicio(s) que comisionan</span></div>' +
+      (sv.length ? '<div style="overflow-x:auto;max-height:420px;overflow-y:auto"><table class="d15-tbl"><thead><tr><th>Fecha</th><th>Venta</th><th>Campaña</th><th>Servicio</th><th style="text-align:right">Comisión</th></tr></thead><tbody>' +
+        sv.slice(0, 300).map(function (s) {
+          return '<tr><td>' + fd(s.fecha) + '</td><td>' + esc(s.id_venta) + '</td><td>' + esc(s.campana) + '</td><td>' + esc(s.tipo === 'MOVIL' ? 'Línea · ' : '') + esc(s.producto || '') + (s.numero ? ' · ' + esc(s.numero) : '') +
+            (s.sin_tarifa ? ' <span class="badge b-warn">sin tarifa</span>' : '') + '</td><td style="text-align:right">' + soles(s.monto) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '<div class="d15-vacio">No hay servicios activos en este mes.</div>') + '</div>';
+    return h;
+  }
+
+  async function cargar() {
+    var out = $('l22-out'); if (!out) return;
+    var admin = ROL === 'admin', id = admin ? ST.ag : me.id;
+    if (ST.busy) return; ST.busy = true;
+    out.innerHTML = '<div class="d15-vacio">Calculando…</div>';
+    var h = '', r;
+    if (admin && !id) {
+      r = await sb.rpc('liquidacion_resumen', { p_anio: ST.y, p_mes: ST.m, p_base: ST.base });
+      ST.busy = false;
+      if (r.error) { out.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
+      var tot = 0; (r.data || []).forEach(function (x) { tot += Number(x.total); });
+      out.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>Resumen del equipo</h3><span class="meta">Elige un cerrador para ver su detalle</span></div>' +
+        ((r.data || []).length ? '<div style="overflow-x:auto"><table class="d15-tbl"><thead><tr><th>Cerrador</th><th>Activos</th><th>Sueldo</th><th>Comisiones</th><th>Bonos</th><th>Ajustes</th><th style="text-align:right">Total</th></tr></thead><tbody>' +
+          r.data.map(function (x) {
+            return '<tr style="cursor:pointer" data-l="ver" data-id="' + esc(x.agente_id) + '"><td><b>' + esc(x.nombre) + '</b>' + (x.sin_tarifa ? ' <span class="badge b-warn">' + x.sin_tarifa + ' sin tarifa</span>' : '') + '</td><td>' + x.internet_activos + (x.aplica ? '' : ' <small>(bajo tramo)</small>') +
+              '</td><td>' + soles(x.sueldo) + '</td><td>' + soles(x.comisiones) + '</td><td>' + soles(x.bonos) + '</td><td>' + soles(x.ajustes) + '</td><td style="text-align:right"><b>' + soles(x.total) + '</b></td></tr>';
+          }).join('') + '<tr><td colspan="6"><b>Total del equipo</b></td><td style="text-align:right"><b>' + soles(tot) + '</b></td></tr></tbody></table></div>' : '<div class="d15-vacio">No hay cerradores activos.</div>') + '</div>';
+      return;
+    }
+    r = await sb.rpc('liquidacion_cerrador', { p_agente: id, p_anio: ST.y, p_mes: ST.m, p_base: ST.base });
+    ST.busy = false;
+    if (r.error) { out.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
+    ST.d = r.data;
+    out.innerHTML = detalle(r.data, admin);
+  }
+
+  async function accion(b) {
+    var a = b.getAttribute('data-l'), r;
+    if (a === 'addadj') {
+      var con = $('l-con').value.trim(), mon = parseFloat($('l-mon').value);
+      if (!con) return toast('Escribe el concepto', true);
+      if (isNaN(mon) || mon <= 0) return toast('Escribe un monto válido', true);
+      b.disabled = true;
+      r = await sb.from('liquidacion_ajustes').insert({ agente_id: ST.ag, periodo: ST.y + '-' + p2(ST.m) + '-01', concepto: con, tipo: $('l-tip').value, monto: mon });
+      b.disabled = false;
+      if (r.error) return toast(msg(r.error), true);
+      toast('Ajuste agregado'); cargar();
+    } else if (a === 'deladj') {
+      if (!confirm('¿Quitar este ajuste?')) return;
+      r = await sb.from('liquidacion_ajustes').delete().eq('id', b.getAttribute('data-id'));
+      if (r.error) return toast(msg(r.error), true);
+      toast('Ajuste quitado'); cargar();
+    } else if (a === 'ver') { ST.ag = b.getAttribute('data-id'); var s = document.querySelector('#l22 select[data-l="ag"]'); if (s) s.value = ST.ag; cargar(); }
+  }
+
+  function montar(rol) {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-liq')) return;
+    ROL = rol; ST = { y: HOY.getFullYear(), m: HOY.getMonth() + 1, base: 'ESTADO', ag: '', busy: false, d: null };
+    var admin = rol === 'admin';
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-liq'; s.hidden = true;
+    s.innerHTML = '<div id="l22"><div id="l22-ctl"></div><div id="l22-out"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div></div>';
+    panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'liq');
+    bt.innerHTML = '<span>🧾</span>' + (admin ? 'Liquidaciones' : 'Mi liquidación');
+    var ref = bar.querySelector(admin ? '[data-k="sue"]' : '[data-k="ven"]') || bar.querySelector('[data-k="com"]');
+    if (ref) ref.insertAdjacentElement('afterend', bt); else bar.appendChild(bt);
+    function pintaCtl() { $('l22-ctl').innerHTML = controles(admin); }
+    function abre() {
+      var go = function () { pintaCtl(); cargar(); };
+      if (admin && !cer.length) {
+        sb.from('perfiles').select('id,nombre').eq('rol', 'cerrador').eq('activo', true).order('nombre').then(function (r) { cer = r.data || []; go(); });
+      } else go();
+    }
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'liq') abre(); });
+    s.addEventListener('change', function (e) {
+      var f = e.target.getAttribute('data-l'); if (!f) return;
+      if (f === 'y') ST.y = parseInt(e.target.value, 10); else if (f === 'm') ST.m = parseInt(e.target.value, 10);
+      else if (f === 'base') ST.base = e.target.value; else if (f === 'ag') ST.ag = e.target.value; else return;
+      cargar();
+    });
+    s.addEventListener('click', function (e) { var b = e.target.closest('button[data-l],tr[data-l]'); if (b) accion(b); });
+  }
+
+  [['cerradorView', 'cerrador'], ['adminView', 'admin']].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () {
+      var r = o.apply(this, arguments);
+      try { montar(p[1]); } catch (e) { console.error(e); }
+      return r;
+    };
+  });
+})();
+   /* 23 · Chat interno (estilo Messenger clásico): contactos con estado en línea, sala general, mensajes directos y zumbido
+   PEGAR al final, DESPUÉS del bloque 22 y antes del cierre del script. Antes ejecuta 23_chat.sql en Supabase.
+   - Botón flotante 💬 abajo a la derecha, con contador de mensajes sin leer.
+   - «En línea» sale de Supabase Realtime (presencia); los mensajes llegan al instante.
+   - 🔔 Zumbido: sacude el chat del otro (máximo uno cada 15 segundos).
+   Aplica a los cuatro roles. Usa solo las variables de color del diseño (claro y oscuro). */
+(function () {
+  var GEN = 'GEN';
+  var C = { open: false, peer: null, cont: [], on: {}, nl: {}, msgs: {}, chM: null, chP: null, buzz: 0, ctx: null, mark: null };
+
+  function $(i) { return document.getElementById(i); }
+  function hora(d) { var x = new Date(d); return isNaN(x) ? '' : x.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }); }
+  function ini(s) { return String(s || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || '?'; }
+  function falta(e) { return /PGRST202|PGRST205|42883|42P01|chat_/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
+  function msgE(e) { return falta(e) ? 'Falta ejecutar 23_chat.sql en Supabase' : limpio(e.message || ''); }
+  function nombreDe(id) { if (id === me.id) return 'Tú'; for (var i = 0; i < C.cont.length; i++) if (C.cont[i].id === id) return C.cont[i].nombre; return 'Compañero'; }
+  function rolDe(id) { for (var i = 0; i < C.cont.length; i++) if (C.cont[i].id === id) return C.cont[i].rol; return ''; }
+  function vistaGen(v) {
+    try { if (v) localStorage.setItem('crm_chat_gen_' + me.id, v); else return localStorage.getItem('crm_chat_gen_' + me.id); } catch (_) { }
+    return null;
+  }
+  function total() { var n = 0; Object.keys(C.nl).forEach(function (k) { n += C.nl[k] || 0; }); return n; }
+
+  /* ---------- sonido ---------- */
+  function beep(f, d, v) {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      C.ctx = C.ctx || new AC();
+      var o = C.ctx.createOscillator(), g = C.ctx.createGain();
+      o.frequency.value = f; o.type = 'sine'; g.gain.value = v || 0.05;
+      o.connect(g); g.connect(C.ctx.destination); o.start(); o.stop(C.ctx.currentTime + d);
+    } catch (_) { }
+  }
+  function sonidoMsg() { beep(880, .12); }
+  function sonidoZumbido() { beep(200, .12, .12); setTimeout(function () { beep(260, .12, .12); }, 140); setTimeout(function () { beep(200, .18, .12); }, 280); }
+
+  /* ---------- estilos ---------- */
+  var css = document.createElement('style');
+  css.textContent = [
+    '#chat23-btn{position:fixed;right:14px;bottom:14px;z-index:9050;width:54px;height:54px;border-radius:50%;padding:0;font-size:1.5em;display:grid;place-items:center;box-shadow:var(--sh-lg)}',
+    '#chat23-btn .c23-n{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;border-radius:99px;background:var(--bad);color:#fff;font-size:.5em;font-weight:800;display:grid;place-items:center;padding:0 5px}',
+    '#chat23{position:fixed;right:14px;bottom:78px;z-index:9060;width:350px;max-width:calc(100vw - 20px);height:480px;max-height:calc(100vh - 100px);display:none;flex-direction:column;background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:16px;box-shadow:var(--sh-lg);overflow:hidden}',
+    '#chat23.sacude{animation:c23-sacude .6s}',
+    '@keyframes c23-sacude{0%,100%{transform:translate(0,0)}10%{transform:translate(-9px,3px)}20%{transform:translate(8px,-4px)}30%{transform:translate(-8px,4px)}40%{transform:translate(7px,-3px)}50%{transform:translate(-6px,2px)}60%{transform:translate(5px,-2px)}70%{transform:translate(-4px,2px)}80%{transform:translate(3px,-1px)}}',
+    '.c23-h{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--acc2),transparent)}',
+    '.c23-h b{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.c23-h small{display:block;color:var(--mut);font-weight:500}',
+    '.c23-h button{padding:4px 10px;font-size:.9em}',
+    '.c23-b{flex:1;overflow-y:auto;padding:8px;-webkit-overflow-scrolling:touch}',
+    '.c23-c{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;color:var(--ink);box-shadow:none;border-radius:12px;padding:9px 10px;font-weight:500;margin-bottom:2px}',
+    '.c23-c:hover{background:var(--acc2)}',
+    '.c23-av{position:relative;flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:.8em;font-weight:800;background:var(--acc2);color:var(--acc);border:1px solid var(--line)}',
+    '.c23-av i{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;background:var(--line2);border:2px solid var(--card)}',
+    '.c23-av i.on{background:var(--ok)}',
+    '.c23-t{min-width:0;flex:1}.c23-t b{display:block;font-size:.92em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.c23-t small{color:var(--mut);font-size:.76em;text-transform:capitalize}',
+    '.c23-nb{background:var(--bad);color:#fff;border-radius:99px;font-size:.72em;font-weight:800;padding:1px 8px}',
+    '.c23-sep{font-size:.68em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:10px 6px 4px}',
+    '.c23-m{max-width:82%;margin:3px 0;padding:7px 11px;border-radius:14px;font-size:.92em;line-height:1.35;word-wrap:break-word;overflow-wrap:anywhere;white-space:pre-wrap}',
+    '.c23-m.yo{margin-left:auto;background:var(--acc);color:var(--on-acc);border-bottom-right-radius:4px}',
+    '.c23-m.el{background:var(--bg);border:1px solid var(--line);border-bottom-left-radius:4px}',
+    '.c23-m small{display:block;opacity:.7;font-size:.72em;margin-top:2px}.c23-m .q{display:block;font-weight:700;font-size:.74em;color:var(--acc);margin-bottom:1px}',
+    '.c23-z{text-align:center;color:var(--mut);font-size:.8em;font-style:italic;margin:8px 0}',
+    '.c23-f{display:flex;gap:6px;padding:10px;border-top:1px solid var(--line)}',
+    '.c23-f input{flex:1;min-width:0}.c23-f button{padding:8px 12px}',
+    '@media(max-width:560px){#chat23{right:0;left:0;bottom:0;top:0;width:auto;max-width:none;height:auto;max-height:none;border-radius:0}.c23-h{padding-top:calc(12px + env(safe-area-inset-top,0px))}.c23-f{padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}}'
+  ].join('');
+  document.head.appendChild(css);
+
+  /* ---------- datos ---------- */
+  async function cargaContactos() {
+    var r = await sb.rpc('chat_contactos');
+    if (r.error) { C.err = msgE(r.error); return; }
+    C.err = null; C.cont = r.data || [];
+  }
+  async function cargaNoLeidos() {
+    var r = await sb.from('chat_mensajes').select('de').eq('para', me.id).is('leido_at', null).limit(1000);
+    C.nl = {};
+    (r.data || []).forEach(function (m) { C.nl[m.de] = (C.nl[m.de] || 0) + 1; });
+    var v = vistaGen(), q = sb.from('chat_mensajes').select('id', { count: 'exact', head: true }).is('para', null).neq('de', me.id);
+    if (v) q = q.gt('created_at', v); else q = q.gt('created_at', new Date(Date.now() - 86400000).toISOString());
+    var g = await q; C.nl[GEN] = g.count || 0;
+    boton();
+  }
+  async function cargaConv(peer) {
+    var q = sb.from('chat_mensajes').select('*').order('created_at', { ascending: false }).limit(60);
+    q = peer === GEN ? q.is('para', null) : q.or('and(de.eq.' + me.id + ',para.eq.' + peer + '),and(de.eq.' + peer + ',para.eq.' + me.id + ')');
+    var r = await q;
+    if (r.error) { toast(msgE(r.error), true); return; }
+    C.msgs[peer] = (r.data || []).reverse();
+  }
+  function marca(peer) {
+    if (peer === GEN) { vistaGen(new Date().toISOString()); C.nl[GEN] = 0; boton(); return; }
+    C.nl[peer] = 0; boton();
+    clearTimeout(C.mark);
+    C.mark = setTimeout(function () { sb.rpc('chat_marcar_leidos', { p_con: peer }); }, 300);
+  }
+
+  /* ---------- pintado ---------- */
+  function boton() {
+    var b = $('chat23-btn'); if (!b) return;
+    var n = total(), s = b.querySelector('.c23-n');
+    if (n > 0) { if (!s) { s = document.createElement('span'); s.className = 'c23-n'; b.appendChild(s); } s.textContent = n > 99 ? '99+' : n; }
+    else if (s) s.remove();
+    if (C.open && !C.peer) lista();
+  }
+  function lista() {
+    var p = $('chat23'); if (!p) return;
+    C.peer = null;
+    var ord = C.cont.slice().sort(function (a, b) { return (C.on[b.id] ? 1 : 0) - (C.on[a.id] ? 1 : 0) || String(a.nombre).localeCompare(String(b.nombre)); });
+    var enl = ord.filter(function (c) { return C.on[c.id]; }).length;
+    p.innerHTML = '<div class="c23-h"><b>💬 Chat Fibertel<small>' + enl + ' en línea</small></b><button class="sec" data-c="cerrar">✕</button></div><div class="c23-b">' +
+      '<div class="c23-sep">Sala</div>' +
+      '<button class="c23-c" data-c="abrir" data-id="' + GEN + '"><div class="c23-av">👥</div><div class="c23-t"><b>Sala general</b><small>todo el equipo</small></div>' + (C.nl[GEN] ? '<span class="c23-nb">' + C.nl[GEN] + '</span>' : '') + '</button>' +
+      '<div class="c23-sep">Compañeros</div>' +
+      (C.err ? '<div class="empty">' + esc(C.err) + '</div>' : ord.length ? ord.map(function (c) {
+        return '<button class="c23-c" data-c="abrir" data-id="' + esc(c.id) + '"><div class="c23-av">' + esc(ini(c.nombre)) + '<i class="' + (C.on[c.id] ? 'on' : '') + '"></i></div>' +
+          '<div class="c23-t"><b>' + esc(c.nombre) + '</b><small>' + esc(c.rol) + (C.on[c.id] ? ' · en línea' : '') + '</small></div>' + (C.nl[c.id] ? '<span class="c23-nb">' + C.nl[c.id] + '</span>' : '') + '</button>';
+      }).join('') : '<div class="empty">No hay otros usuarios todavía.</div>') + '</div>';
+  }
+  function filaMsg(m) {
+    var yo = m.de === me.id;
+    if (m.tipo === 'ZUMBIDO') return '<div class="c23-z">🔔 ' + (yo ? 'Enviaste un zumbido' : esc(nombreDe(m.de)) + ' te envió un zumbido') + ' · ' + hora(m.created_at) + '</div>';
+    return '<div class="c23-m ' + (yo ? 'yo' : 'el') + '">' + (C.peer === GEN && !yo ? '<span class="q">' + esc(nombreDe(m.de)) + '</span>' : '') + esc(m.cuerpo) + '<small>' + hora(m.created_at) + '</small></div>';
+  }
+  function pintaMsgs() {
+    var b = $('c23-msgs'); if (!b) return;
+    var l = C.msgs[C.peer] || [];
+    b.innerHTML = l.length ? l.map(filaMsg).join('') : '<div class="c23-z">Aún no hay mensajes. ¡Saluda!</div>';
+    b.scrollTop = b.scrollHeight;
+  }
+  async function conv(peer) {
+    var p = $('chat23'); if (!p) return;
+    C.peer = peer;
+    var gen = peer === GEN, nom = gen ? 'Sala general' : nombreDe(peer);
+    p.innerHTML = '<div class="c23-h"><button class="sec" data-c="atras">‹</button><div class="c23-av">' + (gen ? '👥' : esc(ini(nom)) + '<i class="' + (C.on[peer] ? 'on' : '') + '"></i>') + '</div>' +
+      '<b>' + esc(nom) + '<small>' + (gen ? 'todo el equipo' : (C.on[peer] ? 'en línea' : 'desconectado')) + '</small></b><button class="sec" data-c="cerrar">✕</button></div>' +
+      '<div class="c23-b" id="c23-msgs"><div class="c23-z">Cargando…</div></div>' +
+      '<div class="c23-f">' + (gen ? '' : '<button class="sec" data-c="zumbido" title="Zumbido">🔔</button>') + '<input id="c23-in" data-minus autocomplete="off" maxlength="2000" placeholder="Escribe un mensaje…"><button data-c="enviar">Enviar</button></div>';
+    var i = $('c23-in');
+    i.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); enviar('TEXTO'); } });
+    await cargaConv(peer);
+    if (C.peer !== peer) return;
+    pintaMsgs(); marca(peer);
+    if (window.innerWidth > 560) i.focus();
+  }
+
+  /* ---------- envío y recepción ---------- */
+  function agrega(peer, m) {
+    var l = C.msgs[peer] = C.msgs[peer] || [];
+    for (var i = 0; i < l.length; i++) if (l[i].id === m.id) return false;
+    l.push(m); return true;
+  }
+  async function enviar(tipo) {
+    var peer = C.peer; if (!peer) return;
+    var inp = $('c23-in'), txt = tipo === 'ZUMBIDO' ? 'zumbido' : (inp.value || '').trim();
+    if (!txt) return;
+    if (tipo === 'ZUMBIDO') {
+      var r0 = 15000 - (Date.now() - C.buzz);
+      if (r0 > 0) return toast('Espera ' + Math.ceil(r0 / 1000) + ' s para otro zumbido');
+      C.buzz = Date.now();
+    } else inp.value = '';
+    var r = await sb.from('chat_mensajes').insert({ de: me.id, para: peer === GEN ? null : peer, tipo: tipo, cuerpo: txt }).select().single();
+    if (r.error) { if (tipo !== 'ZUMBIDO') inp.value = txt; return toast(msgE(r.error), true); }
+    agrega(peer, r.data);
+    if (C.peer === peer) pintaMsgs();
+    if (tipo === 'ZUMBIDO') sonidoZumbido();
+  }
+  function llego(m) {
+    if (m.de === me.id) {   // eco de mi propio mensaje (puede venir de otra pestaña)
+      var pe = m.para || GEN; if (agrega(pe, m) && C.open && C.peer === pe) pintaMsgs(); return;
+    }
+    var peer = m.para ? m.de : GEN;
+    agrega(peer, m);
+    var viendo = C.open && C.peer === peer && !document.hidden;
+    if (viendo) { pintaMsgs(); marca(peer); }
+    else { C.nl[peer] = (C.nl[peer] || 0) + 1; boton(); }
+    if (m.tipo === 'ZUMBIDO') {
+      sonidoZumbido();
+      if (!C.open) abrir(true);
+      var p = $('chat23'); if (p) { p.classList.remove('sacude'); void p.offsetWidth; p.classList.add('sacude'); }
+      if (C.peer !== peer) toast('🔔 ' + nombreDe(m.de) + ' te envió un zumbido');
+    } else if (!viendo) {
+      sonidoMsg();
+      toast('💬 ' + nombreDe(m.de) + (peer === GEN ? ' (sala general)' : '') + ': ' + String(m.cuerpo).slice(0, 60));
+    }
+  }
+
+  /* ---------- panel ---------- */
+  function abrir(v) {
+    C.open = v; var p = $('chat23'); if (!p) return;
+    p.style.display = v ? 'flex' : 'none';
+    if (v) { if (C.peer) conv(C.peer); else lista(); }
+  }
+  function click(e) {
+    var b = e.target.closest('[data-c]'); if (!b) return;
+    var a = b.getAttribute('data-c');
+    if (a === 'cerrar') abrir(false);
+    else if (a === 'abrir') conv(b.getAttribute('data-id'));
+    else if (a === 'atras') lista();
+    else if (a === 'enviar') enviar('TEXTO');
+    else if (a === 'zumbido') enviar('ZUMBIDO');
+  }
+
+  /* ---------- montaje ---------- */
+  function montar() {
+    if ($('chat23') || typeof me === 'undefined' || !me || !$('main')) return;
+    var b = document.createElement('button'); b.id = 'chat23-btn'; b.type = 'button'; b.title = 'Chat'; b.textContent = '💬';
+    b.onclick = function () { abrir(!C.open); };
+    var p = document.createElement('div'); p.id = 'chat23';
+    p.addEventListener('click', click);
+    document.body.appendChild(b); document.body.appendChild(p);
+    C = { open: false, peer: null, cont: [], on: {}, nl: {}, msgs: {}, chM: null, chP: null, buzz: 0, ctx: C.ctx, mark: null, err: null };
+    cargaContactos().then(cargaNoLeidos);
+
+    C.chM = sb.channel('chat-msgs-' + me.id).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_mensajes' }, function (pl) {
+      try { llego(pl.new); } catch (x) { console.error(x); }
+    }).subscribe();
+
+    var ch = C.chP = sb.channel('chat-presencia', { config: { presence: { key: me.id } } });
+    ch.on('presence', { event: 'sync' }, function () {
+      var st = ch.presenceState(); C.on = {};
+      Object.keys(st).forEach(function (k) { C.on[k] = 1; });
+      if (C.open) { if (C.peer) { var h = document.querySelector('#chat23 .c23-h small'); if (h && C.peer !== GEN) h.textContent = C.on[C.peer] ? 'en línea' : 'desconectado'; } else lista(); }
+    }).subscribe(function (s) { if (s === 'SUBSCRIBED') ch.track({ nombre: perfil.nombre, t: Date.now() }); });
+
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && C.open && C.peer) marca(C.peer); });
+  }
+  function quitar() {
+    try { if (C.chM) sb.removeChannel(C.chM); if (C.chP) sb.removeChannel(C.chP); } catch (_) { }
+    var a = $('chat23'), b = $('chat23-btn'); if (a) a.remove(); if (b) b.remove();
+    C.chM = null; C.chP = null; C.open = false; C.peer = null;
+  }
+
+  ['concertadorView', 'cerradorView', 'backView', 'adminView'].forEach(function (n) {
+    var o = window[n]; if (typeof o !== 'function') return;
+    window[n] = function () {
+      var r = o.apply(this, arguments);
+      try { montar(); } catch (e) { console.error(e); }
+      return r;
+    };
+  });
+  var oL = window.loginView;
+  if (typeof oL === 'function') window.loginView = function () { quitar(); return oL.apply(this, arguments); };
+})();
  </script>
 </body>
 </html>
