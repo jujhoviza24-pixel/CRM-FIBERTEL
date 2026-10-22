@@ -3170,6 +3170,113 @@ function ventaForm(l) {
     };
   }
 })();
+  /* 19 · Eliminar clientes (leads) de prueba, desde la pestaña «Corregir» del admin
+   PEGAR al final, DESPUÉS del bloque 18 y antes del cierre del script. Antes ejecuta 19_eliminar_leads.sql.
+   Filtra por concertador, texto o fecha de creación, marca los leads y los elimina de forma definitiva
+   (con su historial, ventas y comisiones). Pide escribir ELIMINAR para confirmar. */
+(function () {
+  var ST = { sel: {}, tok: 0, vis: [], per: null }, tm = null;
+
+  function $(i) { return document.getElementById(i); }
+  function limpiaT(t) { return String(t || '').replace(/[,()%*\\"']/g, ' ').trim(); }
+  function msg(e) {
+    return /PGRST202|42883|admin_eliminar_leads|leads_eliminados|ventas_anuladas/.test(String(e && ((e.code || '') + ' ' + (e.message || ''))))
+      ? 'Falta ejecutar 18 y 19 (.sql) en Supabase' : limpio(e.message || '');
+  }
+  function cuenta() {
+    var n = Object.keys(ST.sel).filter(function (k) { return ST.sel[k]; }).length, b = $('e-del');
+    if (b) { b.textContent = '🗑 Eliminar definitivamente (' + n + ')'; b.disabled = !n; }
+  }
+
+  async function personas() {
+    if (ST.per) return ST.per;
+    var r = await sb.from('perfiles').select('id,nombre,rol,activo').eq('rol', 'concertador').order('nombre');
+    ST.per = r.data || [];
+    var s = $('e-conc');
+    if (s) s.innerHTML = '<option value="">Todos los concertadores</option>' + ST.per.map(function (p) {
+      return '<option value="' + esc(p.id) + '">' + esc(p.nombre) + (p.activo === false ? ' (inactivo)' : '') + '</option>';
+    }).join('');
+    return ST.per;
+  }
+
+  async function cargar() {
+    var out = $('e-lista'); if (!out) return;
+    var per = await personas(), nom = {}; per.forEach(function (p) { nom[p.id] = p.nombre; });
+    var tok = ++ST.tok, c = $('e-conc').value, t = limpiaT($('e-q').value), d = $('e-desde').value;
+    var q = sb.from('leads').select('*').order('created_at', { ascending: false }).limit(200);
+    if (c) q = q.eq('concertador_id', c);
+    if (d) q = q.gte('created_at', new Date(d + 'T00:00:00').toISOString());
+    if (t.length >= 2) q = q.or('cliente.ilike.*' + t + '*,dni.ilike.*' + t + '*,telefono.ilike.*' + t + '*');
+    var r = await q;
+    if (tok !== ST.tok) return;
+    if (r.error) { out.innerHTML = '<div class="d15-vacio">' + esc(limpio(r.error.message)) + '</div>'; return; }
+    ST.vis = (r.data || []).map(function (l) { return l.id; });
+    out.innerHTML = ST.vis.length ? r.data.map(function (l) {
+      return '<label class="z-row"><input type="checkbox" data-e="sel" data-id="' + esc(l.id) + '"' + (ST.sel[l.id] ? ' checked' : '') + '><div class="z-i">' +
+        '<b>' + esc(l.cliente) + '</b> <span class="badge ' + tono(l.estado) + '">' + esc(l.estado) + '</span>' + (l.estado === 'VENDIDO' ? ' <span class="badge b-bad">CON VENTA</span>' : '') +
+        '<div class="meta">' + esc(l.telefono || '') + ' · DNI ' + esc(l.dni || '—') + ' · ' + esc(l.tipo_cita || '') + '</div>' +
+        '<div class="meta">Registrado por ' + esc(nom[l.concertador_id] || '—') + ' · ' + fmt(l.created_at) + '</div></div></label>';
+    }).join('') : '<div class="d15-vacio">No hay leads con ese filtro.</div>';
+    cuenta();
+  }
+
+  async function eliminar() {
+    var ids = Object.keys(ST.sel).filter(function (k) { return ST.sel[k]; });
+    if (!ids.length) return toast('Marca al menos un lead', true);
+    var ok = prompt('Vas a eliminar ' + ids.length + ' lead(s) DEFINITIVAMENTE, con su historial, ventas y comisiones.\nNo se puede deshacer.\n\nEscribe ELIMINAR para confirmar:');
+    if (ok === null) return;
+    if (ok.trim().toUpperCase() !== 'ELIMINAR') return toast('No se eliminó nada: la palabra no coincide', true);
+    var b = $('e-del'); if (b) b.disabled = true;
+    var r = await sb.rpc('admin_eliminar_leads', { p_ids: ids, p_motivo: ($('e-mot').value || '').trim() || 'Datos de prueba' });
+    if (r.error) { cuenta(); return toast(msg(r.error), true); }
+    var x = r.data || {};
+    toast('Eliminados: ' + (x.leads || 0) + ' lead(s), ' + (x.historial || 0) + ' movimientos, ' + (x.ventas || 0) + ' venta(s)');
+    ST.sel = {};
+    cargar();
+    try { if (typeof cargarAdmin === 'function') cargarAdmin(true); if (window.refrescar15) window.refrescar15(); } catch (_) { }
+  }
+
+  function montar() {
+    var p = $('p15-cor'); if (!p || $('e-card')) return;
+    ST = { sel: {}, tok: 0, vis: [], per: null };
+    var s = document.createElement('div'); s.className = 'd15-sec'; s.id = 'e-card';
+    s.innerHTML =
+      '<div class="d15-sh"><h3>Eliminar clientes de prueba</h3><span class="meta">Borra el lead, su historial, ventas y comisiones. Es definitivo</span></div>' +
+      '<div class="d15-form"><div><label>Concertador</label><select id="e-conc"><option value="">Cargando…</option></select></div>' +
+      '<div><label>Buscar</label><input id="e-q" data-minus placeholder="Cliente, DNI o teléfono"></div>' +
+      '<div><label>Creados desde</label><input id="e-desde" type="date"></div>' +
+      '<div><label>Motivo</label><input id="e-mot" data-minus value="Datos de prueba"></div></div>' +
+      '<div class="z-bar"><button class="z-del" id="e-del" data-e="del" disabled>🗑 Eliminar definitivamente (0)</button>' +
+      '<button class="sec" data-e="todas">Marcar los visibles</button><button class="sec" data-e="nada">Quitar marcas</button></div>' +
+      '<div class="z-box" id="e-lista"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>' +
+      '<div class="meta" style="margin-top:8px">Se muestran los 200 más recientes. Tras eliminar, borra una vez a mano esas filas en las hojas RESPALDO_LEADS y RESPALDO_HISTORIAL.</div>';
+    p.appendChild(s);
+    s.addEventListener('input', function (e) { if (e.target.id === 'e-q') { clearTimeout(tm); tm = setTimeout(cargar, 350); } });
+    s.addEventListener('change', function (e) {
+      var t = e.target;
+      if (t.id === 'e-conc' || t.id === 'e-desde') cargar();
+      else if (t.getAttribute('data-e') === 'sel') { ST.sel[t.getAttribute('data-id')] = t.checked; cuenta(); }
+    });
+    s.addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-e]'); if (!b) return;
+      var a = b.getAttribute('data-e');
+      if (a === 'del') eliminar();
+      else if (a === 'todas') { ST.vis.forEach(function (id) { ST.sel[id] = true; }); s.querySelectorAll('input[data-e="sel"]').forEach(function (c) { c.checked = true; }); cuenta(); }
+      else if (a === 'nada') { ST.sel = {}; s.querySelectorAll('input[data-e="sel"]').forEach(function (c) { c.checked = false; }); cuenta(); }
+    });
+    var bar = $('tabs15');
+    if (bar) bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'cor') cargar(); });
+  }
+
+  var o = window.adminView;
+  if (typeof o === 'function') {
+    window.adminView = function () {
+      var r = o.apply(this, arguments);
+      try { montar(); } catch (e) { console.error(e); }
+      return r;
+    };
+  }
+})();
  </script>
 </body>
 </html>
