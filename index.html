@@ -2069,6 +2069,601 @@ function ventaForm(l) {
     };
   }
 })();
+  /* 15 · Reestructura: pestañas y dashboards por rol
+   PEGAR al final, DESPUÉS del bloque 14. Nada se borra (los bloques anteriores siguen funcionando por debajo).
+   Cada rol pasa a tener pestañas:
+   - Cerrador: Resumen · Tablero · Bolsa · Mis ventas
+   - Concertador: Resumen · Nuevo cliente · Mis leads · Ventas
+   - Back: Resumen · Tablero · Cola · Gestionados · Ventas
+   - Admin: Resumen · Ventas · Atención · Derivar · Equipo · Comisiones
+   «Resumen»: indicadores, clientes por estado (clic en un estado = ver qué clientes están ahí) y
+   ventas con los servicios que faltan por activar. «Ventas»: todas las ventas con buscador y filtros.
+   Admin · Equipo: crear concertadores, cerradores y backs, activar/desactivar, nombre en MATRIZ y nuevo PIN.
+   Admin · Comisiones: marcos (tramos) de comisión del cerrador.
+   Necesita 15_admin_ventas_tramos.sql para: ver ventas de MATRIZ por agente, crear usuarios y guardar tramos.
+   Usa solo las variables de color del diseño (claro y oscuro). */
+(function () {
+  var ROL = null, D = null, SEL = { etapa: null }, VF = { m: 'TODAS', q: '' }, MAXV = 40;
+  var tmr = null, prevE = null, TRAMOS = [], TR_OK = true, ocupado = false, TABACT = 'res';
+  var CAMPS = ['MOVISTAR', 'VODAFONE', 'ORANGE', 'LOWI', 'MASMOVIL', 'YOIGO'];
+
+  /* ---------- utilidades ---------- */
+  function N(s) { return String(s == null ? '' : s).trim().toUpperCase(); }
+  function esHoy(d) { return !!d && new Date(d).toDateString() === new Date().toDateString(); }
+  function esMes(d) { if (!d) return false; var x = new Date(d), h = new Date(); return x.getFullYear() === h.getFullYear() && x.getMonth() === h.getMonth(); }
+  function dias(d) { return d ? Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 86400000)) : 0; }
+  function hace(d) { var n = dias(d); return n === 0 ? 'hoy' : (n === 1 ? 'hace 1 día' : 'hace ' + n + ' días'); }
+  function ini(s) { return String(s || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || '?'; }
+  function soles(m) { return 'S/ ' + Number(m || 0).toFixed(2); }
+  function digitos(t) { return String(t || '').replace(/\D/g, ''); }
+  function waNum(t) { var d = digitos(t); if (d.indexOf('00') === 0) d = d.slice(2); if (d.length === 9) d = '34' + d; return d; }
+  function telHref(t) { return 'tel:' + String(t || '').replace(/[^\d+]/g, ''); }
+  function abiertoL(l) {
+    var A = (typeof ABIERTOS !== 'undefined') ? ABIERTOS : ['VIABLE', 'CITA_AGENDADA', 'CONTACTADO', 'NO_CONTESTA', 'RECONTACTAR'];
+    return A.indexOf(l.estado) >= 0;
+  }
+  var TIPO = { CONVERGENTE: 'Internet', LINEA_PAGA: 'Línea móvil', 'LINEA PAGA': 'Línea móvil', LINEA_GRATIS: 'Línea gratis', 'LINEA GRATIS': 'Línea gratis', 'LINEA FIJA': 'Línea fija', LINEA_FIJA: 'Línea fija', TELEVISION: 'TV' };
+  function tipoL(t) { t = N(t); return TIPO[t] || (t ? t.charAt(0) + t.slice(1).toLowerCase() : 'Servicio'); }
+  function falta(t) { return /PGRST205|42P01|42883|PGRST202|comision_tramos|admin_crear|admin_reset/.test(String(t && (t.code + ' ' + t.message))); }
+
+  /* clasificación de estados de venta (MATRIZ) */
+  function macro(e) {
+    e = N(e);
+    if (/ACTIV|INSTAL|COMPLET/.test(e)) return 'ACT';
+    if (/CANCEL|DECOMIS|ANUL|BAJA/.test(e)) return 'CAI';
+    if (/INCID|CONTRAOF|SCORING/.test(e)) return 'INC';
+    return 'TRA';
+  }
+  var MAC = {
+    TRA: { t: 'En trámite', c: 'info', i: '⏳' }, INC: { t: 'Con incidencia', c: 'warn', i: '⚠️' },
+    ACT: { t: 'Activas', c: 'ok', i: '✅' }, CAI: { t: 'Caídas', c: 'bad', i: '✖️' }
+  };
+
+  /* ---------- estilos ---------- */
+  var css = document.createElement('style');
+  css.textContent = [
+    '#sb13{display:none!important}body.sb-on #main{margin-left:auto!important;margin-right:auto!important;max-width:1240px!important}',
+    '#tabs15{position:sticky;top:55px;z-index:4;display:flex;gap:6px;overflow-x:auto;padding:8px 2px 10px;margin:0 0 12px;background:linear-gradient(var(--bg) 78%,transparent);scrollbar-width:none}',
+    '#tabs15::-webkit-scrollbar{display:none}',
+    '.t15{flex:none;display:flex;align-items:center;gap:7px;background:transparent;color:var(--mut);border:1px solid transparent;box-shadow:none;border-radius:99px;padding:8px 15px;font-weight:700;font-size:.9em}',
+    '.t15:hover{background:var(--acc2);color:var(--acc)}',
+    '.t15.on{background:var(--card);color:var(--acc);border-color:var(--line2);box-shadow:var(--sh)}',
+    '.p15[hidden]{display:none}.p15>*{margin-bottom:16px}',
+    /* cabecera */
+    '.d15-hero{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:22px 24px;border-radius:20px;color:var(--on-acc);background:linear-gradient(120deg,var(--acc),color-mix(in srgb,var(--acc) 45%,#38bdf8));box-shadow:var(--sh)}',
+    '.d15-hero h2{margin:0;font-size:1.45em;letter-spacing:-.02em;color:inherit}.d15-hero h2::before{display:none}',
+    '.d15-hero p{margin:4px 0 0;opacity:.9;font-size:.92em}.d15-hero small{opacity:.85;text-transform:capitalize}',
+    /* indicadores */
+    '.d15-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:14px}',
+    '.d15-k{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;box-shadow:var(--sh)}',
+    '.d15-ki{flex:none;width:44px;height:44px;border-radius:13px;display:grid;place-items:center;font-size:1.25em;background:var(--acc2)}',
+    '.d15-k.ok .d15-ki{background:var(--ok-bg)}.d15-k.warn .d15-ki{background:var(--warn-bg)}.d15-k.bad .d15-ki{background:var(--bad-bg)}.d15-k.info .d15-ki{background:var(--info-bg)}',
+    '.d15-kv{font-size:1.75em;font-weight:800;line-height:1;letter-spacing:-.03em}',
+    '.d15-kl{color:var(--mut);font-size:.8em;font-weight:600;margin-top:3px}.d15-ks{color:var(--mut);font-size:.72em;margin-top:2px}',
+    /* secciones */
+    '.d15-sec{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--sh)}',
+    '.d15-sh{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}',
+    '.d15-sec h3{margin:0;font-size:1.05em;letter-spacing:-.01em}.d15-sec h4{margin:16px 0 8px;font-size:.72em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}',
+    '.d15-sec .meta{margin:0}',
+    '.d15-split{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:16px;align-items:start}',
+    '@media(max-width:860px){.d15-split{grid-template-columns:1fr}}',
+    '.d15-stl{display:flex;flex-direction:column;gap:6px}',
+    '.d15-s{position:relative;display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:center;text-align:left;width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);box-shadow:none;border-radius:14px;padding:10px 12px;overflow:hidden}',
+    '.d15-s:hover{border-color:color-mix(in srgb,var(--acc) 45%,var(--line))}',
+    '.d15-s.on{background:var(--card);border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 15%,transparent)}',
+    '.d15-si{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--acc2)}',
+    '.d15-s.ok .d15-si{background:var(--ok-bg)}.d15-s.warn .d15-si{background:var(--warn-bg)}.d15-s.bad .d15-si{background:var(--bad-bg)}.d15-s.info .d15-si{background:var(--info-bg)}',
+    '.d15-sl{font-weight:700;font-size:.92em}.d15-s b{font-size:1.2em;font-weight:800}',
+    '.d15-s i{position:absolute;left:0;bottom:0;height:3px;background:var(--acc);opacity:.55}',
+    '.d15-s.ok i{background:var(--ok)}.d15-s.warn i{background:var(--warn)}.d15-s.bad i{background:var(--bad)}.d15-s.info i{background:var(--info)}',
+    '.d15-dd{min-width:0}.d15-dd h4{margin-top:0}',
+    '.d15-row{display:flex;align-items:center;gap:12px;padding:10px 8px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:10px}',
+    '.d15-row:hover{background:var(--acc2)}.d15-row:last-child{border-bottom:0}',
+    '.d15-av{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:.8em;font-weight:800;background:var(--acc2);color:var(--acc);border:1px solid var(--line)}',
+    '.d15-rt{min-width:0;flex:1}.d15-rt b{display:block;font-size:.94em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.d15-rt small{color:var(--mut);font-size:.78em}',
+    '.d15-ra{display:flex;gap:6px;flex:none}',
+    '.d15-falta{margin-top:4px;font-size:.76em;font-weight:700;color:var(--warn)}',
+    /* ventas */
+    '.d15-macs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}',
+    '.d15-m{text-align:left;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-top:3px solid var(--line2);box-shadow:none;border-radius:14px;padding:12px 14px}',
+    '.d15-m:hover{border-color:var(--acc)}.d15-m.ok{border-top-color:var(--ok)}.d15-m.warn{border-top-color:var(--warn)}.d15-m.bad{border-top-color:var(--bad)}.d15-m.info{border-top-color:var(--info)}',
+    '.d15-m b{display:block;font-size:1.6em;font-weight:800;letter-spacing:-.03em;line-height:1.1}.d15-m span{font-size:.8em;color:var(--mut);font-weight:600}',
+    '.d15-vl{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}',
+    '.d15-vc{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--sh)}',
+    '.d15-vc.click{cursor:pointer}.d15-vc.click:hover{border-color:var(--acc)}',
+    '.d15-vh{display:flex;align-items:center;gap:10px}.d15-vt{min-width:0;flex:1}.d15-vt b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.d15-vt small{color:var(--mut);font-size:.76em}',
+    '.d15-prog{height:7px;border-radius:99px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:12px 0 4px}',
+    '.d15-prog i{display:block;height:100%;background:linear-gradient(90deg,var(--ok),color-mix(in srgb,var(--ok) 60%,#38bdf8));border-radius:99px}',
+    '.d15-pm{font-size:.76em;color:var(--mut)}',
+    '.d15-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}',
+    '.d15-chip{display:inline-flex;gap:6px;align-items:center;font-size:.76em;font-weight:600;padding:4px 10px;border-radius:99px;background:var(--info-bg);color:var(--info)}',
+    '.d15-chip em{font-style:normal;font-weight:800;font-size:.9em;opacity:.9}',
+    '.d15-chip.ok{background:var(--ok-bg);color:var(--ok)}.d15-chip.warn{background:var(--warn-bg);color:var(--warn)}.d15-chip.bad{background:var(--bad-bg);color:var(--bad)}',
+    '.d15-vbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}.d15-vbar input{max-width:360px}',
+    '.d15-pills{display:flex;gap:6px;flex-wrap:wrap}',
+    '.d15-pill{background:var(--bg);color:var(--ink);border:1px solid var(--line);box-shadow:none;border-radius:99px;padding:6px 13px;font-size:.82em;font-weight:700}',
+    '.d15-pill.on{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}.d15-pill b{margin-left:6px;opacity:.8}',
+    '.d15-vacio{color:var(--mut);text-align:center;padding:26px 12px;border:1.5px dashed var(--line2);border-radius:14px;font-size:.9em}',
+    /* equipo y comisiones */
+    '.d15-card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--sh)}',
+    '.d15-card h2{margin:0 0 12px}',
+    '.d15-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end}',
+    '.d15-row2{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 4px;border-bottom:1px solid var(--line)}',
+    '.d15-row2:last-child{border-bottom:0}.d15-row2 input.eq-mx{max-width:240px;flex:1 1 180px}',
+    '.d15-row2 .switch{gap:8px;font-size:.84em}',
+    '.d15-tbl{width:100%;border-collapse:collapse;font-size:.9em}.d15-tbl th{text-align:left;color:var(--mut);font-size:.72em;text-transform:uppercase;letter-spacing:.06em;padding:6px 8px}',
+    '.d15-tbl td{padding:8px;border-top:1px solid var(--line)}'
+  ].join('');
+  document.head.appendChild(css);
+
+  /* ================= DATOS ================= */
+  var SEL_V = 'id_venta,fila_matriz,lead_id,agente,campana,tipo_producto,producto,numero_linea,estado,fecha_estado,es_internet,es_movil';
+
+  function agrupa(rows, nom) {
+    var g = {}, o = [];
+    rows.forEach(function (r) {
+      var x = g[r.id_venta];
+      if (!x) { x = g[r.id_venta] = { id: r.id_venta, lead: r.lead_id, campana: r.campana, agente: r.agente, items: [], f: null }; o.push(x); }
+      x.items.push(r);
+      if (r.fecha_estado && (!x.f || new Date(r.fecha_estado) > new Date(x.f))) x.f = r.fecha_estado;
+    });
+    o.forEach(function (x) {
+      x.act = x.items.filter(function (i) { return macro(i.estado) === 'ACT'; }).length;
+      x.pend = x.items.filter(function (i) { var m = macro(i.estado); return m === 'TRA' || m === 'INC'; });
+      x.estado = x.pend.length ? (x.pend.some(function (i) { return macro(i.estado) === 'INC'; }) ? 'INC' : 'TRA') : (x.act > 0 ? 'ACT' : 'CAI');
+      x.nombre = nom[x.lead] || null;
+    });
+    return o.filter(function (v) { return !((v.estado === 'ACT' || v.estado === 'CAI') && v.f && dias(v.f) > 60); });
+  }
+
+  async function cargar() {
+    if (ocupado) return; ocupado = true;
+    try {
+      var h60 = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10), admin = ROL === 'admin' || ROL === 'back';
+      var Q = [
+        sb.from('leads').select('*').order('updated_at', { ascending: false }).limit(1000),
+        sb.from('perfiles').select('id,nombre,rol,activo,disponible,nombre_matriz')];
+      if (admin) {
+        Q.push(sb.from('ventas_sync').select(SEL_V).not('estado', 'in', '(ACTIVO,INSTALADO,CANCELADO)').order('fecha_estado', { ascending: false, nullsFirst: false }).limit(1500));
+        Q.push(sb.from('ventas_sync').select(SEL_V).gte('fecha_estado', h60).order('fecha_estado', { ascending: false }).limit(2500));
+      } else {
+        Q.push(sb.from('ventas_sync').select(SEL_V).order('fecha_estado', { ascending: false, nullsFirst: false }).limit(1500));
+      }
+      if (ROL === 'concertador') Q.push(sb.from('comisiones_generadas').select('id_venta,monto,estado_pago,generada_en').eq('concertador_id', me.id));
+      if (ROL === 'cerrador' || ROL === 'admin') Q.push(sb.from('comision_tramos').select('*').eq('activa', true).order('desde'));
+      var R = await Promise.all(Q);
+      if (R[0].error) return;
+      var leads = R[0].data || [], per = (R[1].data || []), nom = {}, pn = {};
+      per.forEach(function (p) { pn[p.id] = p.nombre; });
+      leads.forEach(function (l) { nom[l.id] = l.cliente; });
+      var rows = [], vistos = {};
+      function suma(res) { (res && res.data || []).forEach(function (r) { var k = r.id_venta + '|' + r.fila_matriz; if (!vistos[k]) { vistos[k] = 1; rows.push(r); } }); }
+      suma(R[2]); if (admin) suma(R[3]);
+      var idx = admin ? 4 : 3, comis = [];
+      if (ROL === 'concertador') { comis = (R[idx] && R[idx].data) || []; idx++; }
+      if (ROL === 'cerrador' || ROL === 'admin') {
+        if (R[idx] && R[idx].error) { if (falta(R[idx].error)) TR_OK = false; } else if (R[idx]) TRAMOS = R[idx].data || [];
+      }
+      if (admin) {   // trae los demás servicios de las ventas que siguen pendientes, para que el avance sea real
+        var pend = {}; rows.forEach(function (r) { var m = macro(r.estado); if (m === 'TRA' || m === 'INC') pend[r.id_venta] = 1; });
+        var ids = Object.keys(pend).slice(0, 300), trozos = [];
+        for (var i = 0; i < ids.length; i += 150) trozos.push(ids.slice(i, i + 150));
+        var S = await Promise.all(trozos.map(function (t) { return sb.from('ventas_sync').select(SEL_V).in('id_venta', t); }));
+        S.forEach(suma);
+      }
+      var ventasG = agrupa(rows, nom), porLead = {};
+      ventasG.forEach(function (v) { if (v.lead) (porLead[v.lead] = porLead[v.lead] || []).push(v); });
+      D = { leads: leads, per: per, pn: pn, rows: rows, ventasG: ventasG, porLead: porLead, comis: comis };
+      avisaCambios(rows);
+    } catch (e) { console.error(e); }
+    ocupado = false;
+  }
+
+  function avisaCambios(rows) {
+    var act = {}; rows.forEach(function (r) { act[r.id_venta + '|' + r.fila_matriz] = N(r.estado); });
+    if (prevE) {
+      var cambios = rows.filter(function (r) { var k = r.id_venta + '|' + r.fila_matriz; return prevE[k] !== undefined && prevE[k] !== act[k]; });
+      if (cambios.length && ROL !== 'admin' && ROL !== 'back') {
+        var c = cambios[0], nm = (D && D.leads.filter(function (l) { return l.id === c.lead_id; })[0] || {}).cliente || c.id_venta;
+        toast('Venta de ' + nm + ': ' + tipoL(c.tipo_producto) + ' → ' + N(c.estado) + (cambios.length > 1 ? ' (y ' + (cambios.length - 1) + ' más)' : ''));
+      }
+    }
+    prevE = act;
+  }
+
+  /* ================= ETAPAS DE CLIENTES (por rol) ================= */
+  function e(k, t, i, c, f) { return { k: k, t: t, i: i, c: c, f: f }; }
+  var ET = {
+    cerrador: [
+      e('nue', 'Por contactar', '📥', 'info', function (l) { return l.estado === 'VIABLE' || l.estado === 'CITA_AGENDADA'; }),
+      e('con', 'Contactado', '📞', 'info', function (l) { return l.estado === 'CONTACTADO'; }),
+      e('nc', 'No contesta', '📵', 'warn', function (l) { return l.estado === 'NO_CONTESTA'; }),
+      e('rec', 'Recontactar', '🔁', 'warn', function (l) { return l.estado === 'RECONTACTAR'; }),
+      e('ven', 'Vendido', '🏆', 'ok', function (l) { return l.estado === 'VENDIDO'; }),
+      e('rech', 'Rechaza', '🚫', 'bad', function (l) { return l.estado === 'RECHAZA'; })],
+    concertador: [
+      e('cal', 'Por calentar (back)', '🔥', 'info', function (l) { return l.tipo_cita === 'CALENTAR' && (l.estado === 'CITA_AGENDADA' || l.estado === 'NUEVO'); }),
+      e('ges', 'En gestión del back', '☎️', 'info', function (l) { return l.estado === 'EN_REVISION'; }),
+      e('fal', 'Faltan datos / no contesta', '📝', 'warn', function (l) { return l.estado === 'FALTAN_DATOS'; }),
+      e('bol', 'Esperando cerrador', '📥', 'info', function (l) { return !l.cerrador_id && (l.estado === 'VIABLE' || l.estado === 'CITA_AGENDADA'); }),
+      e('cer', 'Con cerrador', '🤝', 'info', function (l) { return !!l.cerrador_id && abiertoL(l); }),
+      e('ven', 'Vendidos', '🏆', 'ok', function (l) { return l.estado === 'VENDIDO'; }),
+      e('per', 'No procede / rechazados', '🚫', 'bad', function (l) { return l.estado === 'NO_VIABLE' || l.estado === 'RECHAZA'; })],
+    back: [
+      e('cal', 'Por calentar', '🔥', 'info', function (l) { return !l.cerrador_id && (l.estado === 'CITA_AGENDADA' || l.estado === 'NUEVO'); }),
+      e('ges', 'En gestión', '☎️', 'info', function (l) { return !l.cerrador_id && l.estado === 'EN_REVISION'; }),
+      e('fal', 'Sin respuesta / faltan datos', '📵', 'warn', function (l) { return !l.cerrador_id && l.estado === 'FALTAN_DATOS'; }),
+      e('lis', 'Listos en bolsa', '✅', 'ok', function (l) { return !l.cerrador_id && l.estado === 'VIABLE'; }),
+      e('cer', 'Ya con cerrador', '🤝', 'info', function (l) { return !!l.cerrador_id && l.estado !== 'VENDIDO'; }),
+      e('ven', 'Vendidos', '🏆', 'ok', function (l) { return l.estado === 'VENDIDO'; }),
+      e('nov', 'No procede', '🚫', 'bad', function (l) { return l.estado === 'NO_VIABLE'; })],
+    admin: [
+      e('cal', 'Por calentar', '🔥', 'info', function (l) { return !l.cerrador_id && l.tipo_cita === 'CALENTAR' && (l.estado === 'CITA_AGENDADA' || l.estado === 'NUEVO'); }),
+      e('ges', 'En gestión del back', '☎️', 'info', function (l) { return !l.cerrador_id && (l.estado === 'EN_REVISION' || l.estado === 'FALTAN_DATOS'); }),
+      e('bol', 'En la bolsa', '📥', 'warn', function (l) { return !l.cerrador_id && (l.estado === 'VIABLE' || l.estado === 'CITA_AGENDADA'); }),
+      e('cer', 'Con cerrador', '🤝', 'info', function (l) { return !!l.cerrador_id && abiertoL(l); }),
+      e('ven', 'Vendidos', '🏆', 'ok', function (l) { return l.estado === 'VENDIDO'; }),
+      e('per', 'Perdidos', '🚫', 'bad', function (l) { return l.estado === 'NO_VIABLE' || l.estado === 'RECHAZA'; })]
+  };
+  function misLeads() { return ROL === 'back' ? D.leads.filter(function (l) { return l.tipo_cita === 'CALENTAR'; }) : D.leads; }
+  function etapas() {
+    var res = ET[ROL].map(function (d) { return { d: d, items: [] }; });
+    misLeads().forEach(function (l) { for (var i = 0; i < res.length; i++) { if (res[i].d.f(l)) { res[i].items.push(l); return; } } });
+    return res;
+  }
+
+  /* ================= COMPONENTES ================= */
+  function kpi(i, v, l, s, c) {
+    return '<div class="d15-k ' + (c || '') + '"><div class="d15-ki">' + i + '</div><div><div class="d15-kv">' + v + '</div><div class="d15-kl">' + l + '</div>' + (s ? '<div class="d15-ks">' + s + '</div>' : '') + '</div></div>';
+  }
+  function filaLead(l) {
+    var sv = D.porLead[l.id] || [], fl = [];
+    sv.forEach(function (v) { v.pend.forEach(function (p) { fl.push(tipoL(p.tipo_producto)); }); });
+    var cer = D.pn[l.cerrador_id];
+    return '<div class="d15-row" data-a="ficha" data-id="' + esc(l.id) + '"><div class="d15-av">' + esc(ini(l.cliente)) + '</div>' +
+      '<div class="d15-rt"><b>' + esc(l.cliente) + '</b><small>' + esc(l.telefono || '') + (l.localidad ? ' · ' + esc(l.localidad) : '') + ' · ' + hace(l.updated_at) +
+      (cer && ROL !== 'cerrador' ? ' · ' + esc(cer) : '') + '</small>' +
+      (fl.length ? '<div class="d15-falta">Falta activar: ' + esc(fl.join(', ')) + '</div>' : '') + '</div>' +
+      '<div class="d15-ra"><a class="k-b" href="' + esc(telHref(l.telefono)) + '">📞</a><a class="k-b" target="_blank" rel="noopener" href="https://wa.me/' + esc(waNum(l.telefono)) + '">💬</a></div></div>';
+  }
+  function chip(i) {
+    var m = macro(i.estado), c = m === 'ACT' ? 'ok' : (m === 'CAI' ? 'bad' : (m === 'INC' ? 'warn' : ''));
+    return '<span class="d15-chip ' + c + '">' + esc(tipoL(i.tipo_producto)) + (i.producto ? ' · ' + esc(i.producto) : '') + (i.numero_linea ? ' · ' + esc(i.numero_linea) : '') + ' <em>' + esc(N(i.estado) || '—') + '</em></span>';
+  }
+  function ventaCard(v) {
+    var m = MAC[v.estado], n = v.items.length, pct = n ? Math.round(v.act * 100 / n) : 0, quien = ROL === 'admin' || ROL === 'back';
+    var lead = D.leads.filter(function (l) { return l.id === v.lead; })[0];
+    return '<div class="d15-vc' + (lead ? ' click' : '') + '"' + (lead ? ' data-a="vficha" data-id="' + esc(lead.id) + '"' : '') + '>' +
+      '<div class="d15-vh"><div class="d15-av">' + esc(ini(v.nombre || v.campana || 'V')) + '</div><div class="d15-vt"><b>' + esc(v.nombre || 'Venta ' + v.id) + '</b>' +
+      '<small>' + esc(v.campana || '') + ' · ' + esc(v.id) + (quien && v.agente ? ' · ' + esc(v.agente) : '') + '</small></div><span class="badge b-' + m.c + '">' + m.t + '</span></div>' +
+      '<div class="d15-prog"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="d15-pm">' + v.act + ' de ' + n + ' servicios activos' + (v.f ? ' · último movimiento ' + hace(v.f) : '') + '</div>' +
+      '<div class="d15-chips">' + v.items.map(chip).join('') + '</div>' +
+      (v.pend.length ? '<div class="d15-falta">Falta activar: ' + esc(v.pend.map(function (p) { return tipoL(p.tipo_producto); }).join(', ')) + '</div>' : '') + '</div>';
+  }
+  function ordenPend(a, b) {
+    return (a.estado === 'INC' ? 0 : 1) - (b.estado === 'INC' ? 0 : 1) || new Date(a.f || 0) - new Date(b.f || 0);
+  }
+
+  /* ================= RESUMEN ================= */
+  function convMes() {
+    var s = {};
+    D.rows.forEach(function (r) { if (r.es_internet && macro(r.estado) === 'ACT' && esMes(r.fecha_estado)) s[r.id_venta] = 1; });
+    return Object.keys(s).length;
+  }
+  function tramoTxt(n) {
+    var t = TRAMOS.filter(function (x) { return !x.campana && x.rol === 'cerrador'; });
+    if (!t.length) return TR_OK ? 'Aún sin marcos configurados' : 'Falta ejecutar el SQL 15';
+    var cur = t.filter(function (x) { return n >= x.desde && (x.hasta == null || n <= x.hasta); })[0];
+    var sig = t.filter(function (x) { return x.desde > n; }).sort(function (a, b) { return a.desde - b.desde; })[0];
+    var s = cur ? 'Tramo ' + cur.desde + '–' + (cur.hasta == null ? '+' : cur.hasta) + ' · ≈ ' + soles(cur.modo === 'FIJO' ? cur.monto : cur.monto * n) : 'Aún sin tramo';
+    return s + (sig ? ' · faltan ' + (sig.desde - n) + ' para el siguiente' : '');
+  }
+  function pendServ() { var n = 0; D.ventasG.forEach(function (v) { n += v.pend.length; }); return n; }
+
+  function renderA() {
+    var h = document.getElementById('res15a'); if (!h || !D) return;
+    var L = D.leads, hoy = new Date().getHours(), sal = hoy < 12 ? 'Buenos días' : (hoy < 19 ? 'Buenas tardes' : 'Buenas noches');
+    var fecha = new Date().toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' });
+    var citasHoy = L.filter(function (l) { return abiertoL(l) && esHoy(l.fecha_cita); }).length, ab = L.filter(abiertoL).length, ps = pendServ();
+    var ven = L.filter(function (l) { return l.estado === 'VENDIDO'; }).length;
+    var inc = D.ventasG.filter(function (v) { return v.estado === 'INC'; }).length;
+    var sub = { cerrador: 'Tienes ' + ab + ' leads abiertos y ' + citasHoy + ' cita(s) hoy.', concertador: 'Tus clientes y cómo avanzan, en un vistazo.', back: 'Esto es lo que hay por calentar y por activar.', admin: 'Resumen general del equipo y de las ventas.' }[ROL];
+    var k = [];
+    if (ROL === 'cerrador') {
+      var n = convMes();
+      k = [kpi('📂', ab, 'Leads abiertos', '', 'info'), kpi('📅', citasHoy, 'Citas hoy', '', citasHoy ? 'warn' : ''),
+        kpi('⏳', ps, 'Servicios por activar', inc ? inc + ' venta(s) con incidencia' : '', ps ? 'warn' : 'ok'),
+        kpi('🏆', n, 'Convergentes activos del mes', tramoTxt(n) + ' (estimado)', 'ok')];
+    } else if (ROL === 'concertador') {
+      var tot = D.comis.reduce(function (a, c) { return a + Number(c.monto || 0); }, 0), pg = D.comis.filter(function (c) { return !/PAGAD/.test(N(c.estado_pago)); }).length;
+      k = [kpi('👥', L.length, 'Clientes registrados', '', 'info'), kpi('📅', citasHoy, 'Citas hoy', '', ''), kpi('🏆', ven, 'Vendidos', L.length ? Math.round(ven * 100 / L.length) + '% de conversión' : '', 'ok'),
+        kpi('⏳', ps, 'Servicios por activar', '', ps ? 'warn' : ''), kpi('💵', soles(tot), 'Comisión generada', pg ? pg + ' pendiente(s) de pago' : 'sin pendientes', 'ok')];
+    } else if (ROL === 'back') {
+      var ml = misLeads(), cn = function (f) { return ml.filter(f).length; };
+      k = [kpi('🔥', cn(function (l) { return !l.cerrador_id && (l.estado === 'CITA_AGENDADA' || l.estado === 'NUEVO'); }), 'Por calentar', '', 'info'),
+        kpi('☎️', cn(function (l) { return !l.cerrador_id && l.estado === 'EN_REVISION'; }), 'En gestión', '', ''),
+        kpi('📵', cn(function (l) { return !l.cerrador_id && l.estado === 'FALTAN_DATOS'; }), 'Sin respuesta', '', 'warn'),
+        kpi('⏳', ps, 'Servicios por activar', D.ventasG.filter(function (v) { return v.pend.length; }).length + ' ventas', 'warn'), kpi('⚠️', inc, 'Ventas con incidencia', '', inc ? 'bad' : 'ok')];
+    } else {
+      var venta = L.filter(function (l) { return l.estado === 'VENDIDO'; }).length, bolsa = L.filter(function (l) { return !l.cerrador_id && (l.estado === 'VIABLE' || (l.estado === 'CITA_AGENDADA' && l.tipo_cita === 'INTERESADO')); }).length;
+      var est = L.filter(function (l) { return abiertoL(l) && l.cerrador_id && dias(l.updated_at) >= 3; }).length;
+      k = [kpi('👥', L.length, 'Leads en total', L.filter(function (l) { return esHoy(l.created_at); }).length + ' nuevos hoy', 'info'), kpi('📥', bolsa, 'En la bolsa', '', bolsa ? 'warn' : ''),
+        kpi('🏆', venta, 'Leads vendidos', L.length ? Math.round(venta * 100 / L.length) + '% de conversión' : '', 'ok'),
+        kpi('⏳', ps, 'Servicios por activar', D.ventasG.filter(function (v) { return v.pend.length; }).length + ' ventas', 'warn'),
+        kpi('⚠️', inc, 'Ventas con incidencia', '', inc ? 'bad' : 'ok'), kpi('🐌', est, 'Leads estancados', '3+ días sin mover', est ? 'warn' : 'ok')];
+    }
+    h.innerHTML = '<div class="d15-hero"><div><small>' + esc(fecha) + '</small><h2>' + sal + ', ' + esc(String(perfil.nombre || '').split(' ')[0]) + '</h2><p>' + sub + '</p></div></div><div class="d15-kpis">' + k.join('') + '</div>';
+  }
+
+  function renderB() {
+    var h = document.getElementById('res15b'); if (!h || !D) return;
+    var es = etapas(), mx = Math.max.apply(null, es.map(function (x) { return x.items.length; }).concat([1]));
+    if (!SEL.etapa || !es.some(function (x) { return x.d.k === SEL.etapa; })) {
+      var p = es.filter(function (x) { return x.items.length; })[0]; SEL.etapa = p ? p.d.k : es[0].d.k;
+    }
+    var cur = es.filter(function (x) { return x.d.k === SEL.etapa; })[0];
+    var lst = cur.items.slice().sort(function (a, b) { return new Date(a.updated_at || 0) - new Date(b.updated_at || 0); });
+    var stages = es.map(function (x) {
+      return '<button class="d15-s ' + x.d.c + (x.d.k === SEL.etapa ? ' on' : '') + '" data-a="etapa" data-k="' + x.d.k + '"><span class="d15-si">' + x.d.i + '</span><span class="d15-sl">' + esc(x.d.t) + '</span><b>' + x.items.length + '</b><i style="width:' + Math.round(x.items.length * 100 / mx) + '%"></i></button>';
+    }).join('');
+    var cuenta = { TRA: 0, INC: 0, ACT: 0, CAI: 0 }, srv = { TRA: 0, INC: 0, ACT: 0, CAI: 0 };
+    D.ventasG.forEach(function (v) { cuenta[v.estado]++; });
+    D.ventasG.forEach(function (v) { v.items.forEach(function (i) { srv[macro(i.estado)]++; }); });
+    var macs = ['TRA', 'INC', 'ACT', 'CAI'].map(function (k) {
+      return '<button class="d15-m ' + MAC[k].c + '" data-a="vmac" data-m="' + k + '"><span>' + MAC[k].i + ' ' + MAC[k].t + (k === 'ACT' || k === 'CAI' ? ' (60 días)' : '') + '</span><b>' + cuenta[k] + '</b><span>' + srv[k] + ' servicio(s)</span></button>';
+    }).join('');
+    var top = D.ventasG.filter(function (v) { return v.pend.length; }).sort(ordenPend).slice(0, 4);
+    h.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>Clientes por estado</h3><span class="meta">Elige un estado para ver quién está ahí</span></div>' +
+      '<div class="d15-split"><div class="d15-stl">' + stages + '</div><div class="d15-dd"><h4>' + esc(cur.d.t) + ' · ' + lst.length + '</h4>' +
+      (lst.length ? lst.slice(0, 40).map(filaLead).join('') + (lst.length > 40 ? '<div class="meta" style="padding:8px">y ' + (lst.length - 40) + ' más…</div>' : '') : '<div class="d15-vacio">No hay clientes en este estado.</div>') + '</div></div></div>' +
+      '<div class="d15-sec"><div class="d15-sh"><h3>Ventas y servicios</h3><button class="sec" data-a="tab" data-k="ven">Ver todas →</button></div><div class="d15-macs">' + macs + '</div>' +
+      '<h4>Por activar · lo más urgente primero</h4>' + (top.length ? '<div class="d15-vl">' + top.map(ventaCard).join('') + '</div>' : '<div class="d15-vacio">No hay servicios pendientes de activar. 🎉</div>') + '</div>';
+  }
+
+  /* ================= PESTAÑA VENTAS ================= */
+  function pintaVentas() {
+    var pl = document.getElementById('v15p'), li = document.getElementById('v15l'); if (!pl || !li || !D) return;
+    var q = N(VF.q), tot = D.ventasG;
+    function hay(v) { return !q || N([v.nombre, v.id, v.campana, v.agente].concat(v.items.map(function (i) { return [i.tipo_producto, i.producto, i.numero_linea, i.estado].join(' '); })).join(' ')).indexOf(q) >= 0; }
+    var base = tot.filter(hay), cnt = { TODAS: base.length };
+    ['TRA', 'INC', 'ACT', 'CAI'].forEach(function (k) { cnt[k] = base.filter(function (v) { return v.estado === k; }).length; });
+    pl.innerHTML = [['TODAS', 'Todas']].concat(['TRA', 'INC', 'ACT', 'CAI'].map(function (k) { return [k, MAC[k].t]; })).map(function (x) {
+      return '<button class="d15-pill' + (VF.m === x[0] ? ' on' : '') + '" data-a="vf" data-m="' + x[0] + '">' + x[1] + '<b>' + cnt[x[0]] + '</b></button>';
+    }).join('');
+    var lista = base.filter(function (v) { return VF.m === 'TODAS' || v.estado === VF.m; });
+    lista.sort(function (a, b) { var pa = a.pend.length ? 0 : 1, pb = b.pend.length ? 0 : 1; return pa - pb || (pa === 0 ? ordenPend(a, b) : new Date(b.f || 0) - new Date(a.f || 0)); });
+    li.innerHTML = lista.length ? '<div class="d15-vl">' + lista.slice(0, MAXV).map(ventaCard).join('') + '</div>' +
+      (lista.length > MAXV ? '<p style="text-align:center;margin:14px 0 0"><button class="sec" data-a="vmas">Ver más (' + (lista.length - MAXV) + ')</button></p>' : '') :
+      '<div class="d15-vacio">No hay ventas con ese filtro. Las ventas llegan aquí unos minutos después de registrarse o cambiar de estado en MATRIZ.</div>';
+  }
+
+  /* ================= ADMIN · EQUIPO ================= */
+  var ROLES = [['admin', 'Administradores'], ['cerrador', 'Cerradores'], ['concertador', 'Concertadores'], ['back', 'Backs']];
+  async function pintaEquipo() {
+    var host = document.getElementById('eq15'); if (!host) return;
+    var r = await sb.from('perfiles').select('id,nombre,rol,activo,disponible,nombre_matriz').order('nombre');
+    if (r.error) { host.innerHTML = '<div class="d15-card"><div class="d15-vacio">No se pudo cargar el equipo.</div></div>'; return; }
+    var per = r.data || [];
+    var form = '<div class="d15-card"><h2>Nuevo usuario</h2><div class="d15-form">' +
+      '<div><label>Usuario (para entrar)</label><input id="eq-user" autocomplete="off" placeholder="ej. lucia"></div>' +
+      '<div><label>Nombre completo</label><input id="eq-nom" autocomplete="off"></div>' +
+      '<div><label>Rol</label><select id="eq-rol"><option value="concertador">Concertador</option><option value="cerrador">Cerrador</option><option value="back">Back</option><option value="admin">Administrador</option></select></div>' +
+      '<div><label>PIN (mínimo 6)</label><input id="eq-pin" autocomplete="off"></div>' +
+      '<div><label>Nombre en MATRIZ (solo cerradores)</label><input id="eq-mx" data-minus autocomplete="off" placeholder="Exacto, como en la columna V"></div>' +
+      '<div><button data-a="crear" style="width:100%">Crear usuario</button></div></div>' +
+      '<div class="meta" style="margin-top:8px">Entra con el usuario y el PIN. Los concertadores y backs no necesitan nombre en MATRIZ.</div></div>';
+    var listas = ROLES.map(function (rr) {
+      var g = per.filter(function (p) { return p.rol === rr[0]; });
+      if (!g.length) return '';
+      return '<div class="d15-card"><h2>' + rr[1] + ' · ' + g.length + '</h2>' + g.map(function (p) {
+        return '<div class="d15-row2" data-id="' + esc(p.id) + '"><div class="d15-av">' + esc(ini(p.nombre)) + '</div><div class="d15-rt"><b>' + esc(p.nombre) + '</b><small>' +
+          (p.rol === 'cerrador' ? (p.disponible ? 'Disponible hoy' : 'No disponible') : esc(p.rol)) + '</small></div>' +
+          (p.rol === 'cerrador' ? (p.nombre_matriz ? '' : '<span class="badge b-warn">Falta nombre MATRIZ</span>') + '<input class="eq-mx" data-minus placeholder="Nombre exacto en MATRIZ" value="' + esc(p.nombre_matriz || '') + '"><button class="sec" data-a="mx">Guardar</button>' : '') +
+          '<div class="switch"><input type="checkbox" class="eq-ac" ' + (p.activo !== false ? 'checked' : '') + (p.id === me.id ? ' disabled' : '') + '><span>Activo</span></div>' +
+          '<button class="sec" data-a="pin">Nuevo PIN</button></div>';
+      }).join('') + '</div>';
+    }).join('');
+    host.innerHTML = form + listas;
+  }
+  async function accionEquipo(b) {
+    var a = b.getAttribute('data-a'), fila = b.closest('.d15-row2'), id = fila && fila.getAttribute('data-id');
+    if (a === 'crear') {
+      var u = document.getElementById('eq-user').value.trim(), nm = document.getElementById('eq-nom').value.trim(), rol = document.getElementById('eq-rol').value,
+        pin = document.getElementById('eq-pin').value, mx = document.getElementById('eq-mx').value.trim();
+      if (!u || !nm || !pin) return toast('Completa usuario, nombre y PIN', true);
+      if (pin.length < 6) return toast('El PIN debe tener al menos 6 caracteres', true);
+      if (rol === 'cerrador' && !mx && !confirm('Este cerrador no tiene nombre en MATRIZ y no podrá registrar ventas hasta tenerlo.\n\n¿Crear igual?')) return;
+      b.disabled = true;
+      var r = await sb.rpc('admin_crear_usuario', { p_usuario: u, p_pin: pin, p_nombre: nm, p_rol: rol, p_nombre_matriz: mx || null });
+      b.disabled = false;
+      if (r.error) return toast(falta(r.error) ? 'Falta ejecutar 15_admin_ventas_tramos.sql en Supabase' : limpio(r.error.message), true);
+      toast('Usuario creado: ' + r.data + '. Ya puede entrar con su PIN.'); pintaEquipo();
+    } else if (a === 'mx') {
+      var v = fila.querySelector('.eq-mx').value.trim();
+      var u2 = await sb.from('perfiles').update({ nombre_matriz: v || null }).eq('id', id);
+      if (u2.error) return toast(limpio(u2.error.message), true);
+      toast('Nombre en MATRIZ guardado'); pintaEquipo();
+    } else if (a === 'pin') {
+      var np = prompt('Nuevo PIN para este usuario (mínimo 6 caracteres):');
+      if (np === null) return;
+      if (np.length < 6) return toast('El PIN debe tener al menos 6 caracteres', true);
+      var r2 = await sb.rpc('admin_reset_pin', { p_id: id, p_pin: np });
+      if (r2.error) return toast(falta(r2.error) ? 'Falta ejecutar 15_admin_ventas_tramos.sql en Supabase' : limpio(r2.error.message), true);
+      toast('PIN actualizado');
+    }
+  }
+
+  /* ================= ADMIN · MARCOS DE COMISIÓN ================= */
+  async function pintaTramos() {
+    var host = document.getElementById('tr15'); if (!host) return;
+    var r = await sb.from('comision_tramos').select('*').eq('activa', true).order('campana', { nullsFirst: true }).order('desde');
+    if (r.error) { host.innerHTML = '<div class="d15-card"><h2>Marcos de comisión del cerrador</h2><div class="d15-vacio">' + (falta(r.error) ? 'Ejecuta <b>15_admin_ventas_tramos.sql</b> en Supabase para activar los marcos.' : 'No se pudieron cargar los marcos.') + '</div></div>'; return; }
+    TRAMOS = r.data || []; TR_OK = true;
+    var camps = CAMPS.slice(); ((D && D.rows) || []).forEach(function (x) { if (x.campana && camps.indexOf(x.campana) < 0) camps.push(x.campana); });
+    host.innerHTML = '<div class="d15-card"><h2>Marcos de comisión del cerrador</h2>' +
+      '<div class="meta" style="margin-bottom:10px">Se miden en <b>convergentes activos en el mes</b>. «Por venta» paga el monto por cada convergente; «Fijo» paga el monto una vez al llegar al tramo. El cerrador ve su tramo estimado en su Resumen; la comisión oficial se sigue calculando como hoy.</div>' +
+      (TRAMOS.length ? '<div style="overflow-x:auto"><table class="d15-tbl"><thead><tr><th>Campaña</th><th>Desde</th><th>Hasta</th><th>Modo</th><th>Monto</th><th></th></tr></thead><tbody>' +
+        TRAMOS.map(function (t) {
+          return '<tr><td>' + esc(t.campana || 'Todas') + '</td><td>' + t.desde + '</td><td>' + (t.hasta == null ? 'sin tope' : t.hasta) + '</td><td>' + (t.modo === 'FIJO' ? 'Fijo' : 'Por venta') + '</td><td>' + soles(t.monto) + '</td>' +
+            '<td><button class="sec" data-a="trdel" data-id="' + esc(t.id) + '" style="padding:4px 10px;font-size:.8em">Quitar</button></td></tr>';
+        }).join('') + '</tbody></table></div>' : '<div class="d15-vacio">Aún no hay marcos. Agrega el primero abajo.</div>') +
+      '<h3 style="margin:18px 0 8px;font-size:.95em">Agregar tramo</h3><div class="d15-form">' +
+      '<div><label>Campaña</label><select id="tr-camp"><option value="">Todas</option>' + camps.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('') + '</select></div>' +
+      '<div><label>Desde (convergentes)</label><input id="tr-d" type="number" min="0" step="1"></div>' +
+      '<div><label>Hasta (vacío = sin tope)</label><input id="tr-h" type="number" min="0" step="1"></div>' +
+      '<div><label>Modo</label><select id="tr-m"><option value="POR_VENTA">Por venta</option><option value="FIJO">Fijo del tramo</option></select></div>' +
+      '<div><label>Monto (S/)</label><input id="tr-mo" type="number" min="0" step="0.01"></div>' +
+      '<div><button data-a="tradd" style="width:100%">Agregar</button></div></div></div>';
+  }
+  async function accionTramo(b) {
+    var a = b.getAttribute('data-a');
+    if (a === 'trdel') {
+      if (!confirm('¿Quitar este tramo? Deja de aplicarse desde ahora.')) return;
+      var r = await sb.from('comision_tramos').update({ activa: false }).eq('id', b.getAttribute('data-id'));
+      if (r.error) return toast(limpio(r.error.message), true);
+      toast('Tramo quitado'); pintaTramos(); return;
+    }
+    var camp = document.getElementById('tr-camp').value || null, d = parseInt(document.getElementById('tr-d').value, 10),
+      hs = document.getElementById('tr-h').value, h = hs === '' ? null : parseInt(hs, 10), mo = parseFloat(document.getElementById('tr-mo').value);
+    if (isNaN(d) || d < 0) return toast('Escribe desde cuántos convergentes empieza', true);
+    if (h !== null && (isNaN(h) || h < d)) return toast('«Hasta» no puede ser menor que «Desde»', true);
+    if (isNaN(mo) || mo < 0) return toast('Escribe un monto válido', true);
+    var choca = TRAMOS.some(function (t) { return (t.campana || null) === camp && d <= (t.hasta == null ? 1e9 : t.hasta) && (h == null ? 1e9 : h) >= t.desde; });
+    if (choca && !confirm('Este tramo se cruza con otro de la misma campaña. ¿Agregar igual?')) return;
+    b.disabled = true;
+    var ins = await sb.from('comision_tramos').insert({ rol: 'cerrador', campana: camp, desde: d, hasta: h, modo: document.getElementById('tr-m').value, monto: mo });
+    b.disabled = false;
+    if (ins.error) return toast(limpio(ins.error.message), true);
+    toast('Tramo agregado'); pintaTramos();
+  }
+
+  /* ================= ARMADO DE PESTAÑAS ================= */
+  var TABS = {
+    cerrador: [['res', 'Resumen', '🏠'], ['tab', 'Tablero', '🗂️'], ['bol', 'Bolsa', '📥'], ['ven', 'Mis ventas', '💰']],
+    concertador: [['res', 'Resumen', '🏠'], ['nue', 'Nuevo cliente', '➕'], ['lis', 'Mis leads', '📋'], ['ven', 'Ventas', '💰']],
+    back: [['res', 'Resumen', '🏠'], ['tab', 'Tablero', '🗂️'], ['col', 'Cola', '🔥'], ['hec', 'Gestionados', '✅'], ['ven', 'Ventas', '💰']],
+    admin: [['res', 'Resumen', '🏠'], ['ven', 'Ventas', '💰'], ['ate', 'Atención', '🚨'], ['der', 'Derivar', '🔀'], ['equ', 'Equipo', '👥'], ['com', 'Comisiones', '💵']]
+  };
+  /* qué bloques ya existentes van a cada pestaña: [selector, cómo] (self = el mismo; card = su tarjeta; parent = su columna) */
+  var MAPA = {
+    cerrador: { resMid: [['#tareas14', 'self']], tab: [['#kanban', 'self']], bol: [['#stats', 'self'], ['#bolsa', 'parent']] },
+    concertador: { nue: [['#nf', 'card']], lis: [['#lista', 'parent']] },
+    back: { tab: [['#back14', 'self']], col: [['#bstats', 'self'], ['#cola', 'parent']], hec: [['#hechos', 'parent']] },
+    admin: { resFin: [['#admCharts', 'self']], ate: [['#admExtra14', 'self']], der: [['#deriva', 'parent']], equ2: [['#cerr', 'card'], ['#conv', 'card']], com2: [['#reglas', 'card']] }
+  };
+  function sacar(sel, how) {
+    var el = document.querySelector(sel); if (!el) return null;
+    if (how === 'card') return el.closest('.card') || el;
+    if (how === 'parent') return el.parentElement;
+    return el;
+  }
+  function mueve(lista, dest) { (lista || []).forEach(function (x) { var el = sacar(x[0], x[1]); if (el && el.parentNode !== dest) dest.appendChild(el); }); }
+
+  function irTab(k) {
+    TABACT = k;
+    document.querySelectorAll('#tabs15 .t15').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-k') === k); });
+    document.querySelectorAll('.p15').forEach(function (p) { p.hidden = p.id !== 'p15-' + k; });
+    if (k === 'equ') pintaEquipo();
+    if (k === 'com') pintaTramos();
+    if (k === 'ven') pintaVentas();
+    var t = document.getElementById('tabs15'); if (t && t.getBoundingClientRect().top < 0) t.scrollIntoView({ block: 'start' });
+  }
+
+  function armar(rol) {
+    var main = document.getElementById('main'); if (!main || document.getElementById('tabs15')) return;
+    ROL = rol; D = null; SEL = { etapa: null }; VF = { m: 'TODAS', q: '' }; MAXV = 40; prevE = null; TABACT = 'res';
+    var vp = document.getElementById('ventasPanel'); if (vp) vp.remove();     // lo reemplaza la pestaña de ventas
+    var disp = document.getElementById('disp'); disp = disp ? disp.closest('.card') : null;
+
+    var bar = document.createElement('nav'); bar.id = 'tabs15';
+    bar.innerHTML = TABS[rol].map(function (t) { return '<button class="t15" type="button" data-k="' + t[0] + '"><span>' + t[2] + '</span>' + t[1] + '</button>'; }).join('');
+    var panels = document.createElement('div'); panels.id = 'panels15';
+    var hold = document.createElement('div'); hold.id = 'hold15'; hold.style.display = 'none';
+    TABS[rol].forEach(function (t) { var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-' + t[0]; s.hidden = true; panels.appendChild(s); });
+
+    if (disp) { disp.insertAdjacentElement('afterend', bar); } else main.insertBefore(bar, main.firstChild);
+    bar.insertAdjacentElement('afterend', panels); panels.insertAdjacentElement('afterend', hold);
+
+    var M = MAPA[rol] || {}, P = function (k) { return document.getElementById('p15-' + k); };
+    // Resumen
+    var res = P('res'), a = document.createElement('div'), b = document.createElement('div');
+    a.id = 'res15a'; b.id = 'res15b'; a.innerHTML = '<div class="d15-vacio">Cargando tu resumen…</div>';
+    res.appendChild(a); mueve(M.resMid, res); res.appendChild(b); mueve(M.resFin, res);
+    // Ventas
+    var v = P('ven');
+    v.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>' + (rol === 'admin' || rol === 'back' ? 'Ventas del equipo' : 'Mis ventas') + '</h3><span class="meta">Servicios activos de cada venta y lo que falta por activar</span></div>' +
+      '<div class="d15-vbar"><input id="v15q" placeholder="Buscar cliente, ID de venta, agente o servicio"><div class="d15-pills" id="v15p"></div></div><div id="v15l"><div class="d15-vacio">Cargando…</div></div></div>';
+    // resto de pestañas
+    ['tab', 'bol', 'nue', 'lis', 'col', 'hec', 'ate', 'der'].forEach(function (k) { if (P(k)) mueve(M[k], P(k)); });
+    if (P('equ')) { var eq = document.createElement('div'); eq.id = 'eq15'; P('equ').appendChild(eq); mueve(M.equ2, P('equ')); }
+    if (P('com')) { var tr = document.createElement('div'); tr.id = 'tr15'; P('com').appendChild(tr); mueve(M.com2, P('com')); }
+    // lo que sobre (rejillas vacías, indicadores originales) se guarda oculto: las funciones antiguas siguen escribiendo en ellos
+    Array.prototype.slice.call(main.children).forEach(function (c) { if (c !== bar && c !== panels && c !== hold && c !== disp) hold.appendChild(c); });
+
+    bar.addEventListener('click', function (ev) { var bt = ev.target.closest('.t15'); if (bt) irTab(bt.getAttribute('data-k')); });
+    panels.addEventListener('click', clic);
+    panels.addEventListener('change', function (ev) {
+      var t = ev.target;
+      if (t.classList.contains('eq-ac')) {
+        var id = t.closest('.d15-row2').getAttribute('data-id'), val = t.checked;
+        sb.from('perfiles').update({ activo: val }).eq('id', id).then(function (r) {
+          if (r.error) { t.checked = !val; return toast(limpio(r.error.message), true); }
+          toast(val ? 'Usuario activado' : 'Usuario desactivado');
+        });
+      }
+    });
+    panels.addEventListener('input', function (ev) { if (ev.target.id === 'v15q') { VF.q = ev.target.value; MAXV = 40; pintaVentas(); } });
+    irTab('res');
+    refresca();
+    clearInterval(tmr);
+    tmr = setInterval(function () { if (!document.getElementById('tabs15')) { clearInterval(tmr); return; } refresca(); }, 40000);
+    // un usuario desactivado no debe seguir trabajando
+    sb.from('perfiles').select('activo').eq('id', me.id).maybeSingle().then(function (r) {
+      if (r.data && r.data.activo === false) { toast('Tu usuario está desactivado. Avisa al administrador.', true); sb.auth.signOut().then(function () { if (typeof loginView === 'function') loginView(); }); }
+    });
+  }
+
+  async function refresca() {
+    await cargar();
+    if (!document.getElementById('tabs15')) return;
+    renderA(); renderB(); pintaVentas();
+  }
+  window.refrescar15 = refresca;
+
+  function clic(ev) {
+    var b = ev.target.closest('[data-a]'); if (!b) return;
+    if (!b.closest('#res15a,#res15b,#p15-ven,#eq15,#tr15')) return;   // los bloques 13 y 14 manejan lo suyo
+    if (ev.target.closest('a') && b.getAttribute('data-a') === 'ficha') return;   // llamar / WhatsApp
+    var a = b.getAttribute('data-a'), id = b.getAttribute('data-id');
+    function lead(i) { return D && D.leads.filter(function (l) { return String(l.id) === String(i); })[0]; }
+    if (a === 'etapa') { SEL.etapa = b.getAttribute('data-k'); renderB(); }
+    else if (a === 'ficha' || a === 'vficha') { var l = lead(id); if (l && typeof window.fichaLead === 'function') window.fichaLead(l, [l], 0); }
+    else if (a === 'tab') irTab(b.getAttribute('data-k'));
+    else if (a === 'vmac') { VF.m = b.getAttribute('data-m'); VF.q = ''; var q = document.getElementById('v15q'); if (q) q.value = ''; MAXV = 40; irTab('ven'); }
+    else if (a === 'vf') { VF.m = b.getAttribute('data-m'); MAXV = 40; pintaVentas(); }
+    else if (a === 'vmas') { MAXV += 40; pintaVentas(); }
+    else if (a === 'crear' || a === 'mx' || a === 'pin') accionEquipo(b);
+    else if (a === 'tradd' || a === 'trdel') accionTramo(b);
+  }
+
+  /* ================= ENGANCHE CON LAS VISTAS ================= */
+  [['concertadorView', 'concertador'], ['cerradorView', 'cerrador'], ['backView', 'back'], ['adminView', 'admin']].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () {
+      var r = o.apply(this, arguments);
+      try { armar(p[1]); } catch (e) { console.error(e); }
+      return r;
+    };
+  });
+  var origLogin = window.loginView;
+  if (typeof origLogin === 'function') {
+    window.loginView = function () {
+      clearInterval(tmr); D = null; prevE = null;
+      return origLogin.apply(this, arguments);
+    };
+  }
+})();
  </script>
 </body>
 </html>
