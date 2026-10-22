@@ -1103,9 +1103,9 @@ function ventaForm(l) {
     }
     var enCola = [];
     try {   // puede no estar permitido según el rol: entonces simplemente no se muestra
-      var V = await sb.from('ventas').select('codigo_venta,lead_id,cliente,campana,created_at,exportada_at')
+      var V = await sb.from('ventas').select('codigo_venta,lead_id,cliente,campana,created_at,exportada_at,anulada_at')
         .order('created_at', { ascending: false }).limit(30);
-      if (!V.error) enCola = (V.data || []).filter(function (v) { return !vistos[v.codigo_venta]; });
+      if (!V.error) enCola = (V.data || []).filter(function (v) { return !vistos[v.codigo_venta] && !v.anulada_at; });
     } catch (e) { }
     return { rows: rows, nombres: nombres, enCola: enCola };
   }
@@ -2994,6 +2994,178 @@ function ventaForm(l) {
           b.style.cssText = 'flex:none;margin-left:auto;padding:8px 15px'; b.onclick = manual; bar.appendChild(b);
         }
       } catch (e) { console.error(e); }
+      return r;
+    };
+  }
+})();
+  /* 18 · Pestaña «Corregir» del admin: anular ventas mal cargadas y mover un lead a otro cerrador o al back
+   PEGAR al final, DESPUÉS del bloque 17 y antes del cierre del script. Antes ejecuta 18_admin_correcciones.sql.
+   - Ventas: busca por cliente, DNI, teléfono, agente o ID; marca varias y las anula con un motivo. Se pueden restaurar.
+   - Leads: busca un lead y lo manda a otro cerrador o lo devuelve al back (queda en el historial).
+   Usa solo las variables de color del diseño (claro y oscuro). */
+(function () {
+  var ST = { sel: {}, tok: 0, vis: [] }, LT = { cer: [], tok: 0 }, tV = null, tL = null;
+
+  function $(i) { return document.getElementById(i); }
+  function limpiaT(t) { return String(t || '').replace(/[,()%*\\"']/g, ' ').trim(); }
+  function falta(e) { return /PGRST202|PGRST205|42P01|42883|admin_anular|admin_mover|admin_restaurar|ventas_anuladas/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 18_admin_correcciones.sql en Supabase' : limpio(e.message || ''); }
+  function ini(s) { return String(s || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || '?'; }
+
+  var css = document.createElement('style');
+  css.textContent = [
+    '.z-row{display:flex;gap:12px;align-items:flex-start;padding:10px 8px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:10px;margin:0;font-size:1em;font-weight:400;color:var(--ink)}',
+    '.z-row:hover{background:var(--acc2)}.z-row:last-child{border-bottom:0}',
+    '.z-row input[type=checkbox]{width:20px;height:20px;padding:0;flex:none;margin-top:2px}',
+    '.z-i{min-width:0;flex:1}.z-i .meta{margin-top:2px}',
+    '.z-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0 4px}',
+    '.z-del{background:var(--bad);color:#fff}.z-del:hover{background:color-mix(in srgb,var(--bad) 80%,#000)}',
+    '.z-box{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:14px;padding:4px}'
+  ].join('');
+  document.head.appendChild(css);
+
+  /* ---------- Ventas ---------- */
+  function cuenta() {
+    var n = Object.keys(ST.sel).filter(function (k) { return ST.sel[k]; }).length, b = $('z-anular');
+    if (b) { b.textContent = '🗑 Anular seleccionadas (' + n + ')'; b.disabled = !n; }
+  }
+  async function cargarV() {
+    var out = $('z-ventas'); if (!out) return;
+    var tok = ++ST.tok, t = limpiaT($('z-q').value), o = $('z-o').value;
+    var q = sb.from('ventas_sync').select('id_venta,lead_id,cliente,dni,telefono,campana,agente,tipo_producto,producto,estado,fecha_venta,fecha_estado')
+      .order('fecha_venta', { ascending: false, nullsFirst: false }).limit(400);
+    if (t.length >= 2) q = q.or('id_venta.ilike.*' + t + '*,cliente.ilike.*' + t + '*,dni.ilike.*' + t + '*,telefono.ilike.*' + t + '*,agente.ilike.*' + t + '*');
+    if (o === 'CRM') q = q.not('lead_id', 'is', null); else if (o === 'MATRIZ') q = q.is('lead_id', null);
+    var r = await q;
+    if (tok !== ST.tok) return;
+    if (r.error) { out.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
+    var g = {}, ord = [];
+    (r.data || []).forEach(function (x) {
+      var v = g[x.id_venta];
+      if (!v) { v = g[x.id_venta] = { id: x.id_venta, lead: x.lead_id, cli: x.cliente, dni: x.dni, tel: x.telefono, camp: x.campana, ag: x.agente, fv: x.fecha_venta, it: [] }; ord.push(v); }
+      v.it.push(x); if (!v.cli) v.cli = x.cliente; if (!v.dni) v.dni = x.dni;
+    });
+    ST.vis = ord.slice(0, 60).map(function (v) { return v.id; });
+    out.innerHTML = ord.length ? ord.slice(0, 60).map(function (v) {
+      return '<label class="z-row"><input type="checkbox" data-z="sel" data-id="' + esc(v.id) + '"' + (ST.sel[v.id] ? ' checked' : '') + '><div class="z-i">' +
+        '<b>' + esc(v.cli || 'Sin nombre') + '</b> <span class="badge ' + (v.lead ? 'b-info' : 'b-warn') + '">' + (v.lead ? 'CRM' : 'MATRIZ') + '</span>' +
+        '<div class="meta">DNI ' + esc(v.dni || '—') + (v.tel ? ' · ' + esc(v.tel) : '') + ' · ' + esc(v.camp || '—') + (v.ag ? ' · ' + esc(v.ag) : '') + '</div>' +
+        '<div class="meta">' + esc(v.id) + (v.fv ? ' · ' + fmt(v.fv) : '') + '</div>' +
+        '<div class="meta">' + v.it.map(function (i) { return esc(String(i.tipo_producto || '') + ' ' + String(i.estado || '')); }).join(' · ') + '</div></div></label>';
+    }).join('') + (ord.length > 60 ? '<div class="meta" style="padding:10px">Hay más: afina la búsqueda para verlas.</div>' : '')
+      : '<div class="d15-vacio">No hay ventas con ese filtro.</div>';
+    cuenta();
+  }
+  async function cargarA() {
+    var out = $('z-anul'); if (!out) return;
+    var r = await sb.from('ventas_anuladas').select('*').order('anulada_en', { ascending: false }).limit(15);
+    if (r.error) { out.innerHTML = '<div class="meta">' + esc(msg(r.error)) + '</div>'; return; }
+    out.innerHTML = (r.data && r.data.length) ? r.data.map(function (a) {
+      return '<div class="d15-row2"><div class="d15-rt"><b>' + esc(a.cliente || a.id_venta) + '</b><small>' + esc(a.id_venta) + ' · ' + fmt(a.anulada_en) + ' · ' + esc(a.anulada_por_nombre || '') + ' · ' + esc(a.motivo) + '</small></div>' +
+        '<button class="sec" data-z="rest" data-id="' + esc(a.id_venta) + '">Restaurar</button></div>';
+    }).join('') : '<div class="meta">Aún no hay ventas anuladas.</div>';
+  }
+  async function anular() {
+    var ids = Object.keys(ST.sel).filter(function (k) { return ST.sel[k]; });
+    if (!ids.length) return toast('Marca al menos una venta', true);
+    var m = prompt('Motivo de la anulación de ' + ids.length + ' venta(s).\nSe quitan del CRM y de las comisiones.'); if (m === null) return;
+    m = m.trim(); if (!m) return toast('El motivo es obligatorio', true);
+    if (!confirm('¿Anular ' + ids.length + ' venta(s)? Si fue un error podrás restaurarla desde esta pantalla.')) return;
+    var b = $('z-anular'); if (b) b.disabled = true;
+    var r = await sb.rpc('admin_anular_ventas', { p_ids: ids, p_motivo: m });
+    if (r.error) { cuenta(); return toast(msg(r.error), true); }
+    toast(r.data + ' venta(s) anulada(s)'); ST.sel = {};
+    cargarV(); cargarA(); try { if (window.refrescar15) window.refrescar15(); } catch (_) { }
+  }
+  async function restaurar(id) {
+    if (!confirm('¿Restaurar la venta ' + id + '? Las ventas de MATRIZ vuelven en la próxima sincronización (hasta 10 min).')) return;
+    var r = await sb.rpc('admin_restaurar_venta', { p_id: id });
+    if (r.error) return toast(msg(r.error), true);
+    toast('Venta restaurada'); cargarV(); cargarA();
+  }
+
+  /* ---------- Leads ---------- */
+  async function cargarL() {
+    var out = $('z-leads'); if (!out) return;
+    var tok = ++LT.tok, t = limpiaT($('z-lq').value);
+    if (!LT.cer.length) {
+      var c = await sb.from('perfiles').select('id,nombre,disponible').eq('rol', 'cerrador').eq('activo', true).order('nombre');
+      LT.cer = c.data || [];
+    }
+    var q = sb.from('leads').select('*').order('updated_at', { ascending: false }).limit(12);
+    if (t.length >= 2) q = q.or('cliente.ilike.*' + t + '*,dni.ilike.*' + t + '*,telefono.ilike.*' + t + '*');
+    var r = await q;
+    if (tok !== LT.tok) return;
+    if (r.error) { out.innerHTML = '<div class="d15-vacio">' + esc(limpio(r.error.message)) + '</div>'; return; }
+    var nom = {}; LT.cer.forEach(function (p) { nom[p.id] = p.nombre; });
+    var opts = LT.cer.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.nombre) + (p.disponible ? '' : ' (no disponible)') + '</option>'; }).join('');
+    out.innerHTML = (r.data && r.data.length) ? r.data.map(function (l) {
+      return '<div class="d15-vc" data-lid="' + esc(l.id) + '" style="margin-bottom:10px"><div class="d15-vh"><div class="d15-av">' + esc(ini(l.cliente)) + '</div>' +
+        '<div class="d15-vt"><b>' + esc(l.cliente) + '</b><small>' + esc(l.telefono || '') + ' · ' + esc(l.tipo_cita || '') + ' · ' + (l.cerrador_id ? 'con ' + esc(nom[l.cerrador_id] || 'cerrador') : 'sin cerrador') + '</small></div>' +
+        '<span class="badge ' + tono(l.estado) + '">' + esc(l.estado) + '</span></div>' +
+        '<div class="row" style="margin-top:10px"><select class="z-dest"><option value="">Enviar a…</option>' + opts + '<option value="BACK">↩ Devolver al back (por calentar)</option></select>' +
+        '<input class="z-com" data-minus placeholder="Comentario (opcional)"><button data-z="mover">Mover</button></div></div>';
+    }).join('') : '<div class="d15-vacio">No se encontró ese lead.</div>';
+  }
+  async function mover(b) {
+    var card = b.closest('[data-lid]'), dest = card.querySelector('.z-dest').value, com = card.querySelector('.z-com').value.trim();
+    if (!dest) return toast('Elige a dónde enviarlo', true);
+    var nombre = card.querySelector('b').textContent, etq = dest === 'BACK' ? 'al back' : 'al cerrador elegido';
+    if (!confirm('¿Enviar a ' + nombre + ' ' + etq + '?')) return;
+    b.disabled = true;
+    var r = await sb.rpc('admin_mover_lead', { p_lead: card.getAttribute('data-lid'), p_destino: dest === 'BACK' ? 'BACK' : 'CERRADOR', p_cerrador: dest === 'BACK' ? null : dest, p_comentario: com || null });
+    b.disabled = false;
+    if (r.error) return toast(msg(r.error), true);
+    toast('Lead movido'); cargarL();
+    try { if (typeof cargarAdmin === 'function') cargarAdmin(true); if (window.refrescar15) window.refrescar15(); } catch (_) { }
+  }
+
+  /* ---------- Montaje ---------- */
+  function abrir() { cargarV(); cargarA(); cargarL(); }
+  function montar() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-cor')) return;
+    ST = { sel: {}, tok: 0, vis: [] }; LT = { cer: [], tok: 0 };
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-cor'; s.hidden = true;
+    s.innerHTML =
+      '<div class="d15-sec"><div class="d15-sh"><h3>Ventas mal cargadas</h3><span class="meta">Anular una venta la quita del CRM y de las comisiones, y no vuelve a entrar desde MATRIZ</span></div>' +
+      '<div class="d15-form"><div><label>Buscar</label><input id="z-q" data-minus placeholder="Cliente, DNI, teléfono, agente o ID de venta"></div>' +
+      '<div><label>Origen</label><select id="z-o"><option value="TODAS">Todas</option><option value="CRM">Hechas desde el CRM</option><option value="MATRIZ">Solo en MATRIZ (sin lead)</option></select></div></div>' +
+      '<div class="z-bar"><button class="z-del" id="z-anular" data-z="anular" disabled>🗑 Anular seleccionadas (0)</button><button class="sec" data-z="todas">Marcar las visibles</button><button class="sec" data-z="nada">Quitar marcas</button></div>' +
+      '<div class="z-box" id="z-ventas"><div class="d15-vacio">Cargando…</div></div>' +
+      '<h4>Anuladas recientes</h4><div id="z-anul"></div></div>' +
+      '<div class="d15-sec"><div class="d15-sh"><h3>Corregir el destino de un lead</h3><span class="meta">Para cuando se envió al cerrador y debía ir al back, o al cerrador equivocado</span></div>' +
+      '<div class="d15-form"><div><label>Buscar lead</label><input id="z-lq" data-minus placeholder="Cliente, DNI o teléfono (vacío = los más recientes)"></div></div>' +
+      '<div id="z-leads" style="margin-top:12px"><div class="d15-vacio">Cargando…</div></div></div>';
+    panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'cor'); bt.innerHTML = '<span>🛠️</span>Corregir';
+    bar.appendChild(bt);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'cor') abrir(); });
+
+    s.addEventListener('input', function (e) {
+      if (e.target.id === 'z-q') { clearTimeout(tV); tV = setTimeout(cargarV, 350); }
+      else if (e.target.id === 'z-lq') { clearTimeout(tL); tL = setTimeout(cargarL, 350); }
+    });
+    s.addEventListener('change', function (e) {
+      var t = e.target;
+      if (t.id === 'z-o') cargarV();
+      else if (t.getAttribute('data-z') === 'sel') { ST.sel[t.getAttribute('data-id')] = t.checked; cuenta(); }
+    });
+    s.addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-z]'); if (!b) return;
+      var a = b.getAttribute('data-z');
+      if (a === 'anular') anular();
+      else if (a === 'rest') restaurar(b.getAttribute('data-id'));
+      else if (a === 'mover') mover(b);
+      else if (a === 'todas') { ST.vis.forEach(function (id) { ST.sel[id] = true; }); s.querySelectorAll('input[data-z="sel"]').forEach(function (c) { c.checked = true; }); cuenta(); }
+      else if (a === 'nada') { ST.sel = {}; s.querySelectorAll('input[data-z="sel"]').forEach(function (c) { c.checked = false; }); cuenta(); }
+    });
+  }
+
+  var o = window.adminView;
+  if (typeof o === 'function') {
+    window.adminView = function () {
+      var r = o.apply(this, arguments);
+      try { montar(); } catch (e) { console.error(e); }
       return r;
     };
   }
