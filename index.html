@@ -1055,6 +1055,13 @@ function ventaForm(l) {
       if (typeof bolsa === 'function') bolsa();
     };
   };
+     var _n = 0, _h = setInterval(function () {
+     if (++_n > 40) return clearInterval(_h);
+     if (typeof perfil !== 'undefined' && perfil && perfil.rol === 'cerrador') {
+       clearInterval(_h);
+       cargarCat().then(function () { if (!cat.length) cat = null; }).catch(function () {});
+     }
+   }, 1500);
 })();
  </script>
 </body>
