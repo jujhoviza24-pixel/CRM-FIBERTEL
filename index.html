@@ -1048,7 +1048,7 @@ function ventaForm(l) {
         p_observaciones: q('#vf3_obs').value.trim(), p_enlaces: q('#vf3_enl').value.trim(), p_productos: lista
       });
       btn.disabled = false;
-      if (r.error) return aviso(msgErr(r.error), true);
+         if (r.error) { ov.style.display = ''; return aviso(msgErr(r.error), true); }
       aviso('Venta registrada: ' + r.data);
       cerrar();
       if (typeof mios === 'function') mios();
