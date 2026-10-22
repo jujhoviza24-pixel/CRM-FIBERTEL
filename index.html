@@ -1199,6 +1199,876 @@ function ventaForm(l) {
     window[n] = function () { var r = o.apply(this, arguments); try { iniciar(); } catch (e) { console.error(e); } return r; };
   });
 })();
+  /* 13 · Rediseño del CRM (ideas de Pipedrive, Close, Attio, HubSpot, Salesforce y Monday)
+   PEGAR antes del cierre final del script, DESPUÉS de todos los demás bloques (también después del 12). Nada se borra.
+   Incluye:
+   1) Tablero kanban del cerrador (arrastrar leads entre estados; en móvil, el selector "Mover a…").
+   2) Ficha de lead a pantalla completa: datos, botones Llamar y WhatsApp, cambio de estado, historial, ventas, anterior/siguiente.
+   3) Barra lateral con contadores (en pantallas anchas) para cada rol.
+   4) Buscador global (botón "Buscar" o Ctrl+K): por cliente, DNI o teléfono.
+   5) Panel de gestión del admin con gráficos (embudo, leads por día, ranking de cerradores, ventas por campaña).
+   Usa solo las variables de color del diseño (sirve en modo claro y oscuro). */
+(function () {
+  var LEADS = [], arrastrando = null, kTimer = null, nTimer = null, admTmr = null, busTmr = null;
+
+  function N(s) { return String(s == null ? '' : s).trim().toUpperCase(); }
+  function esHoy(d) { return !!d && new Date(d).toDateString() === new Date().toDateString(); }
+  function digitos(t) { return String(t || '').replace(/\D/g, ''); }
+  function waNum(t) { var d = digitos(t); if (d.indexOf('00') === 0) d = d.slice(2); if (d.length === 9) d = '34' + d; return d; }
+  function telHref(t) { return 'tel:' + String(t || '').replace(/[^\d+]/g, ''); }
+  function tEst(s) {
+    s = N(s);
+    if (/ACTIV|INSTAL|COMPLET/.test(s)) return 'b-ok';
+    if (/CANCEL|ANUL|RECHAZ|BAJA/.test(s)) return 'b-bad';
+    if (/PEND|ESPERA/.test(s)) return 'b-warn';
+    return 'b-info';
+  }
+  function abierto(l) { return ABIERTOS.indexOf(l.estado) >= 0; }
+  function cerrarOv(id) { var o = document.getElementById(id); if (o) o.remove(); }
+
+  /* ================= ESTILOS ================= */
+  var css = document.createElement('style');
+  css.textContent = [
+    'main [id]{scroll-margin-top:76px}',
+    /* barra lateral */
+    '#sb13{position:fixed;left:0;top:58px;bottom:0;width:216px;padding:16px 12px;border-right:1px solid var(--line);background:color-mix(in srgb,var(--card) 94%,transparent);display:none;overflow:auto;z-index:4}',
+    '#sb13 h5{margin:0 0 8px 8px;font-size:.68em;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}',
+    '.sb-i{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;color:var(--ink);box-shadow:none;border-radius:10px;padding:9px 12px;font-weight:600;font-size:.92em;margin-bottom:2px}',
+    '.sb-i:hover{background:var(--acc2);color:var(--acc)}',
+    '.sb-i .n{margin-left:auto;background:var(--acc2);color:var(--acc);border-radius:99px;padding:0 8px;font-size:.78em;min-width:22px;text-align:center}',
+    '@media(min-width:1100px){#sb13{display:block}body.sb-on main{margin-left:228px;margin-right:16px;max-width:none}}',
+    /* kanban */
+    '.k-top{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}',
+    '.k-top h2{margin:0}.k-top input{max-width:300px}',
+    '.k-board{display:grid;grid-template-columns:repeat(6,minmax(215px,1fr));gap:12px;overflow-x:auto;padding-bottom:8px;align-items:start}',
+    '.k-col{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:10px;min-height:150px;display:flex;flex-direction:column;gap:8px;transition:border-color .15s,box-shadow .15s}',
+    '.k-col.over{border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 18%,transparent)}',
+    '.k-h{display:flex;justify-content:space-between;align-items:center;font-size:.74em;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}',
+    '.k-h b{background:var(--card);border:1px solid var(--line);border-radius:99px;padding:1px 9px;color:var(--ink)}',
+    '.k-card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line2);border-radius:12px;padding:10px 12px;box-shadow:var(--sh);cursor:pointer}',
+    '.k-card[draggable="true"]{cursor:grab}.k-card.drag{opacity:.45}',
+    '.k-c-info{border-left-color:var(--info)}.k-c-warn{border-left-color:var(--warn)}.k-c-bad{border-left-color:var(--bad)}.k-c-ok{border-left-color:var(--ok)}',
+    '.k-n{font-weight:700;font-size:.95em;letter-spacing:-.01em;display:flex;justify-content:space-between;gap:6px;align-items:center}',
+    '.k-a{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}',
+    '.k-b{display:inline-block;padding:5px 10px;border-radius:8px;font-size:.78em;font-weight:700;text-decoration:none;background:var(--acc2);color:var(--acc);border:1px solid color-mix(in srgb,var(--acc) 30%,var(--line))}',
+    '.k-b:hover{background:var(--acc);color:var(--on-acc)}',
+    '.k-mv{margin-top:8px;padding:6px 28px 6px 8px;font-size:.8em}',
+    '.k-vacio{color:var(--mut);font-size:.8em;text-align:center;padding:14px 4px}',
+    /* ventanas */
+    '.k-ov{position:fixed;inset:0;z-index:9100;overflow-y:auto;-webkit-overflow-scrolling:touch;background:rgba(8,16,22,.6);padding:16px 12px}',
+    '.k-ficha{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:16px;max-width:920px;margin:0 auto;box-shadow:var(--sh-lg);overflow:hidden}',
+    '.k-fh{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:16px 22px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--acc2),transparent)}',
+    '.k-fh h3{margin:0;font-size:1.2em}.k-fh small{color:var(--mut)}',
+    '.k-fn{display:flex;gap:6px;align-items:center;color:var(--mut);font-size:.85em}',
+    '.k-fb{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:18px 22px}',
+    '.k-fb h4{margin:0 0 8px;font-size:.72em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}',
+    '.k-dl>div{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:.9em}',
+    '.k-dl span{color:var(--mut)}.k-dl b{text-align:right;font-weight:600}',
+    '.k-sec{margin-bottom:18px}',
+    '.k-bus{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:16px;max-width:620px;margin:8vh auto 0;padding:14px;box-shadow:var(--sh-lg)}',
+    '.k-r{display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;background:transparent;color:var(--ink);box-shadow:none;border-radius:10px;padding:10px 12px;margin-top:4px;font-weight:500}',
+    '.k-r:hover,.k-r.sel{background:var(--acc2);color:var(--acc)}',
+    /* gráficos */
+    '.k-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;margin-top:16px}',
+    '.k-g h4{margin:0 0 10px;font-size:.72em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}',
+    '.k-br{display:grid;grid-template-columns:120px 1fr 74px;gap:8px;align-items:center;margin-bottom:7px;font-size:.84em}',
+    '.k-bl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.k-bt{height:10px;border-radius:99px;background:var(--bg);border:1px solid var(--line);overflow:hidden}',
+    '.k-bt i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),color-mix(in srgb,var(--acc) 55%,#38bdf8));border-radius:99px}',
+    '.k-bv{text-align:right;color:var(--mut);font-weight:600}',
+    '.k-dias{display:flex;align-items:flex-end;gap:6px;height:120px}',
+    '.k-dia{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;font-size:.68em;color:var(--mut)}',
+    '.k-dia i{display:block;width:100%;border-radius:6px 6px 0 0;background:var(--acc);min-height:2px}',
+    '@media(max-width:700px){.k-fb{grid-template-columns:1fr}.k-board{grid-template-columns:repeat(6,230px)}}'
+  ].join('');
+  document.head.appendChild(css);
+
+  /* ================= 1) KANBAN DEL CERRADOR ================= */
+  var KCOLS = [
+    { k: 'NUEVOS', t: 'Por contactar', est: ['VIABLE', 'CITA_AGENDADA'], mover: null, c: 'info' },
+    { k: 'CONTACTADO', t: 'Contactado', est: ['CONTACTADO'], mover: 'CONTACTADO', c: 'info' },
+    { k: 'NO_CONTESTA', t: 'No contesta', est: ['NO_CONTESTA'], mover: 'NO_CONTESTA', c: 'warn' },
+    { k: 'RECONTACTAR', t: 'Recontactar', est: ['RECONTACTAR'], mover: 'RECONTACTAR', c: 'warn' },
+    { k: 'RECHAZA', t: 'Rechaza', est: ['RECHAZA'], mover: 'RECHAZA', c: 'bad' },
+    { k: 'VENDIDO', t: 'Vendido', est: ['VENDIDO'], mover: 'VENDIDO', c: 'ok' }
+  ];
+  function colDe(l) {
+    for (var i = 0; i < KCOLS.length; i++) if (KCOLS[i].est.indexOf(l.estado) >= 0) return KCOLS[i].k;
+    return 'NUEVOS';
+  }
+  function puedeSoltar(col) {
+    return arrastrando && abierto(arrastrando) && col.mover && col.mover !== arrastrando.estado;
+  }
+
+  async function mover(l, est) {
+    if (!l || !est || est === l.estado) return;
+    if (est === 'VENDIDO') { cerrarOv('k-fichaov'); if (typeof ventaForm === 'function') ventaForm(l); return; }
+    var com = prompt('Comentario para pasar a «' + est.replace('_', ' ').toLowerCase() + '» (opcional).\nCancelar = no mover.');
+    if (com === null) return;
+    var r = await sb.rpc('cambiar_estado', { p_lead: l.id, p_estado: est, p_comentario: (com || '').trim() || null });
+    if (r.error) toast(limpio(r.error.message), true);
+    else toast('Lead movido a ' + est.replace('_', ' ').toLowerCase());
+    cerrarOv('k-fichaov');
+    mios(); if (typeof bolsa === 'function') bolsa();
+  }
+
+  function tarjeta(l, col) {
+    var d = document.createElement('div');
+    d.className = 'k-card k-c-' + col.c;
+    var ab = abierto(l);
+    d.draggable = ab;
+    d.innerHTML =
+      '<div class="k-n"><span>' + esc(l.cliente) + '</span>' + (esHoy(l.fecha_cita) ? '<span class="badge b-warn">HOY</span>' : '') + '</div>' +
+      '<div class="meta">' + esc(l.telefono) + (l.localidad ? ' · ' + esc(l.localidad) : '') + '</div>' +
+      '<div class="meta">Cita ' + fmt(l.fecha_cita) + '</div>' +
+      '<div class="k-a"><a class="k-b" href="' + esc(telHref(l.telefono)) + '">📞 Llamar</a>' +
+      '<a class="k-b" target="_blank" rel="noopener" href="https://wa.me/' + esc(waNum(l.telefono)) + '">💬 WhatsApp</a></div>' +
+      (ab ? '<select class="k-mv"><option value="">Mover a…</option><option value="CONTACTADO">Contactado</option><option value="NO_CONTESTA">No contesta</option><option value="RECONTACTAR">Recontactar</option><option value="RECHAZA">Rechaza</option><option value="VENDIDO">Vendido (registrar venta)</option></select>' : '');
+    d.addEventListener('click', function (e) {
+      if (e.target.closest('a,select,button')) return;
+      abrirFicha(l, LEADS.filter(abierto), null);
+    });
+    var sel = d.querySelector('.k-mv');
+    if (sel) sel.onchange = function () { var v = sel.value; sel.value = ''; mover(l, v); };
+    d.addEventListener('dragstart', function (e) {
+      arrastrando = l; d.classList.add('drag');
+      try { e.dataTransfer.setData('text/plain', l.id); e.dataTransfer.effectAllowed = 'move'; } catch (_) { }
+    });
+    d.addEventListener('dragend', function () { arrastrando = null; d.classList.remove('drag'); });
+    return d;
+  }
+
+  function pintaKanban() {
+    var wrap = document.querySelector('#kanban .k-wrap'); if (!wrap) return;
+    var fi = document.getElementById('k-f'), q = N(fi ? fi.value : '');
+    var data = LEADS.filter(function (l) { return !q || N([l.cliente, l.dni, l.telefono].join(' ')).indexOf(q) >= 0; });
+    var board = document.createElement('div'); board.className = 'k-board';
+    KCOLS.forEach(function (col) {
+      var items = data.filter(function (l) { return colDe(l) === col.k; })
+        .sort(function (a, b) { return new Date(a.fecha_cita || 0) - new Date(b.fecha_cita || 0); });
+      var total = items.length, terminal = col.k === 'RECHAZA' || col.k === 'VENDIDO';
+      if (terminal && items.length > 20) items = items.slice(-20);
+      var c = document.createElement('div'); c.className = 'k-col';
+      c.innerHTML = '<div class="k-h"><span>' + esc(col.t) + '</span><b>' + total + '</b></div>';
+      items.forEach(function (l) { c.appendChild(tarjeta(l, col)); });
+      if (!items.length) c.insertAdjacentHTML('beforeend', '<div class="k-vacio">Sin leads</div>');
+      if (total > items.length) c.insertAdjacentHTML('beforeend', '<div class="k-vacio">Mostrando los 20 más recientes</div>');
+      c.addEventListener('dragover', function (e) { if (puedeSoltar(col)) { e.preventDefault(); c.classList.add('over'); } });
+      c.addEventListener('dragleave', function () { c.classList.remove('over'); });
+      c.addEventListener('drop', function (e) {
+        e.preventDefault(); c.classList.remove('over');
+        if (puedeSoltar(col)) mover(arrastrando, col.mover);
+      });
+      board.appendChild(c);
+    });
+    wrap.innerHTML = ''; wrap.appendChild(board);
+  }
+
+  var origMios = window.mios;
+  window.mios = async function () {
+    if (!document.getElementById('kanban')) return;
+    var r = await sb.from('leads').select('*').eq('cerrador_id', me.id).order('fecha_cita');
+    if (r.error) { var w = document.querySelector('#kanban .k-wrap'); if (w) w.innerHTML = '<div class="empty">No se pudo cargar tus leads.</div>'; return; }
+    LEADS = r.data || [];
+    pintaKanban();
+  };
+
+  function montarKanban() {
+    var main = document.getElementById('main'); if (!main) return;
+    var grid = main.querySelector('.grid');
+    if (!grid || document.getElementById('kanban')) return;
+    var viejo = document.getElementById('mios'); if (viejo && viejo.parentElement) viejo.parentElement.style.display = 'none';
+    grid.classList.remove('two');
+    var c = document.createElement('div'); c.className = 'card'; c.id = 'kanban'; c.style.marginTop = '16px';
+    c.innerHTML = '<div class="k-top"><h2>Mis leads · tablero</h2><input id="k-f" placeholder="Filtrar por nombre, DNI o teléfono"></div><div class="k-wrap"><div class="empty">Cargando…</div></div>' +
+      '<div class="meta" style="margin-top:8px">Arrastra una tarjeta a otra columna, o usa «Mover a…». Toca una tarjeta para abrir la ficha.</div>';
+    grid.insertAdjacentElement('afterend', c);
+    document.getElementById('k-f').addEventListener('input', pintaKanban);
+    window.mios();
+    clearInterval(kTimer);
+    kTimer = setInterval(function () { if (!document.getElementById('kanban')) { clearInterval(kTimer); return; } if (!arrastrando) window.mios(); }, 20000);
+  }
+
+  /* ================= 2) FICHA DE LEAD ================= */
+  function abrirFicha(l, lista, idx) {
+    cerrarOv('k-fichaov');
+    lista = lista && lista.length ? lista : [l];
+    if (idx == null) { idx = lista.findIndex(function (x) { return x.id === l.id; }); if (idx < 0) idx = 0; }
+    var puedo = perfil && perfil.rol === 'cerrador' && l.cerrador_id === me.id && abierto(l);
+    function fila(a, b) { return '<div><span>' + a + '</span><b>' + (b ? esc(b) : '—') + '</b></div>'; }
+
+    var ov = document.createElement('div'); ov.className = 'k-ov'; ov.id = 'k-fichaov';
+    ov.innerHTML = '<div class="k-ficha">' +
+      '<div class="k-fh"><div><h3>' + esc(l.cliente) + '</h3><small>' + esc(l.tipo_cita || '') + ' · cita ' + fmt(l.fecha_cita) + '</small></div>' +
+      '<div class="k-fn"><span class="badge ' + tono(l.estado) + '">' + esc(l.estado) + '</span>' +
+      (lista.length > 1 ? '<button class="sec k-pv" title="Anterior">‹</button><span>' + (idx + 1) + '/' + lista.length + '</span><button class="sec k-nx" title="Siguiente">›</button>' : '') +
+      '<button class="sec k-x" title="Cerrar">✕</button></div></div>' +
+      '<div class="k-fb"><div>' +
+      '<div class="k-sec"><h4>Contacto</h4><div class="k-a" style="margin:0 0 10px"><a class="k-b" href="' + esc(telHref(l.telefono)) + '">📞 Llamar</a>' +
+      '<a class="k-b" target="_blank" rel="noopener" href="https://wa.me/' + esc(waNum(l.telefono)) + '">💬 WhatsApp</a><button class="sec k-cp" style="padding:5px 10px;font-size:.78em">Copiar número</button></div>' +
+      '<div class="k-dl">' + fila('Teléfono', l.telefono) + fila('DNI', l.dni) + fila('Dirección', l.direccion) + fila('Localidad', l.localidad) +
+      fila('Provincia', l.provincia) + fila('Operador actual', l.operador_actual) + '</div></div>' +
+      (l.notas ? '<div class="k-sec"><h4>Notas</h4><div class="meta" style="margin:0;color:var(--ink)">' + esc(l.notas) + '</div></div>' : '') +
+      '<div class="k-sec"><h4>Ventas de este lead</h4><div class="k-vts"><div class="meta">Cargando…</div></div></div></div>' +
+      '<div>' +
+      (puedo ? '<div class="k-sec"><h4>Acciones</h4><select class="k-es"><option value="">Cambiar estado…</option><option value="CONTACTADO">Contactado</option><option value="NO_CONTESTA">No contesta</option><option value="RECONTACTAR">Recontactar</option><option value="RECHAZA">Rechaza</option></select>' +
+        '<input class="k-co" placeholder="Comentario (opcional)" style="margin-top:8px"><div class="row" style="margin-top:8px"><button class="k-gu">Guardar estado</button><button class="sec k-li">Devolver a la bolsa</button></div>' +
+        '<p style="margin:10px 0 0"><button class="k-vt" style="width:100%">Registrar venta</button></p></div>' : '') +
+      '<div class="k-sec"><h4>Historial</h4><div class="k-hist"><div class="meta">Cargando…</div></div></div></div></div></div>';
+    document.body.appendChild(ov);
+    try { document.dispatchEvent(new CustomEvent('crm:ficha', { detail: { lead: l, ov: ov } })); } catch (_) { }
+    function q(s) { return ov.querySelector(s); }
+    var cerrar = function () { ov.remove(); };
+    ov.addEventListener('click', function (e) { if (e.target === ov) cerrar(); });
+    q('.k-x').onclick = cerrar;
+    if (q('.k-pv')) {
+      q('.k-pv').onclick = function () { var j = (idx - 1 + lista.length) % lista.length; abrirFicha(lista[j], lista, j); };
+      q('.k-nx').onclick = function () { var j = (idx + 1) % lista.length; abrirFicha(lista[j], lista, j); };
+    }
+    q('.k-cp').onclick = function () {
+      try { navigator.clipboard.writeText(String(l.telefono || '')); toast('Número copiado'); } catch (_) { toast('No se pudo copiar', true); }
+    };
+    if (puedo) {
+      q('.k-gu').onclick = function () {
+        var est = q('.k-es').value; if (!est) return toast('Elige el nuevo estado', true);
+        var com = q('.k-co').value.trim();
+        sb.rpc('cambiar_estado', { p_lead: l.id, p_estado: est, p_comentario: com || null }).then(function (r) {
+          if (r.error) return toast(limpio(r.error.message), true);
+          toast('Estado guardado'); cerrar(); mios(); if (typeof bolsa === 'function') bolsa();
+        });
+      };
+      q('.k-li').onclick = function () {
+        var motivo = prompt('¿Por qué devuelves este lead a la bolsa?');
+        if (!motivo || !motivo.trim()) return;
+        sb.rpc('liberar_lead', { p_lead: l.id, p_comentario: motivo.trim() }).then(function (r) {
+          if (r.error) return toast(limpio(r.error.message), true);
+          toast('Lead devuelto a la bolsa'); cerrar(); mios(); if (typeof bolsa === 'function') bolsa();
+        });
+      };
+      q('.k-vt').onclick = function () { cerrar(); if (typeof ventaForm === 'function') ventaForm(l); };
+    }
+    sb.from('lead_historial').select('estado,comentario,autor_nombre,created_at').eq('lead_id', l.id).order('created_at').then(function (r) {
+      var el = q('.k-hist'); if (!el) return;
+      el.innerHTML = (r.data && r.data.length) ? '<ul class="tl">' + r.data.map(function (h) {
+        return '<li><b>' + esc(h.estado) + '</b> · ' + fmt(h.created_at) + ' · ' + esc(h.autor_nombre) + (h.comentario ? '<br>' + esc(h.comentario) : '') + '</li>';
+      }).join('') + '</ul>' : '<div class="empty">Sin movimientos.</div>';
+    });
+    sb.from('ventas_sync').select('id_venta,producto,tipo_producto,estado,fecha_estado').eq('lead_id', l.id).then(function (r) {
+      var el = q('.k-vts'); if (!el) return;
+      el.innerHTML = (r.data && r.data.length) ? r.data.map(function (v) {
+        return '<div class="meta" style="display:flex;justify-content:space-between;gap:8px;margin:4px 0"><span>' + esc(v.tipo_producto) + ' · ' + esc(v.producto) +
+          '</span><span class="badge ' + tEst(v.estado) + '">' + esc(N(v.estado) || '—') + '</span></div>';
+      }).join('') : '<div class="meta">Aún sin ventas con estado.</div>';
+    });
+  }
+  window.fichaLead = abrirFicha;
+
+  /* ================= 4) BUSCADOR GLOBAL ================= */
+  function abrirBuscar() {
+    if (document.getElementById('k-bus')) return;
+    var ov = document.createElement('div'); ov.className = 'k-ov'; ov.id = 'k-bus'; ov.style.zIndex = 9200;
+    ov.innerHTML = '<div class="k-bus"><input id="k-q" placeholder="Buscar por cliente, DNI o teléfono…" autocomplete="off"><div id="k-res"></div>' +
+      '<div class="meta" style="margin:10px 4px 0">↑↓ para moverte · Enter para abrir · Esc para cerrar</div></div>';
+    document.body.appendChild(ov);
+    var inp = ov.querySelector('#k-q'), res = ov.querySelector('#k-res'), filas = [], sel = 0;
+    ov.addEventListener('click', function (e) { if (e.target === ov) ov.remove(); });
+    inp.focus();
+    function marca() { res.querySelectorAll('.k-r').forEach(function (b, i) { b.classList.toggle('sel', i === sel); }); }
+    function abre(i) { var l = filas[i]; if (!l) return; ov.remove(); abrirFicha(l, [l], 0); }
+    async function buscar() {
+      var t = inp.value.replace(/[,()%*\\"']/g, ' ').trim();
+      if (t.length < 2) { res.innerHTML = ''; filas = []; return; }
+      var r = await sb.from('leads').select('*').or('cliente.ilike.*' + t + '*,dni.ilike.*' + t + '*,telefono.ilike.*' + t + '*')
+        .order('created_at', { ascending: false }).limit(15);
+      if (r.error) { res.innerHTML = '<div class="empty" style="margin-top:8px">No se pudo buscar.</div>'; return; }
+      filas = r.data || []; sel = 0;
+      res.innerHTML = filas.length ? filas.map(function (l, i) {
+        return '<button class="k-r" data-i="' + i + '"><span><b>' + esc(l.cliente) + '</b><br><small style="color:var(--mut)">' + esc(l.telefono) + ' · DNI ' + esc(l.dni || '—') + '</small></span>' +
+          '<span class="badge ' + tono(l.estado) + '" style="align-self:center">' + esc(l.estado) + '</span></button>';
+      }).join('') : '<div class="empty" style="margin-top:8px">Sin resultados.</div>';
+      res.querySelectorAll('.k-r').forEach(function (b) { b.onclick = function () { abre(Number(b.getAttribute('data-i'))); }; });
+      marca();
+    }
+    inp.addEventListener('input', function () { clearTimeout(busTmr); busTmr = setTimeout(buscar, 250); });
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (filas.length) { sel = (sel + 1) % filas.length; marca(); } }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); if (filas.length) { sel = (sel - 1 + filas.length) % filas.length; marca(); } }
+      else if (e.key === 'Enter') { e.preventDefault(); abre(sel); }
+    });
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'k' && document.querySelector('header') && document.getElementById('main')) {
+      e.preventDefault(); abrirBuscar();
+    } else if (e.key === 'Escape') {
+      var ovs = document.querySelectorAll('.k-ov'); if (ovs.length) ovs[ovs.length - 1].remove();
+    }
+  });
+
+  /* ================= 3) BARRA LATERAL ================= */
+  var NAV = {
+    cerrador: [{ t: 'Mis ventas', s: '#ventasPanel', i: '💰' }, { t: 'Bolsa de leads', s: '#bolsa', c: '#bolsa .lead', i: '📥' }, { t: 'Mis leads', s: '#kanban', c: '#kanban .k-card', i: '🗂️' }],
+    concertador: [{ t: 'Nueva cita', s: '#nf', i: '➕' }, { t: 'Mis leads', s: '#lista', c: '#lista .lead', i: '📋' }, { t: 'Ventas', s: '#ventasPanel', i: '💰' }],
+    back: [{ t: 'Por calentar', s: '#cola', c: '#cola .lead', i: '🔥' }, { t: 'Gestionados por mí', s: '#hechos', c: '#hechos .lead', i: '✅' }],
+    admin: [{ t: 'Panel de gestión', s: '#admCharts', i: '📊' }, { t: 'Derivar leads', s: '#deriva', c: '#deriva .lead', i: '🔀' }, { t: 'Cerradores', s: '#cerr', i: '👥' }, { t: 'Comisión', s: '#reglas', i: '💵' }]
+  };
+  function contar() {
+    var nav = document.getElementById('sb13'); if (!nav) return;
+    nav.querySelectorAll('.sb-i').forEach(function (b) {
+      var c = b.getAttribute('data-c'); if (!c) return;
+      var n = document.querySelectorAll(c).length, el = b.querySelector('.n');
+      if (el) el.textContent = n;
+    });
+  }
+  function montarUI() {
+    if (typeof perfil === 'undefined' || !perfil) return;
+    var old = document.getElementById('sb13'); if (old) old.remove();
+    var items = NAV[perfil.rol] || [];
+    var nav = document.createElement('nav'); nav.id = 'sb13';
+    nav.innerHTML = '<h5>Navegación</h5>' + items.map(function (it, i) {
+      return '<button class="sb-i" data-i="' + i + '"' + (it.c ? ' data-c="' + it.c + '"' : '') + '><span>' + it.i + '</span>' + it.t + (it.c ? '<span class="n">0</span>' : '') + '</button>';
+    }).join('');
+    document.body.appendChild(nav);
+    document.body.classList.add('sb-on');
+    nav.querySelectorAll('.sb-i').forEach(function (b) {
+      b.onclick = function () {
+        var el = document.querySelector(items[Number(b.getAttribute('data-i'))].s);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+    });
+    var u = document.querySelector('header .user');
+    if (u && !document.getElementById('btnBuscar')) {
+      var bb = document.createElement('button'); bb.id = 'btnBuscar'; bb.className = 'sec'; bb.type = 'button'; bb.textContent = '🔍 Buscar';
+      bb.title = 'Buscar cliente (Ctrl+K)'; bb.onclick = abrirBuscar;
+      u.insertBefore(bb, u.firstChild);
+    }
+    clearInterval(nTimer); nTimer = setInterval(contar, 2500); contar();
+  }
+
+  /* ================= 5) PANEL ADMIN CON GRÁFICOS ================= */
+  function barra(label, val, max, txt) {
+    var w = max > 0 ? Math.max(2, Math.round(val * 100 / max)) : 0;
+    return '<div class="k-br"><div class="k-bl" title="' + esc(label) + '">' + esc(label) + '</div><div class="k-bt"><i style="width:' + (val > 0 ? w : 0) + '%"></i></div><div class="k-bv">' + esc(txt) + '</div></div>';
+  }
+  async function pintaAdmin() {
+    var host = document.getElementById('admCharts'); if (!host) return;
+    var Q;
+    try {
+      Q = await Promise.all([
+        sb.from('leads').select('id,estado,created_at,fecha_cita,cerrador_id,concertador_id').order('created_at', { ascending: false }).limit(1000),
+        sb.from('perfiles').select('id,nombre,rol,activo'),
+        sb.from('ventas_sync').select('id_venta,campana,estado').not('lead_id', 'is', null).limit(1000)]);
+    } catch (e) { return; }
+    if (Q[0].error || Q[1].error) return;
+    var leads = Q[0].data || [], per = Q[1].data || [], vs = Q[2].data || [];
+    var vend = leads.filter(function (l) { return l.estado === 'VENDIDO'; }).length;
+    var gv = {}; vs.forEach(function (r) { (gv[r.id_venta] = gv[r.id_venta] || []).push(r.estado); });
+    var ids = Object.keys(gv);
+    var act = ids.filter(function (id) { return gv[id].every(function (e) { return /ACTIV|INSTAL/.test(N(e)); }); }).length;
+
+    var kpi = '<div class="stats" style="margin:0">' +
+      '<div><b>' + leads.filter(function (l) { return esHoy(l.created_at); }).length + '</b><small>leads nuevos hoy</small></div>' +
+      '<div><b>' + leads.filter(function (l) { return esHoy(l.fecha_cita); }).length + '</b><small>citas hoy</small></div>' +
+      '<div><b>' + vend + '</b><small>leads vendidos</small></div>' +
+      '<div><b>' + (leads.length ? Math.round(vend * 100 / leads.length) : 0) + '%</b><small>conversión</small></div>' +
+      '<div><b>' + act + ' / ' + ids.length + '</b><small>ventas activas</small></div></div>';
+
+    var orden = (typeof ORDEN !== 'undefined') ? ORDEN : ['CITA_AGENDADA', 'EN_REVISION', 'VIABLE', 'CONTACTADO', 'NO_CONTESTA', 'RECONTACTAR', 'RECHAZA', 'VENDIDO'];
+    var cuenta = orden.map(function (e) { return [e, leads.filter(function (l) { return l.estado === e; }).length]; });
+    var mx = Math.max.apply(null, cuenta.map(function (c) { return c[1]; }).concat([1]));
+    var embudo = cuenta.map(function (c) { return barra(c[0].replace('_', ' ').toLowerCase(), c[1], mx, String(c[1])); }).join('');
+
+    var dias = [], i;
+    for (i = 13; i >= 0; i--) { var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i); dias.push(d); }
+    var porDia = dias.map(function (d) { return leads.filter(function (l) { return new Date(l.created_at).toDateString() === d.toDateString(); }).length; });
+    var md = Math.max.apply(null, porDia.concat([1]));
+    var grafDias = '<div class="k-dias">' + dias.map(function (d, j) {
+      return '<div class="k-dia" title="' + porDia[j] + ' leads"><span>' + (porDia[j] || '') + '</span><i style="height:' + Math.round(porDia[j] * 80 / md) + '%"></i><span>' + d.getDate() + '/' + (d.getMonth() + 1) + '</span></div>';
+    }).join('') + '</div>';
+
+    var cerr = per.filter(function (p) { return p.rol === 'cerrador' && p.activo; }).map(function (p) {
+      var s = leads.filter(function (l) { return l.cerrador_id === p.id; });
+      return { n: p.nombre, v: s.filter(function (l) { return l.estado === 'VENDIDO'; }).length, a: s.filter(abierto).length };
+    }).sort(function (a, b) { return b.v - a.v; });
+    var mv = Math.max.apply(null, cerr.map(function (c) { return c.v; }).concat([1]));
+    var ranking = cerr.length ? cerr.map(function (c) { return barra(c.n, c.v, mv, c.v + ' · ' + c.a + ' ab.'); }).join('') : '<div class="meta">No hay cerradores activos.</div>';
+
+    var camp = {};
+    vs.forEach(function (r) { var c = r.campana || '—'; camp[c] = camp[c] || { t: 0, a: 0 }; camp[c].t++; if (/ACTIV|INSTAL/.test(N(r.estado))) camp[c].a++; });
+    var campHtml = Object.keys(camp).length ? Object.keys(camp).sort(function (a, b) { return camp[b].t - camp[a].t; }).map(function (c) {
+      return barra(c, camp[c].a, camp[c].t, camp[c].a + '/' + camp[c].t + ' act.');
+    }).join('') : '<div class="meta">Aún no hay ventas del CRM con estado.</div>';
+
+    host.innerHTML = '<h2>Panel de gestión</h2>' + kpi +
+      '<div class="k-g"><div><h4>Embudo de leads</h4>' + embudo + '</div><div><h4>Leads nuevos · últimos 14 días</h4>' + grafDias + '</div>' +
+      '<div><h4>Ranking de cerradores (vendidos · abiertos)</h4>' + ranking + '</div><div><h4>Ventas por campaña (productos activos)</h4>' + campHtml + '</div></div>' +
+      (leads.length >= 1000 ? '<div class="meta" style="margin-top:10px">Mostrando los últimos 1000 leads.</div>' : '');
+  }
+  function pedirAdmin() { clearTimeout(admTmr); admTmr = setTimeout(pintaAdmin, 700); }
+  function montarAdmin() {
+    var main = document.getElementById('main'); if (!main || document.getElementById('admCharts')) return;
+    var c = document.createElement('div'); c.className = 'card'; c.id = 'admCharts'; c.style.marginBottom = '16px';
+    c.innerHTML = '<h2>Panel de gestión</h2><div class="empty">Cargando…</div>';
+    var a = document.getElementById('astats');
+    if (a) a.insertAdjacentElement('afterend', c); else main.insertBefore(c, main.firstChild);
+    pedirAdmin();
+  }
+  var origCargarAdmin = window.cargarAdmin;
+  if (typeof origCargarAdmin === 'function') {
+    window.cargarAdmin = function () { var r = origCargarAdmin.apply(this, arguments); pedirAdmin(); return r; };
+  }
+
+  /* ================= ENGANCHE CON LAS VISTAS ================= */
+  var extra = { cerradorView: montarKanban, adminView: montarAdmin };
+  ['concertadorView', 'cerradorView', 'backView', 'adminView'].forEach(function (n) {
+    var o = window[n]; if (typeof o !== 'function') return;
+    window[n] = function () {
+      var r = o.apply(this, arguments);
+      try { if (extra[n]) extra[n](); montarUI(); } catch (e) { console.error(e); }
+      return r;
+    };
+  });
+  var origLogin = window.loginView;
+  if (typeof origLogin === 'function') {
+    window.loginView = function () {
+      clearInterval(nTimer); clearInterval(kTimer); clearTimeout(admTmr);
+      cerrarOv('sb13'); document.body.classList.remove('sb-on');
+      cerrarOv('k-fichaov'); cerrarOv('k-bus');
+      return origLogin.apply(this, arguments);
+    };
+  }
+})();
+  /* 14 · Mejoras del CRM (segunda tanda de ideas de Pipedrive, Close, Attio, HubSpot, Salesforce y Monday)
+   PEGAR al final, DESPUÉS del bloque 13 (y del 12). Nada se borra.
+   Requiere el 13 actualizado (trae una línea que avisa cuando se abre una ficha).
+   Incluye:
+   1) Cerrador · «Mi día» (HubSpot): citas de hoy, recordatorios, recontactar, por contactar y leads sin mover 3+ días.
+   2) Cerrador · «Empezar a llamar» (Close): recorre tus leads por prioridad con la ficha (‹ ›).
+   3) Recordatorios en la ficha (HubSpot): «llámalo mañana 10:00». Necesita 14_recordatorios.sql; sin él, el resto funciona igual.
+   4) Back · tablero kanban (Pipedrive): por calentar, en gestión, no contesta/faltan datos, listo para cerrador, no procede.
+   5) Admin · leads estancados (Salesforce) y exportar a CSV (HubSpot).
+   Usa solo las variables de color del diseño (claro y oscuro). */
+(function () {
+  var RECOR = true, tTimer = null, bTimer = null, aTimer = null, arrB = null;
+  var ST = { tab: null, leads: [], rec: [], ajenos: {} };
+  var BK = { leads: [] };
+
+  function N(s) { return String(s == null ? '' : s).trim().toUpperCase(); }
+  function esHoy(d) { return !!d && new Date(d).toDateString() === new Date().toDateString(); }
+  function digitos(t) { return String(t || '').replace(/\D/g, ''); }
+  function waNum(t) { var d = digitos(t); if (d.indexOf('00') === 0) d = d.slice(2); if (d.length === 9) d = '34' + d; return d; }
+  function telHref(t) { return 'tel:' + String(t || '').replace(/[^\d+]/g, ''); }
+  function dias(d) { return d ? Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 86400000)) : 0; }
+  function hace(d) { var n = dias(d); return n === 0 ? 'hoy' : (n === 1 ? 'hace 1 día' : 'hace ' + n + ' días'); }
+  function etq(s) { return String(s || '').replace(/_/g, ' ').toLowerCase(); }
+  function abiertoL(l) {
+    var A = (typeof ABIERTOS !== 'undefined') ? ABIERTOS : ['VIABLE', 'CITA_AGENDADA', 'CONTACTADO', 'NO_CONTESTA', 'RECONTACTAR'];
+    return A.indexOf(l.estado) >= 0;
+  }
+  function faltaTabla(e) {
+    var t = e ? (String(e.code || '') + ' ' + String(e.message || '')) : '';
+    return /PGRST205|42P01|lead_recordatorios/.test(t);
+  }
+  function locIso(d) {
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  function abrir(l, lista, idx) { if (typeof window.fichaLead === 'function') window.fichaLead(l, lista || [l], idx == null ? 0 : idx); }
+  function botonesContacto(l) {
+    return '<a class="k-b" href="' + esc(telHref(l.telefono)) + '">📞</a>' +
+      '<a class="k-b" target="_blank" rel="noopener" href="https://wa.me/' + esc(waNum(l.telefono)) + '">💬</a>';
+  }
+
+  /* ================= ESTILOS ================= */
+  var css = document.createElement('style');
+  css.textContent = [
+    '.t14-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}',
+    '.t14-top h2{margin:0}',
+    '.t14-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}',
+    '.t14-tab{background:var(--bg);color:var(--ink);border:1px solid var(--line);box-shadow:none;border-radius:99px;padding:5px 12px;font-size:.82em;font-weight:700}',
+    '.t14-tab.on{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}',
+    '.t14-tab b{margin-left:6px;opacity:.85}',
+    '.t14-r{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 4px;border-bottom:1px solid var(--line)}',
+    '.t14-r:last-child{border-bottom:0}',
+    '.t14-i{min-width:0;flex:1 1 220px}',
+    '.t14-late{color:var(--bad);font-weight:700}',
+    '.t14-chips{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}',
+    '.t14-sec{border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:10px 12px}',
+    '.t14-rem{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:.86em}',
+    '.k-board.t14-board{grid-template-columns:repeat(5,minmax(215px,1fr))}',
+    '@media(max-width:700px){.k-board.t14-board{grid-template-columns:repeat(5,230px)}}'
+  ].join('');
+  document.head.appendChild(css);
+
+  /* ================= 1) CERRADOR · MI DÍA ================= */
+  function vencido(id) {
+    return ST.rec.some(function (r) { return r.lead_id === id && new Date(r.para_cuando).getTime() <= Date.now(); });
+  }
+  function tabsDef() {
+    var t = [
+      { k: 'hoy', t: 'Para hoy', f: function (l) { return abiertoL(l) && esHoy(l.fecha_cita); } },
+      { k: 'recont', t: 'Recontactar', f: function (l) { return l.estado === 'RECONTACTAR'; } },
+      { k: 'nuevos', t: 'Por contactar', f: function (l) { return l.estado === 'VIABLE' || l.estado === 'CITA_AGENDADA'; } },
+      { k: 'viejos', t: 'Sin mover 3+ días', f: function (l) { return abiertoL(l) && dias(l.updated_at) >= 3; } }
+    ];
+    if (RECOR) t.splice(1, 0, { k: 'rec', t: 'Recordatorios', f: null });
+    return t;
+  }
+  function colaPrioridad() {
+    function p(l) {
+      if (esHoy(l.fecha_cita) || vencido(l.id)) return 0;
+      if (l.estado === 'RECONTACTAR') return 1;
+      if (l.estado === 'VIABLE' || l.estado === 'CITA_AGENDADA') return 2;
+      if (l.estado === 'NO_CONTESTA') return 3;
+      return 4;
+    }
+    return ST.leads.filter(abiertoL).sort(function (a, b) {
+      return p(a) - p(b) || new Date(a.fecha_cita || 0) - new Date(b.fecha_cita || 0);
+    });
+  }
+  function filaLead(l, sub) {
+    return '<div class="t14-r"><div class="t14-i"><b>' + esc(l.cliente) + '</b> <span class="badge ' + tono(l.estado) + '">' + esc(l.estado) + '</span>' +
+      '<div class="meta">' + esc(l.telefono) + (l.localidad ? ' · ' + esc(l.localidad) : '') + ' · movido ' + hace(l.updated_at) + '</div>' +
+      (sub ? '<div class="meta">' + sub + '</div>' : '') + '</div>' +
+      '<div class="k-a" style="margin:0">' + botonesContacto(l) + '<button class="sec" data-a="abrir" data-id="' + esc(l.id) + '" style="padding:5px 10px;font-size:.78em">Abrir</button></div></div>';
+  }
+  function leadPorId(id) {
+    for (var i = 0; i < ST.leads.length; i++) if (String(ST.leads[i].id) === String(id)) return ST.leads[i];
+    return ST.ajenos[id] || null;
+  }
+  function pintaTareas() {
+    var host = document.getElementById('tareas14'); if (!host) return;
+    var tabs = tabsDef();
+    function lista(k) {
+      if (k === 'rec') return ST.rec;
+      var d = tabs.filter(function (x) { return x.k === k; })[0];
+      var r = d ? ST.leads.filter(d.f) : [];
+      if (k === 'viejos') r.sort(function (a, b) { return dias(b.updated_at) - dias(a.updated_at); });
+      else r.sort(function (a, b) { return new Date(a.fecha_cita || 0) - new Date(b.fecha_cita || 0); });
+      return r;
+    }
+    if (!ST.tab || !tabs.some(function (x) { return x.k === ST.tab; })) {
+      var primero = tabs.filter(function (x) { return lista(x.k).length; })[0];
+      ST.tab = primero ? primero.k : tabs[0].k;
+    }
+    var cuerpo;
+    var items = lista(ST.tab);
+    if (!items.length) cuerpo = '<div class="empty">Nada pendiente en esta lista. 🎉</div>';
+    else if (ST.tab === 'rec') {
+      cuerpo = items.map(function (r) {
+        var l = leadPorId(r.lead_id), tarde = new Date(r.para_cuando).getTime() <= Date.now();
+        if (!l) return '<div class="t14-r"><div class="t14-i"><b>Lead no disponible</b><div class="meta">' + esc(r.nota || '') + '</div></div>' +
+          '<button class="sec" data-a="hecho" data-rid="' + esc(r.id) + '" style="padding:5px 10px;font-size:.78em">✔ Hecho</button></div>';
+        return filaLead(l, '<span class="' + (tarde ? 't14-late' : '') + '">⏰ ' + fmt(r.para_cuando) + (tarde ? ' · vencido' : '') + '</span>' + (r.nota ? ' · ' + esc(r.nota) : '')).replace(
+          '<button class="sec" data-a="abrir"', '<button class="sec" data-a="hecho" data-rid="' + esc(r.id) + '" style="padding:5px 10px;font-size:.78em">✔ Hecho</button><button class="sec" data-a="abrir"');
+      }).join('');
+    } else {
+      cuerpo = items.map(function (l) { return filaLead(l, ST.tab === 'hoy' ? 'Cita ' + fmt(l.fecha_cita) : ''); }).join('');
+    }
+    var cola = colaPrioridad();
+    host.innerHTML = '<div class="t14-top"><h2>Mi día</h2>' +
+      '<button data-a="cola"' + (cola.length ? '' : ' disabled') + '>▶ Empezar a llamar (' + cola.length + ')</button></div>' +
+      '<div class="t14-tabs">' + tabs.map(function (x) {
+        return '<button class="t14-tab' + (x.k === ST.tab ? ' on' : '') + '" data-a="tab" data-k="' + x.k + '">' + x.t + '<b>' + lista(x.k).length + '</b></button>';
+      }).join('') + '</div>' + cuerpo +
+      (RECOR ? '' : '<div class="meta" style="margin-top:8px">Para activar recordatorios, ejecuta <b>14_recordatorios.sql</b> en Supabase.</div>');
+  }
+  async function cargaTareas() {
+    if (!document.getElementById('tareas14') || typeof me === 'undefined' || !me) return;
+    var r = await sb.from('leads').select('*').eq('cerrador_id', me.id).order('fecha_cita');
+    if (r.error) return;
+    ST.leads = r.data || [];
+    ST.rec = [];
+    if (RECOR) {
+      var q = await sb.from('lead_recordatorios').select('*').eq('hecho', false).eq('usuario_id', me.id).order('para_cuando').limit(100);
+      if (q.error) { if (faltaTabla(q.error)) RECOR = false; }
+      else {
+        ST.rec = q.data || [];
+        var falt = ST.rec.map(function (x) { return x.lead_id; }).filter(function (id) { return !leadPorId(id); });
+        if (falt.length) {
+          var a = await sb.from('leads').select('*').in('id', falt);
+          (a.data || []).forEach(function (l) { ST.ajenos[l.id] = l; });
+        }
+      }
+    }
+    pintaTareas();
+  }
+  function montaTareas() {
+    var main = document.getElementById('main'); if (!main || document.getElementById('tareas14')) return;
+    var c = document.createElement('div'); c.className = 'card'; c.id = 'tareas14'; c.style.marginTop = '16px';
+    c.innerHTML = '<div class="t14-top"><h2>Mi día</h2></div><div class="empty">Cargando…</div>';
+    var kan = document.getElementById('kanban'), grid = main.querySelector('.grid');
+    if (kan) kan.insertAdjacentElement('beforebegin', c);
+    else if (grid) grid.insertAdjacentElement('afterend', c);
+    else main.appendChild(c);
+    c.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-a]'); if (!b) return;
+      var a = b.getAttribute('data-a');
+      if (a === 'tab') { ST.tab = b.getAttribute('data-k'); pintaTareas(); }
+      else if (a === 'abrir') { var l = leadPorId(b.getAttribute('data-id')); if (l) abrir(l, [l], 0); }
+      else if (a === 'cola') { var q = colaPrioridad(); if (q.length) abrir(q[0], q, 0); }
+      else if (a === 'hecho') {
+        sb.from('lead_recordatorios').update({ hecho: true }).eq('id', b.getAttribute('data-rid')).then(function (r) {
+          if (r.error) return toast(limpio(r.error.message), true);
+          toast('Recordatorio completado'); cargaTareas();
+        });
+      }
+    });
+    cargaTareas();
+    clearInterval(tTimer);
+    tTimer = setInterval(function () { if (!document.getElementById('tareas14')) { clearInterval(tTimer); return; } cargaTareas(); }, 30000);
+  }
+
+  /* ================= 3) RECORDATORIOS EN LA FICHA ================= */
+  function inyectaFicha(l, ov) {
+    var cols = ov.querySelectorAll('.k-fb > div'), der = cols[1]; if (!der) return;
+    var s = document.createElement('div'); s.className = 'k-sec';
+    s.innerHTML = '<h4>Seguimiento</h4><div class="meta" style="margin:0 0 8px;color:var(--ink)">Último movimiento: <b>' + hace(l.updated_at) + '</b>' +
+      (dias(l.updated_at) >= 3 && abiertoL(l) ? ' <span class="badge b-warn">estancado</span>' : '') + '</div>' +
+      (RECOR ? '<div class="t14-sec"><div class="t14-chips">' +
+        '<button class="sec t14-q" data-h="2h" style="padding:4px 10px;font-size:.76em">En 2 horas</button>' +
+        '<button class="sec t14-q" data-h="m10" style="padding:4px 10px;font-size:.76em">Mañana 10:00</button>' +
+        '<button class="sec t14-q" data-h="3d" style="padding:4px 10px;font-size:.76em">En 3 días</button></div>' +
+        '<input type="datetime-local" class="t14-dt"><input class="t14-nt" placeholder="Nota (ej. llamar después de las 6 pm)" style="margin-top:6px">' +
+        '<p style="margin:8px 0 0"><button class="t14-add" style="width:100%">⏰ Crear recordatorio</button></p>' +
+        '<div class="t14-lst" style="margin-top:8px"></div></div>' : '');
+    der.insertBefore(s, der.firstChild);
+    if (!RECOR) return;
+    function q(x) { return s.querySelector(x); }
+    function lee() {
+      sb.from('lead_recordatorios').select('*').eq('lead_id', l.id).eq('hecho', false).eq('usuario_id', me.id).order('para_cuando').then(function (r) {
+        var el = q('.t14-lst'); if (!el) return;
+        if (r.error) { if (faltaTabla(r.error)) { RECOR = false; var bx = s.querySelector('.t14-sec'); if (bx) bx.innerHTML = '<div class="meta">Ejecuta <b>14_recordatorios.sql</b> en Supabase para activar los recordatorios.</div>'; } return; }
+        el.innerHTML = (r.data && r.data.length) ? r.data.map(function (x) {
+          var tarde = new Date(x.para_cuando).getTime() <= Date.now();
+          return '<div class="t14-rem"><span class="' + (tarde ? 't14-late' : '') + '">⏰ ' + fmt(x.para_cuando) + (x.nota ? ' · ' + esc(x.nota) : '') + '</span>' +
+            '<button class="sec t14-ok" data-r="' + esc(x.id) + '" style="padding:3px 9px;font-size:.76em">✔</button></div>';
+        }).join('') : '<div class="meta">Sin recordatorios pendientes.</div>';
+        el.querySelectorAll('.t14-ok').forEach(function (b) {
+          b.onclick = function () {
+            sb.from('lead_recordatorios').update({ hecho: true }).eq('id', b.getAttribute('data-r')).then(function (u) {
+              if (u.error) return toast(limpio(u.error.message), true);
+              lee(); cargaTareas();
+            });
+          };
+        });
+      });
+    }
+    s.querySelectorAll('.t14-q').forEach(function (b) {
+      b.onclick = function () {
+        var d = new Date(), h = b.getAttribute('data-h');
+        if (h === '2h') d.setHours(d.getHours() + 2);
+        else if (h === 'm10') { d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); }
+        else d.setDate(d.getDate() + 3);
+        q('.t14-dt').value = locIso(d);
+      };
+    });
+    q('.t14-add').onclick = function () {
+      var v = q('.t14-dt').value; if (!v) return toast('Elige cuándo quieres el recordatorio', true);
+      var cuando = new Date(v); if (isNaN(cuando.getTime())) return toast('Fecha no válida', true);
+      var nota = q('.t14-nt').value.trim() || null;
+      sb.from('lead_recordatorios').insert({ lead_id: l.id, para_cuando: cuando.toISOString(), nota: nota }).then(function (r) {
+        if (r.error) { if (faltaTabla(r.error)) { RECOR = false; } return toast(limpio(r.error.message), true); }
+        toast('Recordatorio creado'); q('.t14-nt').value = ''; q('.t14-dt').value = ''; lee(); cargaTareas();
+      });
+    };
+    lee();
+  }
+  document.addEventListener('crm:ficha', function (e) {
+    try { var d = e.detail || {}; if (d.lead && d.ov) inyectaFicha(d.lead, d.ov); } catch (x) { console.error(x); }
+  });
+
+  /* ================= 4) BACK · TABLERO KANBAN ================= */
+  var BCOLS = [
+    { k: 'POR', t: 'Por calentar', est: ['NUEVO', 'CITA_AGENDADA'], mover: null, c: 'info' },
+    { k: 'GEST', t: 'En gestión', est: ['EN_REVISION'], mover: 'EN_REVISION', c: 'info' },
+    { k: 'FALTA', t: 'No contesta / faltan datos', est: ['FALTAN_DATOS'], mover: 'FALTAN_DATOS', c: 'warn' },
+    { k: 'VIAB', t: 'Listo para cerrador', est: ['VIABLE'], mover: 'VIABLE', c: 'ok' },
+    { k: 'NOV', t: 'No procede', est: ['NO_VIABLE'], mover: 'NO_VIABLE', c: 'bad' }
+  ];
+  function bPuede(l) { return l && l.tipo_cita === 'CALENTAR' && !l.cerrador_id; }
+  function bSuelta(col) { return arrB && bPuede(arrB) && col.mover && col.mover !== arrB.estado; }
+  async function bMover(l, est) {
+    if (!bPuede(l) || !est || est === l.estado) return;
+    var com = prompt('Comentario obligatorio para pasar a «' + etq(est) + '».\nCancelar = no mover.');
+    if (com === null) return;
+    com = com.trim();
+    if (!com) return toast('El comentario es obligatorio', true);
+    var r = await sb.rpc('cambiar_estado', { p_lead: l.id, p_estado: est, p_comentario: com });
+    if (r.error) toast(limpio(r.error.message), true); else toast('Lead movido a ' + etq(est));
+    cargaBack();
+  }
+  function bTarjeta(l, col, grupo) {
+    var d = document.createElement('div'), mov = bPuede(l), dd = dias(l.updated_at);
+    d.className = 'k-card k-c-' + col.c; d.draggable = mov;
+    d.innerHTML = '<div class="k-n"><span>' + esc(l.cliente) + '</span>' + (dd >= 2 ? '<span class="badge b-warn">' + dd + ' d</span>' : '') + '</div>' +
+      '<div class="meta">' + esc(l.telefono) + (l.localidad ? ' · ' + esc(l.localidad) : '') + '</div>' +
+      (l.notas ? '<div class="meta">' + esc(String(l.notas).slice(0, 80)) + (String(l.notas).length > 80 ? '…' : '') + '</div>' : '') +
+      '<div class="k-a"><a class="k-b" href="' + esc(telHref(l.telefono)) + '">📞 Llamar</a>' +
+      '<a class="k-b" target="_blank" rel="noopener" href="https://wa.me/' + esc(waNum(l.telefono)) + '">💬 WhatsApp</a></div>' +
+      (mov ? '<select class="k-mv"><option value="">Mover a…</option><option value="EN_REVISION">En gestión</option><option value="FALTAN_DATOS">No contesta / faltan datos</option><option value="VIABLE">Listo para cerrador</option><option value="NO_VIABLE">No procede</option></select>' : '');
+    d.addEventListener('click', function (e) {
+      if (e.target.closest('a,select,button')) return;
+      abrir(l, grupo, grupo.indexOf(l));
+    });
+    var sel = d.querySelector('.k-mv');
+    if (sel) sel.onchange = function () { var v = sel.value; sel.value = ''; bMover(l, v); };
+    d.addEventListener('dragstart', function (e) {
+      arrB = l; d.classList.add('drag');
+      try { e.dataTransfer.setData('text/plain', String(l.id)); e.dataTransfer.effectAllowed = 'move'; } catch (_) { }
+    });
+    d.addEventListener('dragend', function () { arrB = null; d.classList.remove('drag'); });
+    return d;
+  }
+  function pintaBack() {
+    var wrap = document.querySelector('#back14 .b14-wrap'); if (!wrap) return;
+    var fi = document.getElementById('b14-f'), q = N(fi ? fi.value : '');
+    var data = BK.leads.filter(function (l) { return !q || N([l.cliente, l.dni, l.telefono].join(' ')).indexOf(q) >= 0; });
+    var board = document.createElement('div'); board.className = 'k-board t14-board';
+    BCOLS.forEach(function (col) {
+      var items = data.filter(function (l) { return col.est.indexOf(l.estado) >= 0; })
+        .sort(function (a, b) { return new Date(a.updated_at || 0) - new Date(b.updated_at || 0); });
+      var total = items.length, terminal = col.k === 'NOV' || col.k === 'VIAB';
+      var grupo = items;
+      if (terminal && items.length > 15) items = items.slice(-15);
+      var c = document.createElement('div'); c.className = 'k-col';
+      c.innerHTML = '<div class="k-h"><span>' + esc(col.t) + '</span><b>' + total + '</b></div>';
+      items.forEach(function (l) { c.appendChild(bTarjeta(l, col, grupo)); });
+      if (!items.length) c.insertAdjacentHTML('beforeend', '<div class="k-vacio">Sin leads</div>');
+      if (total > items.length) c.insertAdjacentHTML('beforeend', '<div class="k-vacio">Mostrando los 15 más recientes</div>');
+      c.addEventListener('dragover', function (e) { if (bSuelta(col)) { e.preventDefault(); c.classList.add('over'); } });
+      c.addEventListener('dragleave', function () { c.classList.remove('over'); });
+      c.addEventListener('drop', function (e) { e.preventDefault(); c.classList.remove('over'); if (bSuelta(col)) bMover(arrB, col.mover); });
+      board.appendChild(c);
+    });
+    wrap.innerHTML = ''; wrap.appendChild(board);
+  }
+  async function cargaBack() {
+    if (!document.getElementById('back14')) return;
+    var r = await sb.from('leads').select('*').eq('tipo_cita', 'CALENTAR').order('updated_at', { ascending: false }).limit(300);
+    if (r.error) { var w = document.querySelector('#back14 .b14-wrap'); if (w) w.innerHTML = '<div class="empty">No se pudo cargar el tablero.</div>'; return; }
+    BK.leads = r.data || [];
+    pintaBack();
+  }
+  function montaBack() {
+    var main = document.getElementById('main'); if (!main || document.getElementById('back14')) return;
+    var c = document.createElement('div'); c.className = 'card'; c.id = 'back14'; c.style.marginBottom = '16px';
+    c.innerHTML = '<div class="k-top"><h2>Tablero de calentamiento</h2><input id="b14-f" placeholder="Filtrar por nombre, DNI o teléfono"></div>' +
+      '<div class="b14-wrap"><div class="empty">Cargando…</div></div>' +
+      '<div class="meta" style="margin-top:8px">Arrastra una tarjeta a otra columna o usa «Mover a…». El comentario es obligatorio. Los leads que ya tomó un cerrador no se pueden mover.</div>';
+    main.insertBefore(c, main.firstChild);
+    document.getElementById('b14-f').addEventListener('input', pintaBack);
+    cargaBack();
+    clearInterval(bTimer);
+    bTimer = setInterval(function () { if (!document.getElementById('back14')) { clearInterval(bTimer); return; } if (!arrB) cargaBack(); }, 20000);
+  }
+
+  /* ================= 5) ADMIN · ESTANCADOS Y EXPORTAR ================= */
+  function csvCelda(v) {
+    var s = String(v == null ? '' : v);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  async function exportaCsv() {
+    var Q = await Promise.all([
+      sb.from('leads').select('*').order('created_at', { ascending: false }).limit(1000),
+      sb.from('perfiles').select('id,nombre')]);
+    if (Q[0].error) return toast(limpio(Q[0].error.message), true);
+    var nom = {}; (Q[1].data || []).forEach(function (p) { nom[p.id] = p.nombre; });
+    var cab = ['Cliente', 'DNI', 'Teléfono', 'Provincia', 'Localidad', 'Operador actual', 'Tipo cita', 'Estado', 'Fecha cita', 'Creado', 'Actualizado', 'Concertador', 'Cerrador'];
+    var filas = (Q[0].data || []).map(function (l) {
+      return [l.cliente, l.dni, l.telefono, l.provincia, l.localidad, l.operador_actual, l.tipo_cita, l.estado, l.fecha_cita, l.created_at, l.updated_at, nom[l.concertador_id] || '', nom[l.cerrador_id] || ''];
+    });
+    var txt = '\ufeff' + [cab].concat(filas).map(function (f) { return f.map(csvCelda).join(';'); }).join('\r\n');
+    var url = URL.createObjectURL(new Blob([txt], { type: 'text/csv;charset=utf-8' }));
+    var a = document.createElement('a'); a.href = url; a.download = 'leads_' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    toast('Exportados ' + filas.length + ' leads');
+  }
+  function listaAdm(titulo, arr, sub) {
+    var h = '<div><h4>' + titulo + ' · ' + arr.length + '</h4>';
+    if (!arr.length) return h + '<div class="meta">Nada por aquí. 👌</div></div>';
+    return h + arr.slice(0, 12).map(function (l) {
+      return '<button class="k-r a14" data-id="' + esc(l.id) + '"><span><b>' + esc(l.cliente) + '</b><br><small style="color:var(--mut)">' + sub(l) + '</small></span>' +
+        '<span class="badge ' + tono(l.estado) + '" style="align-self:center">' + esc(l.estado) + '</span></button>';
+    }).join('') + (arr.length > 12 ? '<div class="meta">y ' + (arr.length - 12) + ' más…</div>' : '') + '</div>';
+  }
+  async function pintaAdm() {
+    var host = document.getElementById('admExtra14'); if (!host) return;
+    var Q;
+    try {
+      Q = await Promise.all([
+        sb.from('leads').select('*').order('updated_at', { ascending: true }).limit(1000),
+        sb.from('perfiles').select('id,nombre')]);
+    } catch (e) { return; }
+    if (Q[0].error) return;
+    var nom = {}; (Q[1].data || []).forEach(function (p) { nom[p.id] = p.nombre; });
+    var leads = Q[0].data || [], porId = {}; leads.forEach(function (l) { porId[l.id] = l; });
+    var estanc = leads.filter(function (l) { return abiertoL(l) && l.cerrador_id && dias(l.updated_at) >= 3; });
+    var sinTomar = leads.filter(function (l) { return !l.cerrador_id && (l.estado === 'VIABLE' || (l.estado === 'CITA_AGENDADA' && l.tipo_cita === 'INTERESADO')) && dias(l.updated_at) >= 2; });
+    var sinCalentar = leads.filter(function (l) { return l.tipo_cita === 'CALENTAR' && l.estado === 'CITA_AGENDADA' && dias(l.updated_at) >= 1; });
+    host.innerHTML = '<div class="t14-top"><h2>Atención requerida</h2><button class="sec" id="a14-csv">⬇ Exportar leads (CSV)</button></div>' +
+      '<div class="k-g" style="margin-top:0">' +
+      listaAdm('Con cerrador, sin mover 3+ días', estanc, function (l) { return esc(nom[l.cerrador_id] || 'Sin nombre') + ' · ' + hace(l.updated_at); }) +
+      listaAdm('Sin tomar hace 2+ días', sinTomar, function (l) { return esc(l.telefono || '') + ' · ' + hace(l.updated_at); }) +
+      listaAdm('Por calentar sin gestionar 1+ día', sinCalentar, function (l) { return esc(l.telefono || '') + ' · ' + hace(l.updated_at); }) + '</div>' +
+      (leads.length >= 1000 ? '<div class="meta" style="margin-top:10px">Mostrando 1000 leads (los menos movidos primero).</div>' : '');
+    host.querySelectorAll('.a14').forEach(function (b) { b.onclick = function () { var l = porId[b.getAttribute('data-id')]; if (l) abrir(l, [l], 0); }; });
+    var csv = host.querySelector('#a14-csv'); if (csv) csv.onclick = exportaCsv;
+  }
+  function pedirAdm() { clearTimeout(aTimer); aTimer = setTimeout(pintaAdm, 900); }
+  function montaAdmin() {
+    var main = document.getElementById('main'); if (!main || document.getElementById('admExtra14')) return;
+    var c = document.createElement('div'); c.className = 'card'; c.id = 'admExtra14'; c.style.marginBottom = '16px';
+    c.innerHTML = '<div class="t14-top"><h2>Atención requerida</h2></div><div class="empty">Cargando…</div>';
+    var a = document.getElementById('admCharts') || document.getElementById('astats');
+    if (a) a.insertAdjacentElement('afterend', c); else main.insertBefore(c, main.firstChild);
+    pedirAdm();
+  }
+  var origCargarAdmin = window.cargarAdmin;
+  if (typeof origCargarAdmin === 'function') {
+    window.cargarAdmin = function () { var r = origCargarAdmin.apply(this, arguments); pedirAdm(); return r; };
+  }
+
+  /* ================= ENGANCHE CON LAS VISTAS ================= */
+  function navExtra(label, icono, sel) {
+    var nav = document.getElementById('sb13'); if (!nav || nav.querySelector('[data-x14="' + sel + '"]')) return;
+    var b = document.createElement('button'); b.className = 'sb-i'; b.type = 'button'; b.setAttribute('data-x14', sel);
+    b.innerHTML = '<span>' + icono + '</span>' + label;
+    b.onclick = function () { var el = document.querySelector(sel); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    nav.insertBefore(b, nav.children[1] || null);
+  }
+  var extra = {
+    cerradorView: function () { montaTareas(); navExtra('Mi día', '☀️', '#tareas14'); },
+    backView: function () { montaBack(); navExtra('Tablero', '🗂️', '#back14'); },
+    adminView: function () { montaAdmin(); navExtra('Atención requerida', '🚨', '#admExtra14'); }
+  };
+  ['cerradorView', 'backView', 'adminView'].forEach(function (n) {
+    var o = window[n]; if (typeof o !== 'function') return;
+    window[n] = function () {
+      var r = o.apply(this, arguments);
+      try { extra[n](); } catch (e) { console.error(e); }
+      return r;
+    };
+  });
+  var origMios = window.mios;
+  if (typeof origMios === 'function') {
+    window.mios = async function () {
+      var r = await origMios.apply(this, arguments);
+      try { cargaTareas(); } catch (e) { console.error(e); }
+      return r;
+    };
+  }
+  var origLogin = window.loginView;
+  if (typeof origLogin === 'function') {
+    window.loginView = function () {
+      clearInterval(tTimer); clearInterval(bTimer); clearTimeout(aTimer);
+      ST = { tab: null, leads: [], rec: [], ajenos: {} }; BK = { leads: [] };
+      return origLogin.apply(this, arguments);
+    };
+  }
+})();
  </script>
 </body>
 </html>
