@@ -1037,8 +1037,10 @@ function ventaForm(l) {
       var resumen = lista.length + ' producto(s): ' + lista.map(function (x) { return x.tipo; }).join(', ');
       if (!confirm('¿Registrar la venta de ' + nom + '?\n' + resumen)) return;
 
-      btn.disabled = true;
-      var r = await sb.rpc('registrar_venta', {
+         btn.disabled = true;
+   ov.style.display = 'none';
+   aviso('Guardando la venta…');
+   var r = await sb.rpc('registrar_venta', {
         p_lead: l.id, p_campana: camp, p_cliente: nom, p_dni: dni, p_telefono: q('#vf3_tel').value.trim(),
         p_provincia: q('#vf3_prov').value, p_localidad: q('#vf3_loc').value.trim(), p_direccion: q('#vf3_dir').value.trim(),
         p_operador_donante: q('#vf3_don').value, p_fecha_nac: q('#vf3_nac').value || null,
