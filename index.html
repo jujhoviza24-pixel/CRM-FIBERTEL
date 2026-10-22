@@ -2947,8 +2947,8 @@ function ventaForm(l) {
     };
   });
 })();
-  /* 16 · Ventas con filtro de fechas + ficha completa por cliente + pestaña «Análisis» (admin)
-   PEGAR al final, DESPUÉS del bloque 15 y antes del cierre. Nada se borra.
+ /* 16 · Ventas con filtro de fechas + ficha completa por cliente + pestaña «Análisis» (admin)
+   PEGAR al final, DESPUÉS del bloque 15 y antes del cierre . Nada se borra.
    - Pestaña Ventas (cerrador, concertador, back, admin): elige Año + Mes (o Desde/Hasta). Solo se descarga ese periodo.
      Cada venta muestra cliente, DNI, teléfono, operador vendido (campaña), operador donante, zona, agente,
      y cada servicio con su estado y la FECHA de ese estado. Buscador por nombre, DNI, teléfono, servicio o número.
@@ -3233,41 +3233,51 @@ function ventaForm(l) {
     };
   });
 })();
-  -- 17 · Ejecutar en Supabase (SQL Editor)
-
--- 1) Datos de MATRIZ que hoy no llegan al CRM (cliente, DNI, teléfono, zona, donante, fecha de venta, comentario)
-alter table public.ventas_sync
-  add column if not exists fecha_venta timestamptz,
-  add column if not exists dni text,
-  add column if not exists cliente text,
-  add column if not exists telefono text,
-  add column if not exists provincia text,
-  add column if not exists localidad text,
-  add column if not exists operador_donante text,
-  add column if not exists comentario text;
--- si ya habías ejecutado la versión anterior (fecha sin hora), esto la convierte; si ya es timestamptz no cambia nada
-alter table public.ventas_sync alter column fecha_venta type timestamptz using fecha_venta::timestamptz;
-create index if not exists ventas_sync_fecha_venta_idx on public.ventas_sync (fecha_venta);
-create index if not exists ventas_sync_fecha_estado_idx on public.ventas_sync (fecha_estado);
-create index if not exists ventas_sync_dni_idx on public.ventas_sync (dni);
-
--- 2) Venta manual: el cerrador crea el lead a su nombre y luego registra la venta con registrar_venta
-create or replace function public.crear_lead_manual(p_cliente text, p_dni text, p_telefono text)
-returns public.leads
-language plpgsql security definer set search_path = public as $$
-declare v_rol text; v_lead public.leads;
-begin
-  select rol into v_rol from public.perfiles where id = auth.uid() and coalesce(activo, true);
-  if v_rol is distinct from 'cerrador' then raise exception 'Solo un cerrador puede registrar una venta manual'; end if;
-  if coalesce(trim(p_cliente), '') = '' or coalesce(trim(p_dni), '') = '' then raise exception 'El cliente y el DNI son obligatorios'; end if;
-  insert into public.leads (concertador_id, cerrador_id, cliente, dni, telefono, tipo_cita, fecha_cita, estado, notas)
-  values (auth.uid(), auth.uid(), upper(trim(p_cliente)), upper(trim(p_dni)),
-          coalesce(nullif(trim(p_telefono), ''), 'SIN TELEFONO'), 'INTERESADO', now(), 'CONTACTADO', 'VENTA MANUAL DEL CERRADOR')
-  returning * into v_lead;
-  return v_lead;
-end $$;
-revoke all on function public.crear_lead_manual(text, text, text) from public;
-grant execute on function public.crear_lead_manual(text, text, text) to authenticated;
+  /* 17 · Venta manual del cerrador
+   PEGAR al final, DESPUÉS del bloque 16 y antes del cierre del script. Antes ejecuta 17_supabase.sql en Supabase.
+   Cerrador: botón «Venta manual» en la barra de pestañas. Pide cliente, DNI y teléfono, crea el lead a su nombre
+   y abre el formulario de venta de siempre. El correo de la venta lo envía el sistema que ya tienes (CRM_Correos.gs). */
+(function () {
+  function manual() {
+    if (document.getElementById('vm17')) return;
+    var ov = document.createElement('div'); ov.className = 'k-ov'; ov.id = 'vm17'; ov.style.zIndex = 9100;
+    ov.innerHTML = '<div class="k-bus"><h3 style="margin:0 0 4px">Venta manual</h3>' +
+      '<div class="meta" style="margin:0 0 6px">Para un cliente que no pasó por concertador ni back. El resto de datos los completas en el formulario de venta.</div>' +
+      '<label>Cliente</label><input id="vm-n"><div class="row"><div><label>DNI / NIE</label><input id="vm-d"></div>' +
+      '<div><label>Teléfono</label><input id="vm-t" inputmode="tel"></div></div>' +
+      '<div class="row" style="margin-top:14px"><button class="sec" id="vm-x" type="button">Cancelar</button><button id="vm-ok" type="button">Continuar</button></div></div>';
+    document.body.appendChild(ov);
+    var q = function (s) { return ov.querySelector(s); };
+    q('#vm-x').onclick = function () { ov.remove(); };
+    q('#vm-n').focus();
+    q('#vm-ok').onclick = async function () {
+      var n = q('#vm-n').value.trim(), d = q('#vm-d').value.trim(), t = q('#vm-t').value.trim();
+      if (!n || !d) return toast('Escribe el nombre y el DNI del cliente', true);
+      var b = this; b.disabled = true;
+      var r = await sb.rpc('crear_lead_manual', { p_cliente: n, p_dni: d, p_telefono: t });
+      b.disabled = false;
+      if (r.error) return toast(/crear_lead_manual|PGRST202|42883/.test(String(r.error.code) + r.error.message) ? 'Falta ejecutar 17_supabase.sql en Supabase' : limpio(r.error.message), true);
+      var lead = Array.isArray(r.data) ? r.data[0] : r.data;
+      ov.remove();
+      if (lead && typeof window.ventaForm === 'function') window.ventaForm(lead);
+      if (typeof mios === 'function') mios();
+    };
+  }
+  var o = window.cerradorView;
+  if (typeof o === 'function') {
+    window.cerradorView = function () {
+      var r = o.apply(this, arguments);
+      try {
+        var bar = document.getElementById('tabs15');
+        if (bar && !document.getElementById('btnManual17')) {
+          var b = document.createElement('button'); b.id = 'btnManual17'; b.type = 'button'; b.textContent = '➕ Venta manual';
+          b.style.cssText = 'flex:none;margin-left:auto;padding:8px 15px'; b.onclick = manual; bar.appendChild(b);
+        }
+      } catch (e) { console.error(e); }
+      return r;
+    };
+  }
+})();
  </script>
 </body>
 </html>
