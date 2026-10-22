@@ -805,6 +805,255 @@ function ventaForm(l) {
   document.body.appendChild(b);
   aplicar(guardado() === 'oscuro');
 })();
+  /* 10 · Modo oscuro NATIVO + Formulario de venta v3
+   PEGAR antes del cierre final del script, DESPUÉS de todos los demás bloques (04, 06, 07, 08).
+   No borres nada: este bloque reemplaza al 06 y desactiva el modo oscuro por filtro del 07.
+   - El modo oscuro usa las variables de color de tu diseño (no un filtro), así las ventanas
+     emergentes y los elementos fijos se ven bien.
+   - Las campañas salen del catálogo; los productos se filtran por campaña y tipo. */
+(function () {
+  var TIPOS = ['CONVERGENTE', 'LINEA_PAGA', 'LINEA_GRATIS', 'LINEA FIJA', 'TELEVISION'];
+  var IBAN_ESTRICTO = false;   // true = no deja guardar si los dígitos de control no cuadran
+  var cat = null, catTs = 0;
+
+  function E(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function aviso(m, err) { if (typeof toast === 'function') toast(m, err); else alert(m); }
+  function msgErr(e) { var m = (e && e.message) || String(e); return typeof limpio === 'function' ? limpio(m) : m; }
+
+  /* ================= MODO OSCURO NATIVO ================= */
+  var oscuroVars =
+    '--bg:#0b1318;--card:#121d24;--ink:#e8f0f4;--mut:#93a4ae;--line:#223540;--line2:#2f4653;' +
+    '--acc:#2dd4bf;--acc-h:#5eead4;--acc2:#12302e;--on-acc:#06201d;' +
+    '--ok:#4ade80;--ok-bg:#12301f;--info:#7aa7ff;--info-bg:#15233f;' +
+    '--warn:#fbbf24;--warn-bg:#352a10;--bad:#ff8a80;--bad-bg:#3a1a18;' +
+    '--sh:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25);--sh-lg:0 20px 60px rgba(0,0,0,.6);color-scheme:dark;';
+  var claroVars =
+    '--bg:#f4f6f8;--card:#fff;--ink:#0f1f2a;--mut:#64748b;--line:#e3e8ee;--line2:#cfd8e1;' +
+    '--acc:#0f766e;--acc-h:#0b5f58;--acc2:#e6f4f2;--on-acc:#fff;' +
+    '--ok:#15803d;--ok-bg:#e8f6ed;--info:#1d4ed8;--info-bg:#e8effd;' +
+    '--warn:#b45309;--warn-bg:#fdf1dc;--bad:#b3261e;--bad-bg:#fcebea;' +
+    '--sh:0 1px 2px rgba(15,31,42,.05),0 4px 16px rgba(15,31,42,.06);--sh-lg:0 20px 60px rgba(15,31,42,.25);color-scheme:light;';
+
+  var css = document.createElement('style');
+  css.textContent =
+    'html[data-tema="oscuro"]{' + oscuroVars + '}' +
+    'html[data-tema="claro"]{' + claroVars + '}' +
+    /* neutraliza el modo oscuro por filtro del bloque 07 */
+    'html.oscuro{filter:none!important;background:transparent!important}' +
+    '#btnTema{display:none!important}' +
+    '#btnTema2{position:fixed;left:14px;bottom:14px;z-index:9500;padding:8px 14px;border-radius:99px;' +
+    'background:var(--card);color:var(--ink);border:1px solid var(--line2);box-shadow:var(--sh);font-size:.82em}' +
+    '#btnTema2:hover{background:var(--acc2);color:var(--acc)}' +
+    /* formulario de venta v3 */
+    '.vf3-ov{position:fixed;inset:0;z-index:9000;overflow-y:auto;-webkit-overflow-scrolling:touch;background:rgba(8,16,22,.6);padding:16px 12px}' +
+    '.vf3{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:14px;max-width:780px;margin:0 auto;padding:22px;box-shadow:var(--sh-lg)}' +
+    '.vf3 h3{margin:0 0 4px;font-size:1.15em}.vf3 small{color:var(--mut)}' +
+    '.vf3 h4{margin:20px 0 8px;font-size:.72em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc);display:flex;align-items:center;gap:10px}' +
+    '.vf3 h4::after{content:"";flex:1;height:1px;background:var(--line)}' +
+    '.vf3 .g{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}' +
+    '.vf3 label{margin:0 0 4px}' +
+    '.vf3 .fila{display:grid;grid-template-columns:150px 1fr 150px auto auto;gap:6px;margin-bottom:8px;padding:8px;background:var(--bg);border:1px solid var(--line);border-radius:12px}' +
+    '.vf3 .fila button{padding:8px 12px}' +
+    '.vf3 .fuera{border-color:var(--warn)}' +
+    '.vf3 .ib{font-size:.78em;margin-top:4px;min-height:16px}.vf3 .mal{color:var(--bad)}.vf3 .okk{color:var(--ok)}' +
+    '.vf3 .acc{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}' +
+    '@media(max-width:640px){.vf3{padding:16px}.vf3 .fila{grid-template-columns:1fr 1fr}.vf3 .fila .tw{grid-column:1/-1}}';
+  document.head.appendChild(css);
+
+  function guardado() { try { return localStorage.getItem('crm_tema'); } catch (_) { return null; } }
+  function esOscuro() {
+    var t = document.documentElement.getAttribute('data-tema');
+    if (t) return t === 'oscuro';
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+  var old = document.getElementById('btnTema'); if (old) old.remove();
+  document.documentElement.classList.remove('oscuro');
+  var bt = document.createElement('button'); bt.id = 'btnTema2'; bt.type = 'button';
+  function pintaBoton() { bt.textContent = esOscuro() ? '☀ Modo claro' : '🌙 Modo oscuro'; }
+  function poner(t) {
+    document.documentElement.setAttribute('data-tema', t);
+    try { localStorage.setItem('crm_tema', t); } catch (_) { }
+    pintaBoton();
+  }
+  bt.onclick = function () { poner(esOscuro() ? 'claro' : 'oscuro'); };
+  document.body.appendChild(bt);
+  if (guardado() === 'oscuro' || guardado() === 'claro') poner(guardado()); else pintaBoton();
+
+  /* ================= IBAN ================= */
+  function ibanNorm(v) { return String(v || '').replace(/[\s.\-]/g, '').toUpperCase(); }
+  function ibanFmt(s) { return s.replace(/(.{4})/g, '$1 ').trim(); }
+  function ibanCheck(v) {
+    var s = ibanNorm(v);
+    if (!s) return null;
+    if (!/^[A-Z]{2}[0-9A-Z]+$/.test(s)) return { f: 1, m: 'Debe empezar con 2 letras (ES) y seguir con números' };
+    if (s.slice(0, 2) === 'ES') {
+      if (s.length !== 24) return { f: 1, m: 'Un IBAN de España tiene 24 caracteres y llevas ' + s.length };
+      if (!/^ES[0-9]{22}$/.test(s)) return { f: 1, m: 'Después de «ES» solo van números (¿una letra O o I en vez de 0 o 1?)' };
+    } else if (s.length < 15 || s.length > 34) {
+      return { f: 1, m: 'Longitud no válida para un IBAN' };
+    }
+    var r = s.slice(4) + s.slice(0, 4), rem = 0;
+    for (var i = 0; i < r.length; i++) {
+      var c = r.charCodeAt(i), d = c >= 65 ? String(c - 55) : r.charAt(i);
+      for (var j = 0; j < d.length; j++) rem = (rem * 10 + Number(d.charAt(j))) % 97;
+    }
+    return rem === 1 ? null : { f: 0, m: 'Los dígitos de control no cuadran: algún número está mal copiado' };
+  }
+
+  /* ================= CATÁLOGO ================= */
+  async function cargarCat() {
+    if (cat && Date.now() - catTs < 300000) return cat;
+    var r = await sb.from('catalogo').select('categoria,campana,tipo,valor').order('orden').limit(5000);
+    if (r.error) throw r.error;
+    cat = r.data || []; catTs = Date.now();
+    return cat;
+  }
+  function vals(c) { return cat.filter(function (x) { return x.categoria === c; }).map(function (x) { return x.valor; }); }
+  function prods(camp, tipo) {
+    return cat.filter(function (x) { return x.categoria === 'PRODUCTO' && x.campana === camp && x.tipo === tipo; }).map(function (x) { return x.valor; });
+  }
+  function opts(arr, sel, ph) {
+    var o = '<option value="">' + ph + '</option>';
+    arr.forEach(function (v) { o += '<option' + (v === sel ? ' selected' : '') + '>' + E(v) + '</option>'; });
+    return o;
+  }
+
+  /* ================= FORMULARIO DE VENTA ================= */
+  window.ventaForm = async function (l) {
+    if (document.querySelector('.vf3-ov')) return;
+    try { await cargarCat(); } catch (e) { aviso('No se pudo cargar el catálogo: ' + msgErr(e), true); return; }
+    if (!cat.length) { aviso('El catálogo está vacío. Ejecuta catSincronizar en el libro B.', true); return; }
+
+    var camps = [];
+    cat.forEach(function (x) { if (x.campana && camps.indexOf(x.campana) < 0) camps.push(x.campana); });
+    camps.sort();
+    var provs = vals('PROVINCIA'), lp = String(l.provincia || '').toUpperCase();
+    if (lp && provs.indexOf(lp) < 0) provs = [lp].concat(provs);
+    var ops = vals('OPERADOR'), lo = String(l.operador_actual || '').toUpperCase();
+    if (lo && ops.indexOf(lo) < 0) ops = [lo].concat(ops);
+
+    var ov = document.createElement('div'); ov.className = 'vf3-ov';
+    ov.innerHTML =
+      '<div class="vf3" role="dialog" aria-label="Registrar venta">' +
+      '<h3>Registrar venta</h3><small>Lead de ' + E(l.cliente) + '. Revisa los datos antes de guardar.</small>' +
+
+      '<h4>Campaña</h4>' +
+      '<div class="g"><div><label>Campaña</label><select id="vf3_camp">' + opts(camps, '', 'Elige la campaña…') + '</select></div></div>' +
+
+      '<h4>Cliente</h4><div class="g">' +
+      '<div><label>Nombre y apellidos</label><input type="text" id="vf3_nom" value="' + E(l.cliente) + '"></div>' +
+      '<div><label>DNI</label><input type="text" id="vf3_dni" value="' + E(l.dni) + '"></div>' +
+      '<div><label>Teléfono</label><input type="tel" id="vf3_tel" value="' + E(l.telefono) + '"></div>' +
+      '<div><label>Fecha de nacimiento</label><input type="date" id="vf3_nac"></div>' +
+      '<div><label>Email</label><input type="email" id="vf3_mail"></div></div>' +
+
+      '<h4>Ubicación</h4><div class="g">' +
+      '<div><label>Provincia</label><select id="vf3_prov">' + opts(provs, lp, 'Elige…') + '</select></div>' +
+      '<div><label>Localidad</label><input type="text" id="vf3_loc" value="' + E(l.localidad) + '"></div>' +
+      '<div><label>Dirección</label><input type="text" id="vf3_dir" value="' + E(l.direccion) + '"></div></div>' +
+
+      '<h4>Operador y pago</h4><div class="g">' +
+      '<div><label>Operador donante (el actual)</label><select id="vf3_don">' + opts(ops, lo, 'Elige…') + '</select></div>' +
+      '<div><label>IBAN</label><input type="text" id="vf3_iban" placeholder="ES00 0000 0000 0000 0000 0000" autocomplete="off"><div class="ib" id="vf3_ibm"></div></div></div>' +
+
+      '<h4>Productos</h4>' +
+      '<div id="vf3_filas"></div>' +
+      '<button type="button" class="sec" id="vf3_add">+ Agregar producto</button>' +
+
+      '<h4>Notas y documentos</h4><div class="g">' +
+      '<div><label>Observaciones</label><textarea id="vf3_obs" rows="2"></textarea></div>' +
+      '<div><label>Enlaces a documentos</label><input type="url" id="vf3_enl"></div></div>' +
+
+      '<div class="acc"><button type="button" class="sec" id="vf3_no">Cancelar</button><button type="button" id="vf3_ok">Registrar venta</button></div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    function q(s) { return ov.querySelector(s); }
+    var cerrar = function () { ov.remove(); };
+
+    // mayúsculas en los campos de texto del formulario
+    ov.addEventListener('input', function (e) {
+      var t = e.target;
+      if (t.tagName === 'INPUT' && t.type === 'text' && !e.isComposing) {
+        var u = t.value.toUpperCase();
+        if (u !== t.value) { var a = t.selectionStart, b = t.selectionEnd; t.value = u; try { t.setSelectionRange(a, b); } catch (_) { } }
+      }
+    });
+
+    // IBAN en vivo
+    q('#vf3_iban').addEventListener('input', function () {
+      var m = q('#vf3_ibm'), r = ibanCheck(this.value);
+      if (!ibanNorm(this.value)) { m.textContent = ''; m.className = 'ib'; }
+      else if (r) { m.textContent = r.m; m.className = 'ib mal'; }
+      else { m.textContent = 'IBAN correcto'; m.className = 'ib okk'; }
+    });
+
+    // filas de producto
+    function fila(tipoIni) {
+      var d = document.createElement('div'); d.className = 'fila';
+      d.innerHTML = '<select class="t">' + opts(TIPOS, tipoIni || '', 'Tipo') + '</select><span class="tw"></span>' +
+        '<input class="n" type="tel" placeholder="Número a portar">' +
+        '<button type="button" class="sec up" title="Subir">↑</button><button type="button" class="sec x" title="Quitar">✕</button>';
+      var t = d.querySelector('.t'), tw = d.querySelector('.tw');
+      d._pintar = function () {
+        var camp = q('#vf3_camp').value, tipo = t.value, prev = (tw.querySelector('.p') || {}).value || '';
+        if (!camp) { tw.innerHTML = '<select class="p" disabled><option value="">Elige primero la campaña</option></select>'; return; }
+        if (!tipo) { tw.innerHTML = '<select class="p" disabled><option value="">Elige el tipo</option></select>'; return; }
+        var lista = prods(camp, tipo);
+        if (lista.length) tw.innerHTML = '<select class="p">' + opts(lista, lista.indexOf(prev) >= 0 ? prev : '', 'Tarifa…') + '</select>';
+        else tw.innerHTML = '<input class="p fuera" type="text" placeholder="Tarifa (no está en el catálogo)" value="' + E(prev) + '">';
+      };
+      t.onchange = d._pintar;
+      d.querySelector('.x').onclick = function () {
+        if (q('#vf3_filas').children.length > 1) d.remove(); else aviso('La venta necesita al menos un producto', true);
+      };
+      d.querySelector('.up').onclick = function () { if (d.previousElementSibling) d.parentNode.insertBefore(d, d.previousElementSibling); };
+      d._pintar();
+      q('#vf3_filas').appendChild(d);
+    }
+    q('#vf3_add').onclick = function () { fila('LINEA_PAGA'); };
+    q('#vf3_camp').onchange = function () { ov.querySelectorAll('.fila').forEach(function (f) { f._pintar(); }); };
+    q('#vf3_no').onclick = cerrar;
+    fila('CONVERGENTE');
+
+    q('#vf3_ok').onclick = async function () {
+      var btn = this, camp = q('#vf3_camp').value, nom = q('#vf3_nom').value.trim(), dni = q('#vf3_dni').value.trim();
+      if (!camp) return aviso('Elige la campaña', true);
+      if (!nom || !dni) return aviso('Faltan el nombre o el DNI', true);
+
+      var iban = ibanNorm(q('#vf3_iban').value), ic = ibanCheck(iban);
+      if (ic) {
+        if (ic.f || IBAN_ESTRICTO) return aviso('IBAN: ' + ic.m, true);
+        if (!confirm('El IBAN no pasa la verificación de dígitos de control.\n\n¿Guardar la venta igual?')) return;
+      }
+
+      var lista = [], ok = true;
+      ov.querySelectorAll('.fila').forEach(function (f) {
+        var tipo = f.querySelector('.t').value, p = f.querySelector('.p'), prod = p && !p.disabled ? p.value.trim() : '';
+        if (!tipo || !prod) { ok = false; return; }
+        lista.push({ tipo: tipo, producto: prod, numero_linea: f.querySelector('.n').value.trim() });
+      });
+      if (!ok || !lista.length) return aviso('Cada producto necesita tipo y tarifa', true);
+
+      var resumen = lista.length + ' producto(s): ' + lista.map(function (x) { return x.tipo; }).join(', ');
+      if (!confirm('¿Registrar la venta de ' + nom + '?\n' + resumen)) return;
+
+      btn.disabled = true;
+      var r = await sb.rpc('registrar_venta', {
+        p_lead: l.id, p_campana: camp, p_cliente: nom, p_dni: dni, p_telefono: q('#vf3_tel').value.trim(),
+        p_provincia: q('#vf3_prov').value, p_localidad: q('#vf3_loc').value.trim(), p_direccion: q('#vf3_dir').value.trim(),
+        p_operador_donante: q('#vf3_don').value, p_fecha_nac: q('#vf3_nac').value || null,
+        p_email: q('#vf3_mail').value.trim().toLowerCase(), p_iban: iban ? ibanFmt(iban) : '',
+        p_observaciones: q('#vf3_obs').value.trim(), p_enlaces: q('#vf3_enl').value.trim(), p_productos: lista
+      });
+      btn.disabled = false;
+      if (r.error) return aviso(msgErr(r.error), true);
+      aviso('Venta registrada: ' + r.data);
+      cerrar();
+      if (typeof mios === 'function') mios();
+      if (typeof bolsa === 'function') bolsa();
+    };
+  };
+})();
  </script>
 </body>
 </html>
