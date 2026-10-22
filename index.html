@@ -2717,9 +2717,11 @@ function ventaForm(l) {
   }
   async function cargar(s, extra) {
     var R = rango(s), A = new Date(R[0] + 'T00:00:00').toISOString(), B = new Date(R[1] + 'T00:00:00').toISOString();
+    // Usa fecha_venta cuando ya está completada; si una fila aún no la tiene, la ubica por la fecha de su estado (así nunca queda vacío)
+    var filtro = 'and(fecha_venta.gte.' + A + ',fecha_venta.lt.' + B + '),and(fecha_venta.is.null,fecha_estado.gte.' + R[0] + ',fecha_estado.lt.' + R[1] + ')';
     var rows = await todo(function () {
-      return sb.from('ventas_sync').select('*').gte('fecha_venta', A).lt('fecha_venta', B)
-        .order('fecha_venta', { ascending: false }).order('id_venta').order('fila_matriz');
+      return sb.from('ventas_sync').select('*').or(filtro)
+        .order('fecha_venta', { ascending: false, nullsFirst: false }).order('id_venta').order('fila_matriz');
     });
     var ids = [], vi = {}, lm = {}, pn = {}, i;
     rows.forEach(function (r) { if (r.lead_id && !vi[r.lead_id]) { vi[r.lead_id] = 1; ids.push(r.lead_id); } });
