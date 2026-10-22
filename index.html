@@ -3277,6 +3277,187 @@ function ventaForm(l) {
     };
   }
 })();
+  /* 20 · Pestaña «Sueldos y bonos» del admin: sueldo por cerrador, bonos con escalones y lista de tarifas «oferta PRO»
+   PEGAR al final, DESPUÉS del bloque 19 y antes del cierre del script. Antes ejecuta 20_sueldos_bonos.sql en Supabase.
+   Solo configura: todavía no calcula pagos (eso es el paso 4). Usa las variables de color del diseño. */
+(function () {
+  var CAMPS = ['YOIGO', 'VODAFONE', 'MASMOVIL', 'LOWI', 'POPULOOS', 'AVATEL'];
+  var ST = { sue: {}, cer: [], bonos: [], esc: [], pro: [], cat: [], campPro: null, busy: false };
+
+  function $(i) { return document.getElementById(i); }
+  function falta(e) { return /PGRST205|42P01|PGRST202|42883/.test(String(e && (e.code || ''))); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 20_sueldos_bonos.sql en Supabase' : limpio(e.message || ''); }
+  function soles(m) { return 'S/ ' + Number(m || 0).toFixed(2); }
+  function ini(s) { return String(s || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || '?'; }
+  function fd(d) { if (!d) return '—'; var x = new Date(d + 'T00:00:00'); return isNaN(x) ? '—' : x.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: '2-digit' }); }
+  function desc(b) {
+    var p = ['Convergentes (internet) activos en el mes'];
+    p.push(b.campanas && b.campanas.length ? 'campañas ' + b.campanas.join(', ') : 'todas las campañas');
+    if (b.solo_1gb) p.push('solo tarifas de 1GB');
+    if (b.solo_pro) p.push('solo ofertas PRO');
+    return p.join(' · ');
+  }
+  var CHK = 'width:18px;height:18px;padding:0;flex:none;margin:0';
+
+  async function cargar() {
+    var host = $('s20'); if (!host || ST.busy) return;
+    ST.busy = true;
+    var R;
+    try {
+      R = await Promise.all([
+        sb.from('perfiles').select('id,nombre,activo').eq('rol', 'cerrador').order('nombre'),
+        sb.from('sueldos_agente').select('agente_id,monto,vigente_desde').eq('activa', true),
+        sb.from('bonos').select('*').order('created_at'),
+        sb.from('bono_escalones').select('*').order('minimo'),
+        sb.from('tarifas_pro').select('*'),
+        sb.from('catalogo').select('campana,valor').eq('categoria', 'PRODUCTO').eq('tipo', 'CONVERGENTE').order('orden').limit(2000)]);
+    } catch (e) { ST.busy = false; host.innerHTML = '<div class="d15-vacio">No se pudo cargar.</div>'; return; }
+    ST.busy = false;
+    var er = R.filter(function (r) { return r.error; })[0];
+    if (er) { host.innerHTML = '<div class="d15-vacio">' + esc(msg(er.error)) + '</div>'; return; }
+    ST.cer = (R[0].data || []).filter(function (p) { return p.activo !== false; });
+    ST.sue = {}; (R[1].data || []).forEach(function (s) { ST.sue[s.agente_id] = s; });
+    ST.bonos = R[2].data || []; ST.esc = R[3].data || []; ST.pro = R[4].data || []; ST.cat = R[5].data || [];
+    render();
+  }
+
+  function render() {
+    var host = $('s20'); if (!host) return;
+    var camps = [];
+    ST.cat.forEach(function (x) { if (x.campana && camps.indexOf(x.campana) < 0) camps.push(x.campana); });
+    camps.sort(); if (!camps.length) camps = CAMPS;
+    if (!ST.campPro || camps.indexOf(ST.campPro) < 0) ST.campPro = camps.indexOf('YOIGO') >= 0 ? 'YOIGO' : camps[0];
+
+    /* ---- sueldos ---- */
+    var hs = '<div class="d15-sec"><div class="d15-sh"><h3>Sueldo mensual por cerrador</h3><span class="meta">Cada cambio queda con fecha; el cerrador solo ve el suyo</span></div>' +
+      (ST.cer.length ? ST.cer.map(function (p) {
+        var s = ST.sue[p.id];
+        return '<div class="d15-row2" data-id="' + esc(p.id) + '"><div class="d15-av">' + esc(ini(p.nombre)) + '</div><div class="d15-rt"><b>' + esc(p.nombre) + '</b><small>' +
+          (s ? 'Vigente desde ' + fd(s.vigente_desde) : 'Sin sueldo definido') + '</small></div>' +
+          '<input class="s-m" type="number" min="0" step="0.01" placeholder="S/ al mes" value="' + (s ? esc(s.monto) : '') + '" style="max-width:170px">' +
+          '<button data-s="sueldo">Guardar</button></div>';
+      }).join('') : '<div class="d15-vacio">No hay cerradores activos.</div>') + '</div>';
+
+    /* ---- bonos ---- */
+    var hb = '<div class="d15-sec"><div class="d15-sh"><h3>Bonos</h3><span class="meta">Se paga el escalón más alto alcanzado en el mes</span></div>' +
+      (ST.bonos.length ? ST.bonos.map(function (b) {
+        var es = ST.esc.filter(function (x) { return x.bono_id === b.id; });
+        return '<div class="d15-vc" data-bid="' + esc(b.id) + '" style="margin-bottom:12px">' +
+          '<div class="d15-vh"><div class="d15-vt"><b>' + esc(b.nombre) + '</b><small>' + esc(desc(b)) + '</small></div>' +
+          '<div class="switch"><input type="checkbox" class="b-ac"' + (b.activa ? ' checked' : '') + '><span class="meta">Activo</span></div>' +
+          '<button class="sec" data-s="bdel" style="padding:5px 10px;font-size:.8em">Quitar</button></div>' +
+          '<table class="d15-tbl" style="margin-top:8px"><thead><tr><th>Desde (activas)</th><th>Bono</th><th></th></tr></thead><tbody>' +
+          (es.length ? es.map(function (x) {
+            return '<tr data-eid="' + esc(x.id) + '"><td>' + x.minimo + ' o más</td><td><input class="e-m2" type="number" min="0" step="0.01" value="' + esc(x.monto) + '" style="max-width:130px"></td>' +
+              '<td style="white-space:nowrap"><button class="sec" data-s="esave" style="padding:4px 10px;font-size:.8em">Guardar</button> <button class="sec" data-s="edel" style="padding:4px 10px;font-size:.8em">Quitar</button></td></tr>';
+          }).join('') : '<tr><td colspan="3" class="meta">Sin escalones todavía.</td></tr>') + '</tbody></table>' +
+          '<div class="row" style="margin-top:8px"><input class="e-min" type="number" min="1" step="1" placeholder="Desde cuántas activas"><input class="e-mon" type="number" min="0" step="0.01" placeholder="Bono (S/)"><button data-s="enew">+ Escalón</button></div></div>';
+      }).join('') : '<div class="d15-vacio">Aún no hay bonos. Crea el primero abajo.</div>') +
+      '<h4>Crear un bono nuevo</h4>' +
+      '<div class="d15-form"><div><label>Nombre</label><input id="b-nom" data-minus placeholder="Ej. Bono Lowi"></div></div>' +
+      '<label>Campañas que cuentan (ninguna marcada = todas)</label><div style="display:flex;flex-wrap:wrap;gap:6px 16px">' +
+      camps.map(function (c) { return '<label style="display:flex;align-items:center;gap:6px;margin:0;font-size:.9em;color:var(--ink)"><input type="checkbox" class="b-camp" value="' + esc(c) + '" style="' + CHK + '">' + esc(c) + '</label>'; }).join('') + '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:10px">' +
+      '<label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--ink)"><input type="checkbox" id="b-1gb" style="' + CHK + '">Solo tarifas de 1GB</label>' +
+      '<label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--ink)"><input type="checkbox" id="b-pro" style="' + CHK + '">Solo ofertas PRO</label></div>' +
+      '<p style="margin:12px 0 0"><button data-s="bnew">Crear bono</button></p></div>';
+
+    /* ---- tarifas PRO ---- */
+    var tar = []; ST.cat.forEach(function (x) { if (x.campana === ST.campPro && tar.indexOf(x.valor) < 0) tar.push(x.valor); });
+    var marc = {}; ST.pro.forEach(function (x) { if (x.campana === ST.campPro) marc[x.producto] = 1; });
+    var hp = '<div class="d15-sec"><div class="d15-sh"><h3>Tarifas «oferta PRO»</h3><span class="meta">Marca cuáles tarifas de internet son oferta PRO en cada campaña</span></div>' +
+      '<div class="d15-form" style="margin-bottom:10px"><div><label>Campaña</label><select id="p-camp">' +
+      camps.map(function (c) { return '<option' + (c === ST.campPro ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select></div></div>' +
+      (tar.length ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px">' + tar.map(function (t) {
+        return '<label style="display:flex;align-items:center;gap:8px;margin:0;padding:8px 10px;background:var(--bg);border:1px solid var(--line);border-radius:10px;color:var(--ink);font-size:.9em">' +
+          '<input type="checkbox" class="p-t" data-v="' + esc(t) + '"' + (marc[t] ? ' checked' : '') + ' style="' + CHK + '">' + esc(t) + '</label>';
+      }).join('') + '</div>' : '<div class="d15-vacio">No hay tarifas de internet de esta campaña en el catálogo.</div>') +
+      '<div class="meta" style="margin-top:8px">Marcadas: ' + Object.keys(marc).length + ' en ' + esc(ST.campPro) + ' · ' + ST.pro.length + ' en total</div></div>';
+
+    host.innerHTML = hs + hb + hp;
+  }
+
+  async function accion(b) {
+    var a = b.getAttribute('data-s'), r;
+    if (a === 'sueldo') {
+      var fila = b.closest('[data-id]'), v = parseFloat(fila.querySelector('.s-m').value);
+      if (isNaN(v) || v < 0) return toast('Escribe un sueldo válido', true);
+      b.disabled = true; r = await sb.rpc('fijar_sueldo', { p_agente: fila.getAttribute('data-id'), p_monto: v }); b.disabled = false;
+      if (r.error) return toast(msg(r.error), true);
+      toast('Sueldo guardado'); cargar();
+    } else if (a === 'bnew') {
+      var nom = $('b-nom').value.trim(); if (!nom) return toast('Escribe el nombre del bono', true);
+      var cs = Array.prototype.map.call(document.querySelectorAll('#s20 .b-camp:checked'), function (c) { return c.value; });
+      b.disabled = true;
+      r = await sb.from('bonos').insert({ nombre: nom, campanas: cs.length ? cs : null, solo_1gb: $('b-1gb').checked, solo_pro: $('b-pro').checked, activa: true });
+      b.disabled = false;
+      if (r.error) return toast(msg(r.error), true);
+      toast('Bono creado. Agrégale sus escalones.'); cargar();
+    } else if (a === 'bdel') {
+      if (!confirm('¿Quitar este bono y todos sus escalones?')) return;
+      r = await sb.from('bonos').delete().eq('id', b.closest('[data-bid]').getAttribute('data-bid'));
+      if (r.error) return toast(msg(r.error), true);
+      toast('Bono quitado'); cargar();
+    } else if (a === 'enew') {
+      var c = b.closest('[data-bid]'), mi = parseInt(c.querySelector('.e-min').value, 10), mo = parseFloat(c.querySelector('.e-mon').value);
+      if (isNaN(mi) || mi < 1) return toast('Escribe desde cuántas activas', true);
+      if (isNaN(mo) || mo < 0) return toast('Escribe un monto válido', true);
+      b.disabled = true; r = await sb.from('bono_escalones').insert({ bono_id: c.getAttribute('data-bid'), minimo: mi, monto: mo }); b.disabled = false;
+      if (r.error) return toast(r.error.code === '23505' ? 'Ya existe un escalón con ese mínimo' : msg(r.error), true);
+      toast('Escalón agregado'); cargar();
+    } else if (a === 'esave') {
+      var tr = b.closest('[data-eid]'), m2 = parseFloat(tr.querySelector('.e-m2').value);
+      if (isNaN(m2) || m2 < 0) return toast('Escribe un monto válido', true);
+      r = await sb.from('bono_escalones').update({ monto: m2 }).eq('id', tr.getAttribute('data-eid'));
+      if (r.error) return toast(msg(r.error), true);
+      toast('Escalón guardado'); cargar();
+    } else if (a === 'edel') {
+      r = await sb.from('bono_escalones').delete().eq('id', b.closest('[data-eid]').getAttribute('data-eid'));
+      if (r.error) return toast(msg(r.error), true);
+      toast('Escalón quitado'); cargar();
+    }
+  }
+
+  async function cambio(t) {
+    var r;
+    if (t.classList.contains('b-ac')) {
+      r = await sb.from('bonos').update({ activa: t.checked }).eq('id', t.closest('[data-bid]').getAttribute('data-bid'));
+      if (r.error) { t.checked = !t.checked; return toast(msg(r.error), true); }
+      toast(t.checked ? 'Bono activado' : 'Bono desactivado');
+    } else if (t.id === 'p-camp') { ST.campPro = t.value; render(); }
+    else if (t.classList.contains('p-t')) {
+      var v = t.getAttribute('data-v');
+      r = t.checked ? await sb.from('tarifas_pro').insert({ campana: ST.campPro, producto: v })
+                    : await sb.from('tarifas_pro').delete().eq('campana', ST.campPro).eq('producto', v);
+      if (r.error) { t.checked = !t.checked; return toast(msg(r.error), true); }
+      if (t.checked) ST.pro.push({ campana: ST.campPro, producto: v });
+      else ST.pro = ST.pro.filter(function (x) { return !(x.campana === ST.campPro && x.producto === v); });
+      render();
+    }
+  }
+
+  function montar() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-sue')) return;
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-sue'; s.hidden = true;
+    s.innerHTML = '<div id="s20"><div class="d15-vacio">Cargando…</div></div>';
+    panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'sue'); bt.innerHTML = '<span>💼</span>Sueldos y bonos';
+    var com = bar.querySelector('[data-k="com"]');
+    if (com) com.insertAdjacentElement('afterend', bt); else bar.appendChild(bt);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'sue') cargar(); });
+    s.addEventListener('click', function (e) { var b = e.target.closest('button[data-s]'); if (b) accion(b); });
+    s.addEventListener('change', function (e) { cambio(e.target); });
+  }
+
+  var o = window.adminView;
+  if (typeof o === 'function') {
+    window.adminView = function () {
+      var r = o.apply(this, arguments);
+      try { montar(); } catch (e) { console.error(e); }
+      return r;
+    };
+  }
+})();
  </script>
 </body>
 </html>
