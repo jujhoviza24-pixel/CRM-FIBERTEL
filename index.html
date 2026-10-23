@@ -4380,7 +4380,7 @@ function ventaForm(l) {
     };
   }
 })();
-  /* 34 · Back: «Por activar» y corrección de ventas de MATRIZ  +  Admin: «Permisos del back»
+/* 34 · Back: «Por activar» y corrección de ventas de MATRIZ  +  Admin: «Permisos del back»
    PEGAR al final de index.html, DESPUÉS del bloque 29 y antes del cierre del script. Antes ejecuta 34_back_edita_matriz.sql.
    - Back (y admin): pestaña «⏳ Por activar» con SOLO los pedidos en curso (sin activos ni cancelados). Cuenta también los
      de meses anteriores y avisa cuántos son. Cada línea se edita con los campos que el admin habilitó. El cambio se ve al
@@ -4531,7 +4531,8 @@ function ventaForm(l) {
         if (k === 'estado' || k === 'producto') x = x.toUpperCase();
         if (x !== String(orig[k]).trim()) c[k] = x;
       });
-      if (c.estado && !c.fecha_estado && puede('fecha_estado') && g('fecha_estado') === String(orig.fecha_estado)) c.fecha_estado = hoyLima();   // estado nuevo = fecha de hoy, salvo que la cambies
+      if (c.estado === 'PLANIFICADO' && !c.fecha_estado && puede('fecha_estado')) return toast('Elige la fecha planificada (puede ser futura)', true);
+      if (c.estado && c.estado !== 'PLANIFICADO' && !c.fecha_estado && puede('fecha_estado') && g('fecha_estado') === String(orig.fecha_estado)) c.fecha_estado = hoyLima();   // estado nuevo = fecha de hoy, salvo que la cambies
       var t = ov.querySelector('#p34-todas');
       enviar(ov, btn, id, fila, c, t && t.checked);
     });
