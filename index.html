@@ -2953,16 +2953,43 @@ function ventaForm(l) {
     };
   });
 })();
-  /* 17 · Venta manual del cerrador
-   PEGAR al final, DESPUÉS del bloque 16 y antes del cierre del script. Antes ejecuta 17_supabase.sql en Supabase.
-   Cerrador: botón «Venta manual» en la barra de pestañas. Pide cliente, DNI y teléfono, crea el lead a su nombre
-   y abre el formulario de venta de siempre. El correo de la venta lo envía el sistema que ya tienes (CRM_Correos.gs). */
+   /* 17 · Venta manual del cerrador v2  ·  REEMPLAZA el bloque 17 anterior
+   Borra el bloque 17 que tienes en index.html y pega este en su mismo lugar (no hay que ejecutar nada en Supabase).
+   Arregla: antes, al pulsar «Continuar» se creaba el cliente en la base AUNQUE luego no se enviara la venta
+   (por eso aparecían clientes de prueba como PEPITO en el Resumen). Ahora:
+   - «Continuar» solo abre el formulario de venta; NO guarda nada.
+   - El cliente se crea en el mismo instante en que se envía la venta con «Registrar venta».
+   - Si cierras o cancelas el formulario, no queda ningún rastro. */
 (function () {
+  function instalar() {
+    if (sb.__m17) return;
+    var orig = sb.rpc.bind(sb);
+    sb.rpc = function (fn, args, opts) {
+      var m = window.__manual17;
+      if (fn === 'registrar_venta' && args && args.p_lead == null && m) {
+        return (async function () {
+          if (!m.id) {   // primera vez: crea el cliente justo ahora, con lo que quedó en el formulario
+            var r = await orig('crear_lead_manual', { p_cliente: args.p_cliente || m.cliente, p_dni: args.p_dni || m.dni, p_telefono: args.p_telefono || m.telefono || '' });
+            if (r.error) return r;
+            var lead = Array.isArray(r.data) ? r.data[0] : r.data;
+            if (!lead || !lead.id) return { data: null, error: { message: 'No se pudo crear el cliente' } };
+            m.id = lead.id;   // si la venta falla y se reintenta, se reutiliza este mismo cliente
+          }
+          var res = await orig(fn, Object.assign({}, args, { p_lead: m.id }), opts);
+          if (!res.error) window.__manual17 = null;
+          return res;
+        })();
+      }
+      return orig(fn, args, opts);
+    };
+    sb.__m17 = 1;
+  }
+
   function manual() {
     if (document.getElementById('vm17')) return;
     var ov = document.createElement('div'); ov.className = 'k-ov'; ov.id = 'vm17'; ov.style.zIndex = 9100;
     ov.innerHTML = '<div class="k-bus"><h3 style="margin:0 0 4px">Venta manual</h3>' +
-      '<div class="meta" style="margin:0 0 6px">Para un cliente que no pasó por concertador ni back. El resto de datos los completas en el formulario de venta.</div>' +
+      '<div class="meta" style="margin:0 0 6px">Para un cliente que no pasó por concertador ni back. No se guarda nada hasta que envíes la venta.</div>' +
       '<label>Cliente</label><input id="vm-n"><div class="row"><div><label>DNI / NIE</label><input id="vm-d"></div>' +
       '<div><label>Teléfono</label><input id="vm-t" inputmode="tel"></div></div>' +
       '<div class="row" style="margin-top:14px"><button class="sec" id="vm-x" type="button">Cancelar</button><button id="vm-ok" type="button">Continuar</button></div></div>';
@@ -2970,19 +2997,16 @@ function ventaForm(l) {
     var q = function (s) { return ov.querySelector(s); };
     q('#vm-x').onclick = function () { ov.remove(); };
     q('#vm-n').focus();
-    q('#vm-ok').onclick = async function () {
+    q('#vm-ok').onclick = function () {
       var n = q('#vm-n').value.trim(), d = q('#vm-d').value.trim(), t = q('#vm-t').value.trim();
       if (!n || !d) return toast('Escribe el nombre y el DNI del cliente', true);
-      var b = this; b.disabled = true;
-      var r = await sb.rpc('crear_lead_manual', { p_cliente: n, p_dni: d, p_telefono: t });
-      b.disabled = false;
-      if (r.error) return toast(/crear_lead_manual|PGRST202|42883/.test(String(r.error.code) + r.error.message) ? 'Falta ejecutar 17_supabase.sql en Supabase' : limpio(r.error.message), true);
-      var lead = Array.isArray(r.data) ? r.data[0] : r.data;
+      instalar();
+      window.__manual17 = { id: null, cliente: n, dni: d, telefono: t };
       ov.remove();
-      if (lead && typeof window.ventaForm === 'function') window.ventaForm(lead);
-      if (typeof mios === 'function') mios();
+      if (typeof window.ventaForm === 'function') window.ventaForm({ id: null, cliente: n, dni: d, telefono: t });
     };
   }
+
   var o = window.cerradorView;
   if (typeof o === 'function') {
     window.cerradorView = function () {
@@ -3567,33 +3591,53 @@ function ventaForm(l) {
     };
   }
 })();
-       /* 22 · Liquidación del cerrador: «Mi liquidación» (cerrador) y «Liquidaciones» (admin)
-   PEGAR al final, DESPUÉS del bloque 21 y antes del cierre del script. Antes ejecuta 22_liquidacion.sql en Supabase.
-   Cerrador: ve su sueldo, comisiones, bonos y ajustes del mes elegido, con el detalle de cada servicio.
-   Admin: elige cerrador y mes, ve lo mismo, carga descuentos/extras y ve el resumen de todo el equipo.
+       /* 22 · Liquidación del cerrador v2: «Mi liquidación» (cerrador) y «Liquidaciones» (admin)  ·  REEMPLAZA el bloque 22 anterior
+   Borra el bloque 22 que tienes en index.html y pega este en su mismo lugar (después del 21, antes del 23).
+   Antes ejecuta 27_liquidacion_libro.sql en Supabase (agrega cliente, DNI y estado a cada servicio).
+   Muestra lo mismo que el libro del agente: factura a cobrar, estados de fibras y estados de móviles con cliente,
+   DNI, estado, fecha y comisión de cada servicio, y el total por operador. Sin el SQL 27 funciona igual, pero sin nombres.
    Usa solo las variables de color del diseño (claro y oscuro). */
 (function () {
   var MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   var HOY = new Date(), ROL = null, cer = [];
-  var ST = { y: HOY.getFullYear(), m: HOY.getMonth() + 1, base: 'ESTADO', ag: '', busy: false, d: null };
+  var ST = { y: HOY.getFullYear(), m: HOY.getMonth() + 1, base: 'ESTADO', ag: '', busy: false, d: null, q: '' };
 
   function $(i) { return document.getElementById(i); }
   function soles(m) { return 'S/ ' + Number(m || 0).toFixed(2); }
   function falta(e) { return /PGRST202|PGRST205|42883|42P01|liquidacion_/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
   function msg(e) { return falta(e) ? 'Falta ejecutar 22_liquidacion.sql en Supabase' : limpio(e.message || ''); }
   function fd(d) { if (!d) return '—'; var x = new Date(String(d).slice(0, 10) + 'T00:00:00'); return isNaN(x) ? '—' : x.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' }); }
-  function ini(s) { return String(s || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || '?'; }
   function p2(n) { return (n < 10 ? '0' : '') + n; }
+  function N(s) { return String(s == null ? '' : s).trim().toUpperCase(); }
+  function tonoE(e) {
+    e = N(e);
+    if (/ACTIV|INSTAL|COMPLET/.test(e) && !/DESACTIV|INACTIV|NO ACTIV/.test(e)) return 'b-ok';
+    if (/CANCEL|DECOMIS|ANUL|BAJA|CAIDA|CAÍDA/.test(e)) return 'b-bad';
+    if (/INCID|CONTRAOF|SCORING|KAO/.test(e)) return 'b-warn';
+    return 'b-info';
+  }
 
   var css = document.createElement('style');
   css.textContent = [
     '.l22-tot{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:22px 24px;border-radius:20px;color:var(--on-acc);background:linear-gradient(120deg,var(--acc),color-mix(in srgb,var(--acc) 45%,#38bdf8));box-shadow:var(--sh)}',
-    '.l22-tot small{opacity:.9;text-transform:capitalize}.l22-tot b{display:block;font-size:2.3em;letter-spacing:-.03em;line-height:1.1}',
+    '.l22-tot small{opacity:.9;text-transform:capitalize}.l22-tot b{display:block;font-size:2.4em;letter-spacing:-.03em;line-height:1.1}',
+    '.l22-chips{display:flex;gap:8px;flex-wrap:wrap}.l22-chips span{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:12px;padding:6px 12px;font-size:.82em}.l22-chips b{display:inline;font-size:1em;letter-spacing:0;margin-left:4px}',
     '.l22-r{display:flex;justify-content:space-between;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line);font-size:.94em}',
     '.l22-r:last-child{border-bottom:0}.l22-r span:first-child{color:var(--mut)}.l22-r b{font-variant-numeric:tabular-nums}',
-    '.l22-r.neg b{color:var(--bad)}.l22-r.pos b{color:var(--ok)}.l22-r.fin{font-size:1.05em;border-top:2px solid var(--line2);margin-top:4px}.l22-r.fin span:first-child{color:var(--ink);font-weight:700}',
+    '.l22-r.neg b{color:var(--bad)}.l22-r.pos b{color:var(--ok)}.l22-r.fin{font-size:1.08em;border-top:2px solid var(--line2);margin-top:4px}.l22-r.fin span:first-child{color:var(--ink);font-weight:700}',
     '.l22-bar{height:8px;border-radius:99px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:8px 0 4px}',
-    '.l22-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),color-mix(in srgb,var(--acc) 55%,#38bdf8));border-radius:99px}'
+    '.l22-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),color-mix(in srgb,var(--acc) 55%,#38bdf8));border-radius:99px}',
+    '.l22-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}@media(max-width:860px){.l22-2{grid-template-columns:1fr}}',
+    '.l22-op{display:grid;grid-template-columns:110px 1fr auto;gap:10px;align-items:center;padding:7px 0;font-size:.88em}',
+    '.l22-op .n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}.l22-op .v{text-align:right;font-variant-numeric:tabular-nums}.l22-op .v small{color:var(--mut)}',
+    '.l22-fr{display:grid;grid-template-columns:96px minmax(130px,1.5fr) minmax(110px,1.3fr) 128px 52px 84px;gap:10px;align-items:center;padding:9px 10px;border-bottom:1px solid var(--line);font-size:.86em}',
+    '.l22-fr.mov{grid-template-columns:96px minmax(130px,1.5fr) 100px minmax(110px,1.2fr) 128px 52px 84px}',
+    '.l22-fr.h{font-size:.68em;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);border-bottom:2px solid var(--line2);position:sticky;top:0;background:var(--card);z-index:1}',
+    '.l22-fr:last-child{border-bottom:0}.l22-fr:not(.h):hover{background:var(--acc2)}',
+    '.l22-fr .c b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.l22-fr .c small{color:var(--mut);font-size:.82em}',
+    '.l22-fr .m{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}.l22-fr .m.cero{color:var(--mut);font-weight:500}',
+    '.l22-box{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:14px}',
+    '@media(max-width:760px){.l22-fr.h{display:none}.l22-fr,.l22-fr.mov{grid-template-columns:1fr auto;gap:4px 10px;padding:12px}.l22-fr .c{grid-column:1}.l22-fr .m{grid-column:2;grid-row:1}.l22-fr>*{min-width:0}}'
   ].join('');
   document.head.appendChild(css);
 
@@ -3608,32 +3652,93 @@ function ventaForm(l) {
       '<div class="d15-form">' + ag + '<div><label>Año</label><select data-l="y">' + ys + '</select></div><div><label>Mes</label><select data-l="m">' + ms + '</select></div>' + base + '</div></div>';
   }
 
+  /* ---------- listas de servicios (estilo libro del agente) ---------- */
+  function filas(d) {
+    var a = (d.servicios || []).map(function (s) { s.act = true; return s; });
+    var o = (d.otros || []).map(function (s) { s.act = false; return s; });
+    return a.concat(o);
+  }
+  function coincide(s) {
+    var q = N(ST.q); if (!q) return true;
+    return N([s.cliente, s.dni, s.id_venta, s.numero, s.producto, s.campana].join(' ')).indexOf(q) >= 0;
+  }
+  function filaInt(s) {
+    return '<div class="l22-fr"><div class="c"><b>' + esc(s.campana) + '</b></div>' +
+      '<div class="c"><b>' + esc(s.cliente || '—') + '</b><small>' + esc(s.dni ? 'DNI ' + s.dni : s.id_venta) + '</small></div>' +
+      '<div class="c"><b>' + esc(s.producto || '—') + '</b>' + (s.sin_tarifa ? '<small style="color:var(--warn)">sin tarifa en la hoja</small>' : '') + '</div>' +
+      '<div><span class="badge ' + tonoE(s.estado || (s.act ? 'ACTIVO' : '')) + '">' + esc(N(s.estado) || (s.act ? 'ACTIVO' : '—')) + '</span></div>' +
+      '<div class="c"><small>' + fd(s.fecha) + '</small></div><div class="m' + (Number(s.monto) ? '' : ' cero') + '">' + soles(s.monto) + '</div></div>';
+  }
+  function filaMov(s) {
+    return '<div class="l22-fr mov"><div class="c"><b>' + esc(s.campana) + '</b></div>' +
+      '<div class="c"><b>' + esc(s.cliente || '—') + '</b><small>' + esc(s.dni ? 'DNI ' + s.dni : s.id_venta) + '</small></div>' +
+      '<div class="c"><b>' + esc(s.numero || '—') + '</b></div>' +
+      '<div class="c"><b>' + esc(s.producto || '—') + '</b>' + (s.gratis ? '<small>línea gratis · sin comisión</small>' : (s.sin_tarifa ? '<small style="color:var(--warn)">sin tarifa en la hoja</small>' : '')) + '</div>' +
+      '<div><span class="badge ' + tonoE(s.estado || (s.act ? 'ACTIVO' : '')) + '">' + esc(N(s.estado) || (s.act ? 'ACTIVO' : '—')) + '</span></div>' +
+      '<div class="c"><small>' + fd(s.fecha) + '</small></div><div class="m' + (Number(s.monto) ? '' : ' cero') + '">' + soles(s.monto) + '</div></div>';
+  }
+  function listas(d) {
+    var f = filas(d).filter(coincide).sort(function (a, b) { return String(b.fecha || '') > String(a.fecha || '') ? 1 : -1; });
+    var it = f.filter(function (s) { return s.tipo === 'INTERNET'; }), mv = f.filter(function (s) { return s.tipo !== 'INTERNET'; });
+    var sum = function (arr) { return arr.reduce(function (t, s) { return t + Number(s.monto || 0); }, 0); };
+    return '<div class="d15-sec"><div class="d15-sh"><h3>Estados de fibras</h3><span class="meta">' + it.length + ' servicio(s) · comisión ' + soles(sum(it)) + '</span></div>' +
+      (it.length ? '<div class="l22-box"><div class="l22-fr h"><div>Operador</div><div>Cliente</div><div>Internet</div><div>Estado</div><div>Fecha</div><div style="text-align:right">Comisión</div></div>' + it.map(filaInt).join('') + '</div>' : '<div class="d15-vacio">No hay fibras en este mes' + (ST.q ? ' con esa búsqueda' : '') + '.</div>') + '</div>' +
+      '<div class="d15-sec"><div class="d15-sh"><h3>Estados de móviles</h3><span class="meta">' + mv.length + ' línea(s) · comisión ' + soles(sum(mv)) + '</span></div>' +
+      (mv.length ? '<div class="l22-box"><div class="l22-fr mov h"><div>Operador</div><div>Cliente</div><div>Línea</div><div>Tarifa</div><div>Estado</div><div>Fecha</div><div style="text-align:right">Comisión</div></div>' + mv.map(filaMov).join('') + '</div>' : '<div class="d15-vacio">No hay líneas móviles en este mes' + (ST.q ? ' con esa búsqueda' : '') + '.</div>') + '</div>';
+  }
+  function porOperador(d, tipos) {
+    var g = {};
+    (d.servicios || []).forEach(function (s) {
+      if (tipos.indexOf(s.tipo) < 0) return;
+      var k = s.campana || '—'; g[k] = g[k] || { n: 0, m: 0 }; g[k].n++; g[k].m += Number(s.monto || 0);
+    });
+    var ks = Object.keys(g).sort(function (a, b) { return g[b].n - g[a].n; });
+    var mx = Math.max.apply(null, ks.map(function (k) { return g[k].n; }).concat([1]));
+    return ks.length ? ks.map(function (k) {
+      return '<div class="l22-op"><div class="n" title="' + esc(k) + '">' + esc(k) + '</div><div class="k-bt"><i style="width:' + Math.max(4, Math.round(g[k].n * 100 / mx)) + '%"></i></div>' +
+        '<div class="v"><b>' + g[k].n + '</b> <small>· ' + soles(g[k].m) + '</small></div></div>';
+    }).join('') : '<div class="meta">Sin servicios activos todavía.</div>';
+  }
+
   function detalle(d, admin) {
-    var per = MESES[new Date(d.periodo + 'T00:00:00').getMonth()] + ' ' + new Date(d.periodo + 'T00:00:00').getFullYear();
-    var nInt = (d.servicios || []).filter(function (s) { return s.tipo === 'INTERNET'; }).length, nMov = (d.servicios || []).filter(function (s) { return s.tipo === 'MOVIL'; }).length;
-    var h = '<div class="l22-tot"><div><small>' + esc(per) + (admin ? ' · ' + esc(d.nombre) : '') + '</small><b>' + soles(d.total) + '</b><small>a cobrar</small></div></div>';
+    var fp = new Date(d.periodo + 'T00:00:00'), per = MESES[fp.getMonth()] + ' ' + fp.getFullYear();
+    var act = d.servicios || [];
+    var nInt = act.filter(function (s) { return s.tipo === 'INTERNET'; }).length;
+    var nMov = act.filter(function (s) { return s.tipo === 'MOVIL'; }).length, nGra = act.filter(function (s) { return s.tipo === 'GRATIS'; }).length;
+    var comis = Number(d.comision_internet) + Number(d.comision_movil);
+    var h = '<div class="l22-tot"><div><small>' + esc(per) + (admin ? ' · ' + esc(d.nombre) : '') + '</small><b>' + soles(d.total) + '</b><small>a cobrar</small></div>' +
+      '<div class="l22-chips"><span>Sueldo<b>' + soles(d.sueldo) + '</b></span><span>Comisiones<b>' + soles(comis) + '</b></span><span>Bonos<b>' + soles(d.bonos_total) + '</b></span></div></div>';
 
-    /* tramo */
+    /* indicadores */
     var pct = Math.min(100, Math.round(d.internet_activos * 100 / d.tramo_min));
-    h += '<div class="d15-sec"><h3>Tu tramo</h3><div class="d15-k ' + (d.aplica ? 'ok' : 'warn') + '" style="margin-top:10px;box-shadow:none"><div class="d15-ki">' + (d.aplica ? '✅' : '⏳') + '</div><div><div class="d15-kv">' + d.internet_activos + '</div><div class="d15-kl">convergentes activos en el mes</div>' +
-      '<div class="d15-ks">' + (d.aplica ? 'Tramo ' + d.tramo + ' (se comisiona desde el ' + d.tramo_min + ')' : 'Faltan ' + (d.tramo_min - d.internet_activos) + ' para empezar a comisionar (tramo ' + d.tramo_min + ')') + '</div></div></div>' +
-      (d.aplica ? '' : '<div class="l22-bar"><i style="width:' + pct + '%"></i></div>') + '</div>';
+    h += '<div class="d15-kpis" style="margin-top:0">' +
+      '<div class="d15-k ' + (d.aplica ? 'ok' : 'warn') + '"><div class="d15-ki">' + (d.aplica ? '✅' : '⏳') + '</div><div><div class="d15-kv">' + d.internet_activos + '</div><div class="d15-kl">Convergentes activos</div>' +
+      '<div class="d15-ks">' + (d.aplica ? 'Tramo ' + d.tramo + ' · comisiona desde el ' + d.tramo_min : 'Faltan ' + (d.tramo_min - d.internet_activos) + ' para comisionar') + '</div></div></div>' +
+      '<div class="d15-k info"><div class="d15-ki">📱</div><div><div class="d15-kv">' + (nMov + nGra) + '</div><div class="d15-kl">Líneas móviles activas</div><div class="d15-ks">' + nGra + ' sin comisión (gratis)</div></div></div>' +
+      '<div class="d15-k"><div class="d15-ki">🌐</div><div><div class="d15-kv" style="font-size:1.4em">' + soles(d.comision_internet) + '</div><div class="d15-kl">Comisión internet</div></div></div>' +
+      '<div class="d15-k"><div class="d15-ki">📞</div><div><div class="d15-kv" style="font-size:1.4em">' + soles(d.comision_movil) + '</div><div class="d15-kl">Comisión móviles</div></div></div></div>' +
+      (d.aplica ? '' : '<div class="l22-bar"><i style="width:' + pct + '%"></i></div>');
 
-    /* desglose */
-    h += '<div class="d15-sec"><h3>Desglose</h3>' +
+    /* factura + operadores */
+    h += '<div class="l22-2"><div class="d15-sec"><h3>Factura a cobrar</h3>' +
       '<div class="l22-r"><span>Sueldo</span><b>' + soles(d.sueldo) + '</b></div>' +
-      '<div class="l22-r"><span>Comisión internet (' + nInt + ' servicios)</span><b>' + soles(d.comision_internet) + '</b></div>' +
-      '<div class="l22-r"><span>Comisión móviles (' + nMov + ' líneas)</span><b>' + soles(d.comision_movil) + '</b></div>' +
+      '<div class="l22-r"><span>Comisiones</span><b>' + soles(comis) + '</b></div>' +
       '<div class="l22-r"><span>Bonos</span><b>' + soles(d.bonos_total) + '</b></div>' +
       (Number(d.extras) ? '<div class="l22-r pos"><span>Extras</span><b>+ ' + soles(d.extras) + '</b></div>' : '') +
       (Number(d.descuentos) ? '<div class="l22-r neg"><span>Descuentos</span><b>− ' + soles(d.descuentos) + '</b></div>' : '') +
-      '<div class="l22-r fin"><span>Total a cobrar</span><b>' + soles(d.total) + '</b></div>' +
-      (d.sin_tarifa ? '<div class="warn">' + d.sin_tarifa + ' servicio(s) activos no encontraron su tarifa en la hoja COMISIONES y se cuentan como S/ 0.00' + (admin ? '. Revisa la lista «sin tarifa» en la pestaña Comisiones.' : '. Avisa al administrador.') + '</div>' : '') + '</div>';
+      '<div class="l22-r fin"><span>A cobrar</span><b>' + soles(d.total) + '</b></div>' +
+      (d.sin_tarifa ? '<div class="warn">' + d.sin_tarifa + ' servicio(s) activos no encontraron su tarifa en la hoja COMISIONES y cuentan como S/ 0.00' + (admin ? '. Revisa la lista «sin tarifa» en la pestaña Comisiones.' : '. Avisa al administrador.') + '</div>' : '') + '</div>' +
+      '<div class="d15-sec"><h3>Activos por operador</h3><h4>Internet</h4>' + porOperador(d, ['INTERNET']) + '<h4>Móviles</h4>' + porOperador(d, ['MOVIL', 'GRATIS']) + '</div></div>';
+
+    /* buscador + listas */
+    h += '<div class="d15-sec"><div class="d15-vbar" style="margin:0"><input id="l22-q" data-minus placeholder="Buscar cliente, DNI, línea o ID de venta" value="' + esc(ST.q) + '"></div></div><div id="l22-listas">' + listas(d) + '</div>';
 
     /* bonos */
     h += '<div class="d15-sec"><h3>Bonos</h3>' + ((d.bonos || []).length ? d.bonos.map(function (b) {
       var sig = b.siguiente ? 'Siguiente escalón: ' + b.siguiente + ' activas (faltan ' + (b.siguiente - b.activas) + ')' : 'Escalón máximo alcanzado';
-      return '<div class="l22-r"><span><b style="color:var(--ink)">' + esc(b.nombre) + '</b><br><small>' + b.activas + ' activas · ' + sig + '</small></span><b>' + soles(b.pago) + '</b></div>';
+      var p = b.siguiente ? Math.min(100, Math.round(b.activas * 100 / b.siguiente)) : 100;
+      return '<div class="l22-r" style="display:block"><div style="display:flex;justify-content:space-between;gap:10px"><b style="color:var(--ink)">' + esc(b.nombre) + '</b><b>' + soles(b.pago) + '</b></div>' +
+        '<div class="l22-bar"><i style="width:' + p + '%"></i></div><small style="color:var(--mut)">' + b.activas + ' activas · ' + sig + '</small></div>';
     }).join('') : '<div class="d15-vacio">No hay bonos activos configurados.</div>') + '</div>';
 
     /* ajustes */
@@ -3644,15 +3749,6 @@ function ventaForm(l) {
       (admin ? '<h4>Agregar ajuste</h4><div class="d15-form"><div><label>Concepto</label><input id="l-con" data-minus placeholder="Ej. Tardanza, falta, deco"></div>' +
         '<div><label>Tipo</label><select id="l-tip"><option value="DESCUENTO">Descuento</option><option value="EXTRA">Extra</option></select></div>' +
         '<div><label>Monto (S/)</label><input id="l-mon" type="number" min="0.01" step="0.01"></div><div><button data-l="addadj" style="width:100%">Agregar</button></div></div>' : '') + '</div>';
-
-    /* detalle de servicios */
-    var sv = d.servicios || [];
-    h += '<div class="d15-sec"><div class="d15-sh"><h3>Detalle de servicios</h3><span class="meta">' + sv.length + ' servicio(s) que comisionan</span></div>' +
-      (sv.length ? '<div style="overflow-x:auto;max-height:420px;overflow-y:auto"><table class="d15-tbl"><thead><tr><th>Fecha</th><th>Venta</th><th>Campaña</th><th>Servicio</th><th style="text-align:right">Comisión</th></tr></thead><tbody>' +
-        sv.slice(0, 300).map(function (s) {
-          return '<tr><td>' + fd(s.fecha) + '</td><td>' + esc(s.id_venta) + '</td><td>' + esc(s.campana) + '</td><td>' + esc(s.tipo === 'MOVIL' ? 'Línea · ' : (s.gratis ? 'Línea gratis · ' : '')) + esc(s.producto || '') + (s.numero ? ' · ' + esc(s.numero) : '') +
-            (s.sin_tarifa ? ' <span class="badge b-warn">sin tarifa</span>' : '') + (s.gratis ? ' <span class="badge">sin comisión</span>' : '') + '</td><td style="text-align:right">' + soles(s.monto) + '</td></tr>';
-        }).join('') + '</tbody></table></div>' : '<div class="d15-vacio">No hay servicios activos en este mes.</div>') + '</div>';
     return h;
   }
 
@@ -3661,7 +3757,7 @@ function ventaForm(l) {
     var admin = ROL === 'admin', id = admin ? ST.ag : me.id;
     if (ST.busy) return; ST.busy = true;
     out.innerHTML = '<div class="d15-vacio">Calculando…</div>';
-    var h = '', r;
+    var r;
     if (admin && !id) {
       r = await sb.rpc('liquidacion_resumen', { p_anio: ST.y, p_mes: ST.m, p_base: ST.base });
       ST.busy = false;
@@ -3703,7 +3799,7 @@ function ventaForm(l) {
 
   function montar(rol) {
     var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-liq')) return;
-    ROL = rol; ST = { y: HOY.getFullYear(), m: HOY.getMonth() + 1, base: 'ESTADO', ag: '', busy: false, d: null };
+    ROL = rol; ST = { y: HOY.getFullYear(), m: HOY.getMonth() + 1, base: 'ESTADO', ag: '', busy: false, d: null, q: '' };
     var admin = rol === 'admin';
     var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-liq'; s.hidden = true;
     s.innerHTML = '<div id="l22"><div id="l22-ctl"></div><div id="l22-out"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div></div>';
@@ -3724,7 +3820,11 @@ function ventaForm(l) {
       var f = e.target.getAttribute('data-l'); if (!f) return;
       if (f === 'y') ST.y = parseInt(e.target.value, 10); else if (f === 'm') ST.m = parseInt(e.target.value, 10);
       else if (f === 'base') ST.base = e.target.value; else if (f === 'ag') ST.ag = e.target.value; else return;
-      cargar();
+      ST.q = ''; cargar();
+    });
+    s.addEventListener('input', function (e) {   // el buscador solo repinta las listas, no recalcula
+      if (e.target.id !== 'l22-q' || !ST.d) return;
+      ST.q = e.target.value; var l = $('l22-listas'); if (l) l.innerHTML = listas(ST.d);
     });
     s.addEventListener('click', function (e) { var b = e.target.closest('button[data-l],tr[data-l]'); if (b) accion(b); });
   }
