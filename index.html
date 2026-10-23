@@ -4431,6 +4431,101 @@ function ventaForm(l) {
     });
   }, true);
 })();
+    /* 28 · Botón «Subir cliente al back» (cerrador) + nombre en MATRIZ para los backs (admin · Equipo)
+   PEGAR al final, DESPUÉS del bloque 25 y antes del cierre del script. Antes ejecuta 28_subir_al_back.sql.
+   - Cerrador: botón «🔥 Subir cliente al back» junto a «Venta manual». Pide los mismos datos que el concertador y deja
+     el cliente en la cola «Por calentar» del back. Avisa si el DNI o teléfono ya fue registrado por otro.
+   - Admin · Equipo: los usuarios Back también muestran el campo «Nombre en MATRIZ» (lo necesitan para subir ventas).
+   Usa solo las variables de color del diseño (claro y oscuro). */
+(function () {
+  function $(i) { return document.getElementById(i); }
+  function falta(e) { return /PGRST202|42883|crear_lead_calentar/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
+  function manana10() { var d = new Date(); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); var p = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+
+  function abrir() {
+    if ($('cal28')) return;
+    var ov = document.createElement('div'); ov.className = 'k-ov'; ov.id = 'cal28'; ov.style.zIndex = 9100;
+    ov.innerHTML = '<div class="k-bus"><h3 style="margin:0 0 4px">Subir cliente al back</h3>' +
+      '<div class="meta" style="margin:0 0 6px">El back lo llamará para calentarlo y, si procede, vuelve a la bolsa de cerradores.</div>' +
+      '<label>Cliente</label><input id="c28-n">' +
+      '<div class="row"><div><label>DNI</label><input id="c28-d"></div><div><label>Teléfono</label><input id="c28-t" inputmode="tel"></div></div><div id="c28-dup"></div>' +
+      '<div class="row"><div><label>Provincia</label><input id="c28-p"></div><div><label>Localidad</label><input id="c28-l"></div></div>' +
+      '<label>Dirección</label><input id="c28-dir"><label>Operador actual</label><input id="c28-o">' +
+      '<label>Fecha y hora de la cita</label><input id="c28-f" type="datetime-local" value="' + manana10() + '">' +
+      '<label>Notas</label><textarea id="c28-no" rows="2"></textarea>' +
+      '<div class="row" style="margin-top:14px"><button class="sec" id="c28-x" type="button">Cancelar</button><button id="c28-ok" type="button">Subir al back</button></div></div>';
+    document.body.appendChild(ov);
+    var q = function (s) { return ov.querySelector(s); };
+    q('#c28-x').onclick = function () { ov.remove(); };
+    q('#c28-n').focus();
+    function dup() {
+      var dni = q('#c28-d').value.trim(), tel = q('#c28-t').value.trim();
+      if (!dni && !tel) { q('#c28-dup').innerHTML = ''; return; }
+      sb.rpc('verificar_duplicado', { p_dni: dni, p_tel: tel }).then(function (r) {
+        var x = r.data && r.data[0];
+        q('#c28-dup').innerHTML = x ? '<div class="warn">Este cliente ya fue registrado por <b>' + esc(x.concertador) + '</b> (' + esc(x.estado) + ', ' + fmt(x.desde) + '). Revisa antes de subirlo.</div>' : '';
+      });
+    }
+    q('#c28-d').addEventListener('blur', dup); q('#c28-t').addEventListener('blur', dup);
+    q('#c28-ok').onclick = async function () {
+      var n = q('#c28-n').value.trim(), t = q('#c28-t').value.trim(), f = q('#c28-f').value;
+      if (!n || !t) return toast('Escribe el nombre y el teléfono del cliente', true);
+      if (!f) return toast('Elige la fecha de la cita', true);
+      var b = this; b.disabled = true;
+      var r = await sb.rpc('crear_lead_calentar', {
+        p_cliente: n, p_dni: q('#c28-d').value.trim(), p_telefono: t, p_provincia: q('#c28-p').value.trim(), p_localidad: q('#c28-l').value.trim(),
+        p_direccion: q('#c28-dir').value.trim(), p_operador: q('#c28-o').value.trim(), p_fecha: new Date(f).toISOString(), p_notas: q('#c28-no').value.trim() });
+      b.disabled = false;
+      if (r.error) return toast(falta(r.error) ? 'Falta ejecutar 28_subir_al_back.sql en Supabase' : limpio(r.error.message), true);
+      ov.remove(); toast('Cliente enviado al back para calentar');
+    };
+  }
+
+  /* ---- nombre en MATRIZ también para los backs ---- */
+  var ocupado = false;
+  async function decorar() {
+    var host = $('eq15'); if (!host || ocupado) return;
+    var cards = Array.prototype.filter.call(host.querySelectorAll('.d15-card'), function (c) { var h = c.querySelector('h2'); return h && /^Backs/.test(h.textContent.trim()); });
+    if (!cards.length || !cards.some(function (c) { return c.querySelector('.d15-row2:not(:has(.eq-mx))'); })) return;
+    ocupado = true;
+    var r = await sb.from('perfiles').select('id,nombre_matriz').eq('rol', 'back'), mx = {};
+    (r.data || []).forEach(function (p) { mx[p.id] = p.nombre_matriz || ''; });
+    cards.forEach(function (c) {
+      c.querySelectorAll('.d15-row2').forEach(function (row) {
+        if (row.querySelector('.eq-mx')) return;
+        var sw = row.querySelector('.switch'), id = row.getAttribute('data-id');
+        var i = document.createElement('input'); i.className = 'eq-mx'; i.setAttribute('data-minus', ''); i.placeholder = 'Nombre exacto en MATRIZ'; i.value = mx[id] || '';
+        var b = document.createElement('button'); b.className = 'sec'; b.setAttribute('data-a', 'mx'); b.textContent = 'Guardar';
+        if (!mx[id]) { var w = document.createElement('span'); w.className = 'badge b-warn'; w.textContent = 'Falta nombre MATRIZ'; row.insertBefore(w, sw); }
+        row.insertBefore(i, sw); row.insertBefore(b, sw);
+      });
+    });
+    ocupado = false;
+  }
+  function vigila() {
+    var host = $('eq15'); if (!host || host._v28) return; host._v28 = true;
+    new MutationObserver(function () { decorar(); }).observe(host, { childList: true, subtree: true });
+    decorar();
+  }
+
+  ['cerradorView', 'adminView'].forEach(function (n) {
+    var o = window[n]; if (typeof o !== 'function') return;
+    window[n] = function () {
+      var r = o.apply(this, arguments);
+      try {
+        if (n === 'cerradorView') {
+          var bar = $('tabs15');
+          if (bar && !$('btnCalentar28')) {
+            var b = document.createElement('button'); b.id = 'btnCalentar28'; b.type = 'button'; b.className = 'sec'; b.textContent = '🔥 Subir cliente al back';
+            b.style.cssText = 'flex:none;margin-left:auto;padding:8px 15px'; b.onclick = abrir;
+            var m = $('btnManual17'); if (m) { m.style.marginLeft = '0'; bar.insertBefore(b, m); } else bar.appendChild(b);
+          }
+        } else vigila();
+      } catch (e) { console.error(e); }
+      return r;
+    };
+  });
+})();
  </script>
 </body>
 </html>
