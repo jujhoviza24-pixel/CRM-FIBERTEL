@@ -4206,6 +4206,131 @@ function ventaForm(l) {
     };
   }
 })();
+  /* 25 · Formulario de venta: línea gratis (v2)  ·  REEMPLAZA el bloque 25 anterior
+   PEGAR al final, DESPUÉS del bloque 24 y antes del cierre del script. Antes ejecuta 25 y 26 (.sql).
+   Usa las reglas de «Reglas de pago» (tabla comision_excluir_movil): si las cambias ahí, el formulario las sigue.
+   1) SEGUNDA LÍNEA MÓVIL = la gratis. En las campañas que tienen reglas de línea gratis (hoy MASMOVIL y YOIGO),
+      la segunda línea móvil de la venta se pone sola como LINEA_GRATIS y solo ofrece sus tarifas gratis.
+      El tipo de esa fila queda bloqueado. La primera línea y de la tercera en adelante salen con todas sus tarifas.
+      Si reordenas con ↑ o quitas la primera línea, la fila que deja de ser la segunda se libera sola.
+   2) Si en cualquier otra fila LINEA_PAGA se elige una tarifa que es de línea gratis, pregunta si cambiarla a LINEA_GRATIS. */
+(function () {
+  var reglas = null, cat = null, ts = 0, listoP = null;
+
+  function norm(s) { return String(s == null ? '' : s).toUpperCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function cargar() {
+    if (listoP && Date.now() - ts < 300000) return listoP;
+    ts = Date.now();
+    listoP = Promise.all([
+      sb.from('comision_excluir_movil').select('campana,patron'),
+      sb.from('catalogo').select('campana,tipo,valor').eq('categoria', 'PRODUCTO').limit(5000)
+    ]).then(function (r) {
+      reglas = r[0].error ? [] : (r[0].data || []);
+      cat = r[1].error ? [] : (r[1].data || []);
+    }).catch(function () { reglas = []; cat = []; });
+    return listoP;
+  }
+  function coincide(camp, prod) {
+    var c = norm(camp), p = norm(prod);
+    return (reglas || []).some(function (x) {
+      if (norm(x.campana) !== c) return false;
+      try { return new RegExp(x.patron).test(p); } catch (e) { return false; }
+    });
+  }
+  /* tarifas gratis de la campaña: las del catálogo (de cualquier tipo) que cumplen una regla */
+  function libres(camp) {
+    var c = norm(camp), out = [], vistos = {};
+    (cat || []).forEach(function (x) {
+      if (norm(x.campana) !== c || !x.valor) return;
+      var k = norm(x.valor);
+      if (!vistos[k] && coincide(camp, x.valor)) { vistos[k] = 1; out.push(x.valor); }
+    });
+    return out.sort();
+  }
+  function esMovil(t) { t = norm(t); return t === 'LINEA PAGA' || t === 'LINEA GRATIS'; }
+  /* qué fila es la segunda línea móvil (índice dentro de las filas), o -1 */
+  function segundaMovil(tipos) {
+    var n = 0;
+    for (var i = 0; i < tipos.length; i++) if (esMovil(tipos[i])) { n++; if (n === 2) return i; }
+    return -1;
+  }
+  window.__guardia25 = { norm: norm, esMovil: esMovil, segundaMovil: segundaMovil };
+
+  function opcion(v, sel) { return '<option' + (v === sel ? ' selected' : '') + '>' + esc(v) + '</option>'; }
+
+  function liberar(fila) {
+    var t = fila.querySelector('.t');
+    fila.removeAttribute('data-g25');
+    if (t) { t.disabled = false; t.value = 'LINEA_PAGA'; t.dispatchEvent(new Event('change')); }
+  }
+
+  function aplicar(ov) {
+    if (!ov.isConnected || ov._g25) return;
+    ov._g25 = true;
+    try {
+      var campSel = ov.querySelector('#vf3_camp'), camp = campSel ? campSel.value : '';
+      var filas = Array.prototype.slice.call(ov.querySelectorAll('#vf3_filas .fila'));
+      var tipos = filas.map(function (f) { var t = f.querySelector('.t'); return t ? t.value : ''; });
+      var libs = camp ? libres(camp) : [], activa = !!camp && libs.length > 0;
+      var idx = activa ? segundaMovil(tipos) : -1;
+
+      filas.forEach(function (f, i) {
+        var marcada = f.getAttribute('data-g25') === '1';
+        if (i !== idx) { if (marcada) liberar(f); return; }
+        var t = f.querySelector('.t');
+        if (t.value !== 'LINEA_GRATIS') {           // la fuerza y deja que el formulario repinte; este método vuelve a correr solo
+          t.value = 'LINEA_GRATIS'; t.dispatchEvent(new Event('change'));
+          if (!marcada && typeof toast === 'function') toast('La segunda línea móvil es la gratis: solo se elige su tarifa gratis.');
+          f.setAttribute('data-g25', '1'); t.disabled = true;
+          return;
+        }
+        f.setAttribute('data-g25', '1'); t.disabled = true;
+        var tw = f.querySelector('.tw'); if (!tw) return;
+        var cur = tw.querySelector('select.p[data-g25]');
+        if (cur) return;                            // ya está limitada
+        var prevEl = tw.querySelector('.p'), prev = prevEl ? prevEl.value : '';
+        var elegido = libs.indexOf(prev) >= 0 ? prev : (libs.length === 1 ? libs[0] : '');
+        tw.innerHTML = '<select class="p" data-g25="1"><option value="">Tarifa de línea gratis…</option>' + libs.map(function (v) { return opcion(v, elegido); }).join('') + '</select>';
+      });
+    } finally { ov._g25 = false; }
+  }
+
+  function engancha() {
+    var ov = document.querySelector('.vf3-ov'); if (!ov || ov._g25on) return;
+    ov._g25on = true;
+    cargar().then(function () {
+      var pend = null;
+      function pide() { clearTimeout(pend); pend = setTimeout(function () { aplicar(ov); }, 0); }
+      new MutationObserver(pide).observe(ov, { childList: true, subtree: true });
+      ov.addEventListener('change', pide);
+      pide();
+    });
+  }
+  var orig = window.ventaForm;
+  if (typeof orig === 'function') {
+    window.ventaForm = async function () {
+      var r = await orig.apply(this, arguments);
+      try { engancha(); } catch (e) { console.error(e); }
+      return r;
+    };
+  }
+
+  /* 2) aviso en las demás filas */
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || !t.classList || !t.classList.contains('p') || !t.value || t.hasAttribute('data-g25')) return;
+    var ov = t.closest('.vf3-ov'); if (!ov) return;
+    var fila = t.closest('.fila'), tipo = fila && fila.querySelector('.t');
+    if (!tipo || norm(tipo.value) !== 'LINEA PAGA') return;
+    var campSel = ov.querySelector('#vf3_camp'), camp = campSel ? campSel.value : '';
+    cargar().then(function () {
+      if (!coincide(camp, t.value)) return;
+      if (!confirm('«' + t.value + '» es una línea GRATIS en ' + camp + ' y no lleva comisión.\n\n¿Cambiar este producto a LINEA_GRATIS?\n(Aceptar = cambiar · Cancelar = dejarlo como LINEA_PAGA)')) return;
+      tipo.value = 'LINEA_GRATIS';
+      tipo.dispatchEvent(new Event('change'));
+    });
+  }, true);
+})();
  </script>
 </body>
 </html>
