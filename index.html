@@ -4380,6 +4380,263 @@ function ventaForm(l) {
     };
   }
 })();
+  /* 34 · Back: «Por activar» y corrección de ventas de MATRIZ  +  Admin: «Permisos del back»
+   PEGAR al final de index.html, DESPUÉS del bloque 29 y antes del cierre del script. Antes ejecuta 34_back_edita_matriz.sql.
+   - Back (y admin): pestaña «⏳ Por activar» con SOLO los pedidos en curso (sin activos ni cancelados). Cuenta también los
+     de meses anteriores y avisa cuántos son. Cada línea se edita con los campos que el admin habilitó. El cambio se ve al
+     instante y pasa a MATRIZ en 1 minuto. No hay botón de exportar.
+   - Admin: pestaña «🔐 Permisos del back»: qué campos puede editar el back, qué estados son «en curso» y el registro de cambios. */
+(function () {
+  var PAG = 40;
+  var CAMPOS = [['estado', 'Estado'], ['fecha_estado', 'Fecha del estado'], ['comentario', 'Comentario'], ['cliente', 'Nombre y apellido'],
+    ['dni', 'DNI'], ['telefono', 'Teléfono de contacto'], ['provincia', 'Provincia'], ['localidad', 'Localidad'], ['producto', 'Producto'], ['numero', 'Número a portar']];
+  var ROL = '', ST = { vista: 'TODOS', mes: '', estado: '', agente: '', q: '', pag: 0, d: null, seq: 0, perm: null, pend: {} };
+
+  function $(i) { return document.getElementById(i); }
+  function falta(e) { return /PGRST202|PGRST205|42883|42P01|back_pendientes|back_editar|back_campos|back_estados|matriz_cambios/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 34_back_edita_matriz.sql en Supabase' : limpio(e.message || ''); }
+  function hoyLima() { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }); }
+  function fd(s) { var m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + '/' + m[2] + '/' + m[1] : '—'; }
+  function tono(e) {
+    e = String(e || '').toUpperCase();
+    if (/INCID|CONTRAOF|SCORING/.test(e)) return 'b-warn';
+    if (/CANCEL|FRAUDE|DUPLIC|DESCON|KAO/.test(e)) return 'b-bad';
+    if (/ACTIV|INSTAL/.test(e)) return 'b-ok';
+    return '';
+  }
+  function puede(c) { return ROL === 'admin' || !ST.perm || ST.perm[c] === true; }
+
+  /* ---------- estilos mínimos (sirven en claro y oscuro) ---------- */
+  function estilos() {
+    if ($('st34')) return;
+    var s = document.createElement('style'); s.id = 'st34';
+    s.textContent = '.p34-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}.p34-bar input,.p34-bar select{flex:1 1 150px;min-width:0;margin:0}' +
+      '.p34-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}.p34-chip{padding:6px 12px;font-size:.85em;flex:none}.p34-chip.on{outline:2px solid currentColor}' +
+      '.p34-aviso{padding:10px 12px;border-radius:10px;border:1px solid rgba(128,128,128,.35);margin:0 0 12px;font-size:.92em}' +
+      '.p34-card{margin-bottom:12px}.p34-h{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;justify-content:space-between;margin-bottom:6px}' +
+      '.p34-h small{opacity:.75}.p34-sc{overflow-x:auto}.p34-sc table{min-width:560px}.p34-com{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}' +
+      '.p34-pg{display:flex;gap:8px;justify-content:center;align-items:center;margin:12px 0}.p34-mini{padding:4px 10px;font-size:.8em}' +
+      '.p34-ck{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:.92em}.p34-ck input{width:18px;height:18px;padding:0;flex:none;margin:0}';
+    document.head.appendChild(s);
+  }
+
+  /* ---------- datos ---------- */
+  async function cargarPerm() {
+    if (ROL === 'admin') { ST.perm = null; return; }
+    var r = await sb.from('back_campos_editables').select('campo,activo');
+    if (r.error) { ST.perm = null; return; }
+    ST.perm = {}; (r.data || []).forEach(function (x) { ST.perm[x.campo] = !!x.activo; });
+  }
+  async function pendientes(ids) {
+    ST.pend = {}; if (!ids.length) return;
+    var desde = new Date(Date.now() - 7 * 864e5).toISOString();
+    var r = await sb.from('matriz_cambios').select('id_venta,campo,estado,error,destinos').in('id_venta', ids).in('estado', ['PENDIENTE', 'ERROR']).gte('created_at', desde);
+    (r.data || []).forEach(function (x) { (ST.pend[x.id_venta] = ST.pend[x.id_venta] || []).push(x); });
+  }
+  async function cargar() {
+    var out = $('p34-out'); if (!out) return;
+    var n = ++ST.seq;
+    out.innerHTML = '<div class="d15-vacio">Cargando…</div>';
+    var r;
+    try {
+      r = await sb.rpc('back_pendientes', { p_mes: ST.mes + '-01', p_vista: ST.vista, p_texto: ST.q || null, p_estado: ST.estado || null, p_agente: ST.agente || null, p_limit: PAG, p_offset: ST.pag * PAG });
+    } catch (e) { if (n === ST.seq) out.innerHTML = '<div class="d15-vacio">No se pudo cargar.</div>'; return; }
+    if (n !== ST.seq) return;
+    if (r.error) { out.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
+    ST.d = r.data || {};
+    await pendientes((ST.d.ventas || []).map(function (v) { return v.id_venta; }));
+    if (n !== ST.seq) return;
+    pinta();
+  }
+
+  /* ---------- pantalla ---------- */
+  function opts(lista, sel, vacio) {
+    return '<option value="">' + vacio + '</option>' + lista.map(function (x) { return '<option' + (x === sel ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
+  }
+  function pinta() {
+    var d = ST.d || {}, tot = d.total || 0;
+    var chip = function (k, t) { return '<button type="button" class="sec p34-chip' + (ST.vista === k ? ' on' : '') + '" data-a="vista" data-v="' + k + '">' + t + '</button>'; };
+    $('p34-chips').innerHTML = chip('TODOS', 'Todos (' + ((d.del_mes || 0) + (d.anteriores || 0)) + ')') + chip('MES', 'Del mes (' + (d.del_mes || 0) + ')') + chip('ANTERIORES', 'Meses anteriores (' + (d.anteriores || 0) + ')');
+    $('p34-aviso').innerHTML = '<b>' + ((d.del_mes || 0) + (d.anteriores || 0)) + '</b> ventas por activar · ' +
+      ((d.anteriores || 0) ? '<b>' + d.anteriores + '</b> vienen de meses anteriores a ' + esc(ST.mes) + ' <a href="#" data-a="vista" data-v="ANTERIORES">verlas</a>' : 'ninguna viene de meses anteriores');
+    var se = $('p34-est'), sa = $('p34-ag');
+    se.innerHTML = opts(d.estados_curso || [], ST.estado, 'Todos los estados'); sa.innerHTML = opts(d.agentes || [], ST.agente, 'Todos los agentes');
+    var v = d.ventas || [];
+    $('p34-out').innerHTML = v.length ? v.map(tarjeta).join('') : '<div class="d15-vacio">No hay pedidos por activar con estos filtros.</div>';
+    var pg = Math.max(1, Math.ceil(tot / PAG));
+    $('p34-pg').innerHTML = tot > PAG ? '<button type="button" class="sec" data-a="pg" data-v="-1"' + (ST.pag <= 0 ? ' disabled' : '') + '>← Anterior</button><span class="meta">Página ' + (ST.pag + 1) + ' de ' + pg + '</span><button type="button" class="sec" data-a="pg" data-v="1"' + (ST.pag + 1 >= pg ? ' disabled' : '') + '>Siguiente →</button>' : '';
+  }
+  function tarjeta(v) {
+    var pend = ST.pend[v.id_venta] || [], errs = pend.filter(function (p) { return p.estado === 'ERROR'; });
+    var lin = (v.lineas || []).map(function (l) {
+      var mios = pend.filter(function (p) { return (p.destinos || []).some(function (x) { return x.fila === l.fila; }); });
+      var mk = mios.map(function (p) { return p.estado === 'ERROR' ? '<span class="badge b-bad" title="' + esc(p.error || '') + '">⚠ ' + esc(p.campo) + '</span>' : '<span class="badge" title="Se pasa a MATRIZ en 1 minuto">⏳ ' + esc(p.campo) + '</span>'; }).join(' ');
+      return '<tr><td>' + esc(l.tipo || '') + '</td><td>' + esc(l.producto || '') + '</td><td>' + esc(l.numero || '') + '</td>' +
+        '<td><span class="badge ' + tono(l.estado) + '">' + esc(l.estado || 'SIN ESTADO') + '</span> ' + mk + '</td><td>' + fd(l.fecha_estado) + '</td>' +
+        '<td class="p34-com" title="' + esc(l.comentario || '') + '">' + esc(l.comentario || '') + '</td>' +
+        '<td><button type="button" class="sec p34-mini" data-a="lin" data-id="' + esc(v.id_venta) + '" data-f="' + l.fila + '">✏ Editar</button></td></tr>';
+    }).join('');
+    var primera = (v.lineas && v.lineas[0] ? v.lineas[0].fila : 0);
+    return '<div class="d15-vc p34-card"><div class="p34-h"><div><b>' + esc(v.cliente || '—') + '</b> <small>DNI ' + esc(v.dni || '—') + ' · Tel. ' + esc(v.telefono || '—') + '</small></div>' +
+      '<div><small>' + esc(v.campana || '') + ' · ' + esc(v.agente || '') + ' · vendida ' + fd(v.fecha) + ' · ' + esc(v.id_venta) + '</small>' + (v.anterior ? ' <span class="badge b-warn">mes anterior</span>' : '') + '</div></div>' +
+      (errs.length ? '<div class="warn" style="margin:6px 0">Un cambio no pudo pasar a MATRIZ: ' + esc(errs[0].error || 'error') + '. Revisa el dato y vuelve a guardarlo.</div>' : '') +
+      '<div class="p34-sc"><table class="d15-tbl"><thead><tr><th>Tipo</th><th>Producto</th><th>Número</th><th>Estado</th><th>Fecha estado</th><th>Comentario</th><th></th></tr></thead><tbody>' + lin + '</tbody></table></div>' +
+      '<p style="margin:8px 0 0"><button type="button" class="sec p34-mini" data-a="cli" data-id="' + esc(v.id_venta) + '" data-f="' + primera + '">✏ Datos del cliente</button></p></div>';
+  }
+
+  /* ---------- edición ---------- */
+  function buscar(id) { return ((ST.d && ST.d.ventas) || []).filter(function (v) { return v.id_venta === id; })[0]; }
+  function campoHtml(c, etq, tipo, val, estados) {
+    var ok = puede(c), dis = ok ? '' : ' disabled title="El administrador no habilitó este campo"';
+    var h = '<label>' + esc(etq) + (ok ? '' : ' 🔒') + '</label>';
+    if (tipo === 'sel') {
+      var l = estados.slice(); if (val && l.indexOf(val) < 0) l.push(val);
+      h += '<select id="p34-f-' + c + '"' + dis + '>' + l.map(function (x) { return '<option' + (x === val ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>';
+    } else if (tipo === 'date') h += '<input type="date" id="p34-f-' + c + '" value="' + esc(val || '') + '"' + dis + '>';
+    else if (tipo === 'area') h += '<textarea id="p34-f-' + c + '" rows="3" data-minus' + dis + '>' + esc(val || '') + '</textarea>';
+    else h += '<input id="p34-f-' + c + '" value="' + esc(val || '') + '"' + dis + '>';
+    return h;
+  }
+  function modal(titulo, sub, cuerpo, onSave) {
+    var ov = document.createElement('div'); ov.className = 'k-ov'; ov.id = 'm34'; ov.style.zIndex = 9100;
+    ov.innerHTML = '<div class="k-bus"><h3 style="margin:0 0 4px">' + titulo + '</h3><div class="meta" style="margin:0 0 6px">' + sub + '</div>' + cuerpo +
+      '<div class="row" style="margin-top:14px"><button type="button" class="sec" id="m34-x">Cancelar</button><button type="button" id="m34-ok">Guardar</button></div></div>';
+    document.body.appendChild(ov);
+    ov.querySelector('#m34-x').onclick = function () { ov.remove(); };
+    ov.querySelector('#m34-ok').onclick = function () { onSave(ov, this); };
+    return ov;
+  }
+  async function enviar(ov, btn, id, fila, cambios, todas) {
+    if (!Object.keys(cambios).length) return toast('No cambiaste nada', true);
+    btn.disabled = true;
+    var r = await sb.rpc('back_editar_venta', { p_id_venta: id, p_fila: fila, p_cambios: cambios, p_todas: !!todas });
+    btn.disabled = false;
+    if (r.error) return toast(msg(r.error), true);
+    ov.remove(); toast('Guardado. Se pasa a MATRIZ en 1 minuto.'); cargar();
+  }
+  function editarLinea(id, fila) {
+    var v = buscar(id); if (!v) return;
+    var l = (v.lineas || []).filter(function (x) { return x.fila === fila; })[0]; if (!l) return;
+    var estados = (ST.d.estados_todos || []);
+    var algo = ['estado', 'fecha_estado', 'comentario', 'producto', 'numero'].some(puede);
+    var cuerpo = campoHtml('estado', 'Estado', 'sel', l.estado || '', estados) + campoHtml('fecha_estado', 'Fecha del estado', 'date', l.fecha_estado, []) +
+      campoHtml('comentario', 'Comentario', 'area', l.comentario, []) + campoHtml('producto', 'Producto', 'txt', l.producto, []) + campoHtml('numero', 'Número a portar', 'txt', l.numero, []) +
+      ((v.lineas || []).length > 1 ? '<label class="p34-ck"><input type="checkbox" id="p34-todas"> Aplicar estado, fecha y comentario a las ' + v.lineas.length + ' líneas en curso de esta venta</label>' : '') +
+      (algo ? '' : '<div class="warn">El administrador no habilitó ningún campo de esta ventana.</div>');
+    modal('Editar línea', esc(v.cliente || '') + ' · ' + esc(l.producto || '') + ' · ' + esc(v.id_venta), cuerpo, function (ov, btn) {
+      var g = function (c) { var e = ov.querySelector('#p34-f-' + c); return e && !e.disabled ? e.value.trim() : null; };
+      var orig = { estado: l.estado || '', fecha_estado: l.fecha_estado || '', comentario: l.comentario || '', producto: l.producto || '', numero: l.numero || '' }, c = {};
+      ['estado', 'fecha_estado', 'comentario', 'producto', 'numero'].forEach(function (k) {
+        var x = g(k); if (x === null) return;
+        if (k === 'estado' || k === 'producto') x = x.toUpperCase();
+        if (x !== String(orig[k]).trim()) c[k] = x;
+      });
+      if (c.estado && !c.fecha_estado && puede('fecha_estado') && g('fecha_estado') === String(orig.fecha_estado)) c.fecha_estado = hoyLima();   // estado nuevo = fecha de hoy, salvo que la cambies
+      var t = ov.querySelector('#p34-todas');
+      enviar(ov, btn, id, fila, c, t && t.checked);
+    });
+  }
+  function editarCliente(id, fila) {
+    var v = buscar(id); if (!v) return;
+    var cuerpo = campoHtml('cliente', 'Nombre y apellido', 'txt', v.cliente, []) + campoHtml('dni', 'DNI', 'txt', v.dni, []) + campoHtml('telefono', 'Teléfono de contacto', 'txt', v.telefono, []) +
+      campoHtml('provincia', 'Provincia', 'txt', v.provincia, []) + campoHtml('localidad', 'Localidad', 'txt', v.localidad, []) +
+      '<div class="meta">Estos datos se corrigen en todas las líneas de la venta.</div>';
+    modal('Datos del cliente', esc(v.id_venta), cuerpo, function (ov, btn) {
+      var c = {};
+      ['cliente', 'dni', 'telefono', 'provincia', 'localidad'].forEach(function (k) {
+        var e = ov.querySelector('#p34-f-' + k); if (!e || e.disabled) return;
+        var x = e.value.trim().toUpperCase(); if (x !== String(v[k] || '').trim().toUpperCase()) c[k] = x;
+      });
+      enviar(ov, btn, id, fila, c, false);
+    });
+  }
+
+  /* ---------- montaje: pestaña del back ---------- */
+  function montarBack(rol) {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-pa')) return;
+    ROL = rol; estilos(); ST.mes = hoyLima().slice(0, 7);
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-pa'; s.hidden = true;
+    s.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>Pedidos por activar</h3><span class="meta">Solo pedidos en curso. Los activos y cancelados no aparecen.</span></div>' +
+      '<div class="p34-bar"><input id="p34-q" data-minus placeholder="Buscar cliente, DNI, teléfono, número o ID de venta"><input type="month" id="p34-mes" value="' + ST.mes + '">' +
+      '<select id="p34-est"></select><select id="p34-ag"></select><button type="button" class="sec" data-a="ref">↻ Actualizar</button></div>' +
+      '<div class="p34-chips" id="p34-chips"></div><div class="p34-aviso" id="p34-aviso">Se carga al abrir la pestaña…</div><div id="p34-out"></div><div class="p34-pg" id="p34-pg"></div></div>';
+    panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'pa'); bt.innerHTML = '<span>⏳</span>Por activar';
+    var m = $('btnManual17'); if (m) bar.insertBefore(bt, m); else bar.appendChild(bt);
+    var tq = null;
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'pa') cargarPerm().then(function () { ST.pag = 0; cargar(); }); });
+    s.addEventListener('input', function (e) { if (e.target.id !== 'p34-q') return; clearTimeout(tq); tq = setTimeout(function () { ST.q = e.target.value.trim(); ST.pag = 0; cargar(); }, 350); });
+    s.addEventListener('change', function (e) {
+      var i = e.target.id;
+      if (i === 'p34-mes') { ST.mes = e.target.value || hoyLima().slice(0, 7); } else if (i === 'p34-est') ST.estado = e.target.value; else if (i === 'p34-ag') ST.agente = e.target.value; else return;
+      ST.pag = 0; cargar();
+    });
+    s.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-a]'); if (!b) return; e.preventDefault();
+      var a = b.getAttribute('data-a');
+      if (a === 'vista') { ST.vista = b.getAttribute('data-v'); ST.pag = 0; cargar(); }
+      else if (a === 'pg') { ST.pag = Math.max(0, ST.pag + parseInt(b.getAttribute('data-v'), 10)); cargar(); }
+      else if (a === 'ref') cargar();
+      else if (a === 'lin') editarLinea(b.getAttribute('data-id'), parseInt(b.getAttribute('data-f'), 10));
+      else if (a === 'cli') editarCliente(b.getAttribute('data-id'), parseInt(b.getAttribute('data-f'), 10));
+    });
+  }
+
+  /* ---------- montaje: pestaña del admin ---------- */
+  var AD = { busy: false };
+  async function cargarAdmin() {
+    var host = $('s34'); if (!host || AD.busy) return; AD.busy = true;
+    var R = await Promise.all([sb.from('back_campos_editables').select('*').order('orden'), sb.from('back_estados').select('*').order('grupo').order('estado'),
+      sb.from('matriz_cambios').select('*').order('created_at', { ascending: false }).limit(60)]);
+    AD.busy = false;
+    var er = R[0].error || R[1].error || R[2].error; if (er) { host.innerHTML = '<div class="d15-vacio">' + esc(msg(er)) + '</div>'; return; }
+    var G = { EN_CURSO: 'En curso (el back lo ve)', CERRADO: 'Cerrado (no se ve)', ACTIVO: 'Activo (no se ve)' };
+    var h = '<div class="d15-sec"><div class="d15-sh"><h3>Qué puede editar el back</h3><span class="meta">Marca o desmarca. El cambio vale al instante.</span></div><div style="display:flex;flex-wrap:wrap;gap:8px 18px">' +
+      (R[0].data || []).map(function (c) { return '<label class="p34-ck"><input type="checkbox" data-k34="campo" data-id="' + esc(c.campo) + '"' + (c.activo ? ' checked' : '') + '>' + esc(c.etiqueta) + '</label>'; }).join('') + '</div></div>';
+    h += '<div class="d15-sec"><div class="d15-sh"><h3>Estados</h3><span class="meta">Solo los «en curso» salen en «Por activar». Un estado nuevo que no esté aquí se trata como en curso.</span></div>' +
+      '<table class="d15-tbl"><thead><tr><th>Estado</th><th>Grupo</th></tr></thead><tbody>' + (R[1].data || []).map(function (x) {
+        return '<tr><td>' + esc(x.estado) + '</td><td><select data-k34="grupo" data-id="' + esc(x.estado) + '">' + Object.keys(G).map(function (g) { return '<option value="' + g + '"' + (x.grupo === g ? ' selected' : '') + '>' + G[g] + '</option>'; }).join('') + '</select></td></tr>';
+      }).join('') + '</tbody></table><div class="d15-form" style="margin-top:10px"><div><label>Agregar estado</label><input id="p34-nest" placeholder="Ej. PNDTE FIRMA"></div></div><p style="margin:8px 0 0"><button type="button" data-k34="nuevo">Agregar como «en curso»</button></p></div>';
+    h += '<div class="d15-sec"><div class="d15-sh"><h3>Últimos cambios del back</h3><span class="meta">Registro permanente: quién, qué y cuándo.</span></div>' + ((R[2].data || []).length ?
+      '<div class="p34-sc"><table class="d15-tbl"><thead><tr><th>Fecha</th><th>Quién</th><th>Venta</th><th>Campo</th><th>Antes</th><th>Después</th><th>MATRIZ</th></tr></thead><tbody>' + R[2].data.map(function (x) {
+        return '<tr><td>' + esc(new Date(x.created_at).toLocaleString('es-PE', { timeZone: 'America/Lima' })) + '</td><td>' + esc(x.autor_nombre || '') + '</td><td>' + esc(x.id_venta) + '</td><td>' + esc(x.campo) + '</td><td>' + esc(x.valor_anterior || '') + '</td><td>' + esc(x.valor_nuevo || '') +
+          '</td><td><span class="badge ' + (x.estado === 'APLICADO' ? 'b-ok' : x.estado === 'ERROR' ? 'b-bad' : '') + '" title="' + esc(x.error || '') + '">' + esc(x.estado) + '</span></td></tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="d15-vacio">Aún no hay cambios.</div>') + '</div>';
+    host.innerHTML = h;
+  }
+  function montarAdmin() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-pb')) return;
+    ROL = 'admin'; estilos();
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-pb'; s.hidden = true; s.innerHTML = '<div id="s34"><div class="d15-vacio">Cargando…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'pb'); bt.innerHTML = '<span>🔐</span>Permisos del back';
+    var ref = bar.querySelector('[data-k="reg"]'); if (ref) ref.insertAdjacentElement('afterend', bt); else bar.appendChild(bt);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'pb') cargarAdmin(); });
+    s.addEventListener('change', async function (e) {
+      var k = e.target.getAttribute('data-k34'), r; if (!k) return;
+      if (k === 'campo') r = await sb.from('back_campos_editables').update({ activo: e.target.checked }).eq('campo', e.target.getAttribute('data-id'));
+      else if (k === 'grupo') r = await sb.from('back_estados').update({ grupo: e.target.value }).eq('estado', e.target.getAttribute('data-id'));
+      else return;
+      if (r.error) { toast(msg(r.error), true); return cargarAdmin(); }
+      toast('Guardado');
+    });
+    s.addEventListener('click', async function (e) {
+      var b = e.target.closest('[data-k34="nuevo"]'); if (!b) return;
+      var v = $('p34-nest').value.trim().toUpperCase(); if (!v) return toast('Escribe el estado', true);
+      var r = await sb.from('back_estados').insert({ estado: v, grupo: 'EN_CURSO' });
+      if (r.error) return toast(r.error.code === '23505' ? 'Ese estado ya existe' : msg(r.error), true);
+      toast('Estado agregado'); cargarAdmin();
+    });
+  }
+
+  [['backView', 'back'], ['adminView', 'admin']].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () {
+      var r = o.apply(this, arguments);
+      try { montarBack(p[1]); if (p[1] === 'admin') montarAdmin(); } catch (e) { console.error(e); }
+      return r;
+    };
+  });
+})();
  </script>
 </body>
 </html>
