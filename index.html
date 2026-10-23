@@ -4524,6 +4524,56 @@ function ventaForm(l) {
     };
   });
 })();
+    /* 29 · Reparto automático de la bolsa (cerrador)
+   PEGAR al final, DESPUÉS del bloque 28 y antes del cierre del script. Antes ejecuta 30_reparto_automatico.sql. */
+(function () {
+  var chR = null;
+  function $(i) { return document.getElementById(i); }
+
+  window.bolsa = async function () {
+    try { await sb.rpc('repartir_ahora'); } catch (_) { }
+    var R = await Promise.all([sb.rpc('estado_bolsa'), sb.rpc('bolsa_leads')]);
+    var st = R[0].data && R[0].data[0], b = R[1];
+    var s = $('stats');
+    if (st && s) s.innerHTML = '<div><b>' + st.leads_en_bolsa + '</b><small>esperando reparto</small></div><div><b>' + st.cerradores_disponibles + '</b><small>cerradores disponibles</small></div><div><b>' + st.mis_abiertos + ' / ' + st.cupo + '</b><small>mis leads abiertos / cupo</small></div>';
+    var el = $('bolsa'); if (!el) return;
+    var h = el.parentElement && el.parentElement.querySelector('h2'); if (h) h.textContent = 'Leads en espera de reparto';
+    if (b.error) { el.innerHTML = '<div class="empty">No se pudo cargar.</div>'; return; }
+    el.innerHTML = '<div class="meta" style="margin:0 0 10px">Los leads se reparten solos entre los cerradores disponibles. Aquí solo ves los que aún esperan (cupo lleno o nadie disponible).</div>' +
+      (b.data.length ? b.data.map(function (l) {
+        return '<div class="lead"><h3><span>' + esc(l.cliente) + '</span><span class="badge ' + tono(l.tipo_cita) + '">' + esc(l.tipo_cita) + '</span></h3>' +
+          '<div class="meta">' + esc([l.localidad, l.provincia].filter(Boolean).join(', ') || 'Sin zona') + ' · ' + esc(l.operador_actual || 'Sin operador') + ' · cita ' + fmt(l.fecha_cita) + '</div></div>';
+      }).join('') : '<div class="empty">No hay leads esperando. 🎉 Los nuevos se reparten solos.</div>');
+    if (typeof mios === 'function') mios();
+  };
+
+  function suscribir() {
+    if (chR) { try { sb.removeChannel(chR); } catch (_) { } chR = null; }
+    chR = sb.channel('reparto-' + me.id).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'leads' }, function (pl) {
+      var n = pl && pl.new;
+      if (!n || n.cerrador_id !== me.id || (n.estado !== 'VIABLE' && n.estado !== 'CITA_AGENDADA')) return;
+      toast('Te asignaron un lead nuevo: ' + n.cliente);
+      if (typeof mios === 'function') mios();
+      if (typeof window.bolsa === 'function') window.bolsa();
+    }).subscribe();
+  }
+
+  var o = window.cerradorView;
+  if (typeof o === 'function') {
+    window.cerradorView = function () {
+      var r = o.apply(this, arguments);
+      try { suscribir(); } catch (e) { console.error(e); }
+      return r;
+    };
+  }
+  var oL = window.loginView;
+  if (typeof oL === 'function') {
+    window.loginView = function () {
+      if (chR) { try { sb.removeChannel(chR); } catch (_) { } chR = null; }
+      return oL.apply(this, arguments);
+    };
+  }
+})();
  </script>
 </body>
 </html>
