@@ -2953,13 +2953,7 @@ function ventaForm(l) {
     };
   });
 })();
-   /* 17 · Venta manual del cerrador v2  ·  REEMPLAZA el bloque 17 anterior
-   Borra el bloque 17 que tienes en index.html y pega este en su mismo lugar (no hay que ejecutar nada en Supabase).
-   Arregla: antes, al pulsar «Continuar» se creaba el cliente en la base AUNQUE luego no se enviara la venta
-   (por eso aparecían clientes de prueba como PEPITO en el Resumen). Ahora:
-   - «Continuar» solo abre el formulario de venta; NO guarda nada.
-   - El cliente se crea en el mismo instante en que se envía la venta con «Registrar venta».
-   - Si cierras o cancelas el formulario, no queda ningún rastro. */
+   /* 17 · Venta manual v3 (cerrador y back). No guarda el cliente hasta enviar la venta. */
 (function () {
   function instalar() {
     if (sb.__m17) return;
@@ -2968,15 +2962,18 @@ function ventaForm(l) {
       var m = window.__manual17;
       if (fn === 'registrar_venta' && args && args.p_lead == null && m) {
         return (async function () {
-          if (!m.id) {   // primera vez: crea el cliente justo ahora, con lo que quedó en el formulario
+          if (!m.id) {
             var r = await orig('crear_lead_manual', { p_cliente: args.p_cliente || m.cliente, p_dni: args.p_dni || m.dni, p_telefono: args.p_telefono || m.telefono || '' });
             if (r.error) return r;
             var lead = Array.isArray(r.data) ? r.data[0] : r.data;
             if (!lead || !lead.id) return { data: null, error: { message: 'No se pudo crear el cliente' } };
-            m.id = lead.id;   // si la venta falla y se reintenta, se reutiliza este mismo cliente
+            m.id = lead.id;
           }
           var res = await orig(fn, Object.assign({}, args, { p_lead: m.id }), opts);
-          if (!res.error) window.__manual17 = null;
+          if (!res.error) {
+            window.__manual17 = null;
+            try { if (window.refrescar15) window.refrescar15(); } catch (_) { }
+          }
           return res;
         })();
       }
@@ -3007,9 +3004,10 @@ function ventaForm(l) {
     };
   }
 
-  var o = window.cerradorView;
-  if (typeof o === 'function') {
-    window.cerradorView = function () {
+  ['cerradorView', 'backView'].forEach(function (nombre) {
+    var o = window[nombre];
+    if (typeof o !== 'function') return;
+    window[nombre] = function () {
       var r = o.apply(this, arguments);
       try {
         var bar = document.getElementById('tabs15');
@@ -3020,7 +3018,7 @@ function ventaForm(l) {
       } catch (e) { console.error(e); }
       return r;
     };
-  }
+  });
 })();
   /* 18 · Pestaña «Corregir» del admin: anular ventas mal cargadas y mover un lead a otro cerrador o al back
    PEGAR al final, DESPUÉS del bloque 17 y antes del cierre del script. Antes ejecuta 18_admin_correcciones.sql.
