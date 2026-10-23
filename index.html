@@ -2620,13 +2620,14 @@ function ventaForm(l) {
     var pills = [['TODAS', 'Todas']].concat(['TRA', 'INC', 'ACT', 'CAI'].map(function (m) { return [m, MAC[m][0]]; })).map(function (p) {
       return '<button class="d15-pill' + (s.f === p[0] ? ' on' : '') + '" data-x="f" data-v="' + p[0] + '">' + p[1] + '<b>' + c[p[0]] + '</b></button>';
     }).join('');
-    out.innerHTML = '<div class="d15-vbar"><div class="d15-pills">' + pills + '</div><button class="sec" data-x="csv" style="margin-left:auto">⬇ Exportar CSV</button></div>' +
+    out.innerHTML = '<div class="d15-vbar"><div class="d15-pills">' + pills + '</div>' + (ROL === 'admin' ? '<button class="sec" data-x="csv" style="margin-left:auto">⬇ Exportar CSV</button>' : '') + '</div>' +
       '<div class="meta" style="margin-bottom:10px">' + lista.length + ' venta(s) · ' + svc + ' servicio(s) con movimiento en el periodo</div>' +
       (lista.length ? '<div class="d15-vl">' + lista.slice(0, s.max).map(card).join('') + '</div>' +
         (lista.length > s.max ? '<p style="text-align:center;margin:14px 0 0"><button class="sec" data-x="mas">Ver más (' + (lista.length - s.max) + ')</button></p>' : '') :
         '<div class="d15-vacio">No hay ventas en este periodo con ese filtro.</div>');
   }
   function csv() {
+        if (ROL !== 'admin') return;
     var s = EST.ven, D = s.data; if (!D) return;
     var q = N(s.q), f = [], cab = ['Cliente', 'DNI', 'Teléfono', 'Provincia', 'Localidad', 'Operador donante', 'Campaña', 'Agente', 'ID venta', 'Tipo', 'Producto', 'Número', 'Estado', 'Fecha estado'];
     function cel(v) { var t = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; }
