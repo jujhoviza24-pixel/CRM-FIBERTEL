@@ -6117,6 +6117,228 @@ function ventaForm(l) {
     window[p[0]] = function () { var r = o.apply(this, arguments); try { p[1](); } catch (e) { console.error(e); } return r; };
   });
 })();
+  /* 45 · Pestañas agrupadas con menú lateral + pestaña «Configuración» (admin)
+   PEGAR al final del script de index.html, DESPUÉS del último bloque (el 43) y antes de.
+   No borra nada: oculta la barra de pestañas larga y la reemplaza por grupos; cada grupo abre un menú al costado
+   con las pantallas que ya existen (se abren exactamente igual que antes, con sus propias cargas y avisos).
+
+   Grupos:
+   - Admin:       Panel · Ventas y leads · Back office · Pagos · Configuración
+   - Cerrador:    Resumen · Mis clientes · Ventas y pagos
+   - Back:        Resumen · Mi trabajo · Seguimiento · Leads por calentar · Mi pago
+   - Concertador: Resumen · Clientes · Ventas y pago
+   Una pestaña que no esté en la lista aparece sola en «Otros» (así nunca se pierde nada).
+
+   Configuración (admin) = Ajustes generales + Equipo + Permisos del back + Incentivos + Sueldos y bonos + Comisiones
+   + Reglas de pago + Salud. «Ajustes generales» es nueva: fechas de corte, días de aviso y plazos, en un solo lugar. */
+(function () {
+  var GR = {
+    admin: [
+      ['pan', '🏠', 'Panel', ['res', 'ana', 'ate']],
+      ['ven', '💰', 'Ventas y leads', ['ven', 'der', 'cor']],
+      ['bk', '🗂️', 'Back office', ['pa', 'tz', 'au']],
+      ['pag', '💳', 'Pagos', ['liq', 'pe']],
+      ['cfg', '⚙️', 'Configuración', ['cfg', 'equ', 'pb', 'in', 'sue', 'com', 'reg', 'sa']]
+    ],
+    cerrador: [
+      ['res', '🏠', 'Resumen', ['res']],
+      ['cli', '🗂️', 'Mis clientes', ['tab', 'bol', 'cof']],
+      ['pag', '💰', 'Ventas y pagos', ['ven', 'liq']]
+    ],
+    back: [
+      ['res', '🏠', 'Resumen', ['res']],
+      ['tra', '✅', 'Mi trabajo', ['ta', 'au']],
+      ['seg', '📋', 'Seguimiento', ['pa', 'ven']],
+      ['lea', '🔥', 'Leads por calentar', ['col', 'tab', 'hec']],
+      ['pag', '💳', 'Mi pago', ['mp', 'ic']]
+    ],
+    concertador: [
+      ['res', '🏠', 'Resumen', ['res']],
+      ['cli', '➕', 'Clientes', ['nue', 'lis']],
+      ['ven', '💰', 'Ventas y pago', ['ven', 'mp']]
+    ]
+  };
+
+  var ULT = {}, GRUPOS = [], deb = null;
+
+  function $(i) { return document.getElementById(i); }
+  function rol() { try { return perfil && perfil.rol; } catch (e) { return null; } }
+  function btns() {
+    var m = {};
+    Array.prototype.forEach.call(document.querySelectorAll('#tabs15 .t15'), function (b) { m[b.getAttribute('data-k')] = b; });
+    return m;
+  }
+  function activa() { var b = document.querySelector('#tabs15 .t15.on'); return b ? b.getAttribute('data-k') : null; }
+  function defs(m) {
+    var out = [], usados = {};
+    (GR[rol()] || []).forEach(function (g) {
+      var t = g[3].filter(function (k) { return m[k]; });
+      t.forEach(function (k) { usados[k] = 1; });
+      if (t.length) out.push({ id: g[0], ico: g[1], t: g[2], tabs: t });
+    });
+    var resto = Object.keys(m).filter(function (k) { return !usados[k]; });
+    if (resto.length) out.push({ id: 'otros', ico: '📁', t: 'Otros', tabs: resto });
+    return out;
+  }
+  function sinNum(b) {
+    var c = b.cloneNode(true);
+    Array.prototype.forEach.call(c.querySelectorAll('.p38-n,.p37-nb'), function (x) { x.remove(); });
+    return c.innerHTML;
+  }
+  function num(b) {
+    var n = 0;
+    Array.prototype.forEach.call(b.querySelectorAll('.p38-n,.p37-nb'), function (x) { if (x.style.display !== 'none') n += parseInt(x.textContent, 10) || 0; });
+    return n;
+  }
+
+  var css = document.createElement('style');
+  css.textContent = [
+    '#tabs15{display:none!important}',
+    '#g45{position:sticky;top:55px;z-index:4;display:flex;gap:8px;align-items:center;padding:8px 2px 10px;margin:0 0 12px;background:linear-gradient(var(--bg) 78%,transparent)}',
+    '#g45g{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;flex:1 1 auto;min-width:0}#g45g::-webkit-scrollbar{display:none}',
+    '#g45a{display:flex;gap:6px;flex:none}',
+    '.g45n{margin-left:6px;min-width:18px;padding:0 6px;border-radius:99px;background:var(--bad);color:#fff;font-size:.72em;text-align:center;font-weight:800}',
+    '#w45{display:grid;grid-template-columns:210px minmax(0,1fr);gap:18px;align-items:start}',
+    '#w45.solo{grid-template-columns:minmax(0,1fr)}#w45.solo #s45{display:none}',
+    '#s45{position:sticky;top:112px;display:flex;flex-direction:column;gap:4px;padding:12px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh)}',
+    '#s45 h5{margin:0 0 6px 6px;font-size:.68em;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}',
+    '.s45b{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;color:var(--ink);box-shadow:none;border-radius:10px;padding:9px 12px;font-weight:600;font-size:.9em}',
+    '.s45b:hover{background:var(--acc2);color:var(--acc)}.s45b.on{background:var(--acc2);color:var(--acc);box-shadow:inset 3px 0 0 var(--acc)}',
+    '@media(max-width:900px){#w45{grid-template-columns:minmax(0,1fr)}#s45{position:static;flex-direction:row;overflow-x:auto;padding:6px}#s45 h5{display:none}.s45b{width:auto;flex:none;white-space:nowrap}}'
+  ].join('');
+  document.head.appendChild(css);
+
+  function abre(k) { var b = btns()[k]; if (b) b.click(); setTimeout(sync, 0); }
+
+  function clic(e) {
+    var gb = e.target.closest('.g45b'), sbn = e.target.closest('.s45b');
+    if (gb) {
+      var id = gb.getAttribute('data-g');
+      var x = GRUPOS.filter(function (y) { return y.id === id; })[0]; if (!x) return;
+      abre(ULT[id] && x.tabs.indexOf(ULT[id]) >= 0 ? ULT[id] : x.tabs[0]);
+    } else if (sbn) abre(sbn.getAttribute('data-k'));
+  }
+
+  function sync() {
+    var bar = $('tabs15'), g = $('g45g'), s = $('s45'), w = $('w45'); if (!bar || !g || !s || !w) return;
+    var m = btns(), d = defs(m); if (!d.length) return;
+    var k = activa() || d[0].tabs[0];
+    var ga = d.filter(function (x) { return x.tabs.indexOf(k) >= 0; })[0] || d[0];
+    ULT[ga.id] = k; GRUPOS = d;
+    g.innerHTML = d.map(function (x) {
+      var n = 0; x.tabs.forEach(function (kk) { n += num(m[kk]); });
+      return '<button type="button" class="t15 g45b' + (x.id === ga.id ? ' on' : '') + '" data-g="' + x.id + '"><span>' + x.ico + '</span>' + x.t + (n ? '<b class="g45n">' + n + '</b>' : '') + '</button>';
+    }).join('');
+    if (ga.tabs.length < 2) { s.innerHTML = ''; w.classList.add('solo'); return; }
+    w.classList.remove('solo');
+    s.innerHTML = '<h5>' + ga.t + '</h5>' + ga.tabs.map(function (kk) {
+      var n = num(m[kk]);
+      return '<button type="button" class="s45b' + (kk === k ? ' on' : '') + '" data-k="' + kk + '">' + sinNum(m[kk]) + (n ? '<b class="g45n">' + n + '</b>' : '') + '</button>';
+    }).join('');
+  }
+
+  function acciones() {   // «Venta manual» y «Subir cliente al back» pasan a la barra de grupos
+    var a = $('g45a'); if (!a) return;
+    ['btnCalentar28', 'btnManual17'].forEach(function (id) {
+      var b = $(id); if (b && b.parentNode !== a) { b.style.marginLeft = '0'; a.appendChild(b); }
+    });
+  }
+
+  function montar() {
+    var bar = $('tabs15'), panels = $('panels15');
+    if (!bar || !panels || $('g45') || !GR[rol()]) return;
+    if (rol() === 'admin') montarCfg();
+    var g = document.createElement('nav'); g.id = 'g45';
+    g.innerHTML = '<div id="g45g"></div><div id="g45a"></div>';
+    bar.insertAdjacentElement('beforebegin', g);
+    var w = document.createElement('div'); w.id = 'w45';
+    var s = document.createElement('aside'); s.id = 's45';
+    panels.parentNode.insertBefore(w, panels);
+    w.appendChild(s); w.appendChild(panels);
+    g.addEventListener('click', clic); s.addEventListener('click', clic);
+    new MutationObserver(function () { clearTimeout(deb); deb = setTimeout(function () { acciones(); sync(); }, 60); })
+      .observe(bar, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] });
+    acciones(); sync();
+  }
+
+  /* ================= ADMIN · AJUSTES GENERALES ================= */
+  // [clave en la base, tipo, título, explicación, ¿puede quedar vacío?]
+  var AJ = [
+    ['seguimiento_desde', 'date', 'Mostrar el seguimiento desde esta fecha', 'Las ventas anteriores a esta fecha no aparecen en Seguimiento. Sirve para ocultar ventas antiguas que comparten un mismo código y se mezclan en un solo «cliente». Vacío = mostrar todo.', true],
+    ['dias_sin_movimiento', 'number', 'Días sin movimiento para avisar', 'Un cliente sin cambios durante estos días sale con aviso 🕒 y genera una tarea para el back.', false],
+    ['listos_desde', 'date', '«Listos para cerrar» desde esta fecha', 'En la lista «Listos para cerrar» solo salen clientes con movimiento desde esta fecha.', false],
+    ['tareas_desde', 'date', 'Crear tareas automáticas desde esta fecha', 'Evita que miles de ventas antiguas aparezcan como tareas vencidas.', false],
+    ['por_vencer_horas', 'number', '«Por vencer» cuando faltan menos de (horas)', 'Una tarea se pone en amarillo cuando le falta menos que esto.', false]
+  ];
+  var CF = {};
+
+  async function cargaCfg() {
+    var host = $('s45cfg'); if (!host) return;
+    host.innerHTML = '<div class="d15-vacio">Cargando…</div>';
+    var r = await sb.from('back_config').select('clave,valor');
+    if (r.error) { host.innerHTML = '<div class="d15-vacio">' + esc(limpio(r.error.message)) + '</div>'; return; }
+    CF = {}; (r.data || []).forEach(function (x) { CF[x.clave] = x.valor == null ? '' : String(x.valor); });
+    host.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>Ajustes generales</h3><span class="meta">Valen para todo el equipo desde que los guardas</span></div>' +
+      '<div class="d15-form" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">' + AJ.map(function (a) {
+        var v = CF[a[0]] || '';
+        return '<div><label>' + esc(a[2]) + '</label><input id="p45-' + a[0] + '" type="' + a[1] + '"' + (a[1] === 'number' ? ' min="1" step="any"' : '') + ' value="' + esc(v) + '">' +
+          '<div class="meta" style="margin-top:4px">' + esc(a[3]) + '</div></div>';
+      }).join('') + '</div><p style="margin:14px 0 0"><button type="button" data-c="guardar">Guardar ajustes</button></p></div>' +
+      '<div class="d15-sec"><h3>Qué hay en este menú</h3><div class="meta" style="line-height:1.7">' +
+      '<b>Equipo</b>: usuarios, PIN, activar o desactivar personas y su nombre en MATRIZ. ' +
+      '<b>Permisos del back</b>: qué puede editar el back, estados y colores, tipos de back. ' +
+      '<b>Incentivos</b>: reglas y el interruptor para mostrarlos a los backs. ' +
+      '<b>Sueldos y bonos</b>, <b>Comisiones</b> y <b>Reglas de pago</b>: todo lo que alimenta las liquidaciones. ' +
+      '<b>Salud</b>: revisa que los scripts y los correos funcionen.</div></div>';
+  }
+
+  async function guardaCfg(btn) {
+    var filas = [], err = null;
+    AJ.forEach(function (a) {
+      var el = $('p45-' + a[0]); if (!el || err) return;
+      var v = el.value.trim();
+      if ((CF[a[0]] || '') === v) return;
+      if (a[1] === 'number') {
+        var n = parseFloat(v);
+        if (isNaN(n) || n < 1 || n > 365) { err = '«' + a[2] + '»: escribe un número entre 1 y 365'; return; }
+        v = String(n);
+      } else {
+        if (v === '' && !a[4]) { err = '«' + a[2] + '» no puede quedar vacío'; return; }
+        if (v !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { err = '«' + a[2] + '»: fecha no válida'; return; }
+      }
+      filas.push({ clave: a[0], valor: v });
+    });
+    if (err) return toast(err, true);
+    if (!filas.length) return toast('No cambiaste nada');
+    btn.disabled = true;
+    var r = await sb.from('back_config').upsert(filas, { onConflict: 'clave' });
+    btn.disabled = false;
+    if (r.error) return toast(limpio(r.error.message), true);
+    filas.forEach(function (f) { CF[f.clave] = f.valor; });
+    toast('Ajustes guardados');
+  }
+
+  function montarCfg() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-cfg')) return;
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-cfg'; s.hidden = true;
+    s.innerHTML = '<div id="s45cfg"><div class="d15-vacio">Se carga al abrir la pantalla…</div></div>';
+    panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'cfg');
+    bt.innerHTML = '<span>🎚️</span>Ajustes generales';
+    bar.appendChild(bt);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'cfg') cargaCfg(); });
+    s.addEventListener('click', function (e) { var b = e.target.closest('[data-c="guardar"]'); if (b) guardaCfg(b); });
+  }
+
+  ['concertadorView', 'cerradorView', 'backView', 'adminView'].forEach(function (n) {
+    var o = window[n]; if (typeof o !== 'function') return;
+    window[n] = function () {
+      var r = o.apply(this, arguments);
+      try { montar(); } catch (e) { console.error(e); }
+      return r;
+    };
+  });
+})();
  </script>
 </body>
 </html>
