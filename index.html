@@ -4413,6 +4413,16 @@ function ventaForm(l) {
   function entradas(t) { return String(t || '').split(/\s*\/\/\s*/).filter(function (x) { return x.trim(); }); }
   function rolTxt(r) { return r === 'back' ? 'Back' : r === 'cerrador' ? 'Comercial' : r === 'admin' ? 'Admin' : String(r || ''); }
   function puedeContra() { return ROL === 'cerrador' || ST.contra; }
+  /* Puente con las pestañas agrupadas (bloque 45): «Contraoferta» se elige desde la barra de arriba, no dentro de Seguimiento */
+  window.seg37 = {
+    info: function () { return { modo: ST.modo, contra: ST.contra, sinLeer: ST.sinLeer }; },
+    modo: function (m) {
+      if (m === 'CONTRA' && !ST.contra) m = 'SEG';
+      if (ST.modo !== m) { ST.modo = m; ST.vista = 'PENDIENTES'; ST.sel = {}; ST.estados = []; }
+      ST.pag = 0;
+      return m;
+    }
+  };
 
   /* ---------- colores de estado ---------- */
   var ALIAS = { OK: 'ACTIVO', CERRADO: 'FRAUDE', PENDIENTE: 'PENDIENTE TV' };
@@ -4576,19 +4586,21 @@ function ventaForm(l) {
   }
   function pintaModos() {
     var m = $('p37-modos'); if (!m) return;
-    m.hidden = !ST.contra;
+    m.hidden = !ST.contra || !!$('g45');
     m.innerHTML = '<button type="button" class="sec p37-modo' + (ST.modo === 'SEG' ? ' on' : '') + '" data-a="modo" data-m="SEG">📋 Seguimiento</button>' +
       '<button type="button" class="sec p37-modo' + (ST.modo === 'CONTRA' ? ' on' : '') + '" data-a="modo" data-m="CONTRA">💬 Contraoferta' + (ST.sinLeer > 0 ? '<span class="p37-nb">' + ST.sinLeer + '</span>' : '') + '</button>';
     var b = $('p37-banner'); if (b) { b.hidden = ST.modo !== 'CONTRA'; }
+    var h3 = document.querySelector('#p15-pa .d15-sh h3'); if (h3) h3.textContent = ST.modo === 'CONTRA' ? 'Contraoferta · conversación con el comercial' : 'Seguimiento de clientes';
+    document.dispatchEvent(new Event('seg37'));
   }
   function pinta() {
     var d = ST.d || {}, c = d.cont || {}, tot = d.total || 0;
     var ch = function (k, t, n) { return '<button type="button" class="sec p37-chip' + (ST.vista === k ? ' on' : '') + '" data-a="vista" data-v="' + k + '">' + t + ' (' + (n || 0) + ')</button>'; };
-    $('p37-chips').innerHTML = ch('PENDIENTES', 'En seguimiento', c.pendientes) + ch('LISTOS', '✅ Listos para cerrar', c.listos) + ch('CERRADOS', 'Cerrados', c.cerrados) +
+    $('p37-chips').innerHTML = ch('PENDIENTES', 'En seguimiento', c.pendientes) +
       '<button type="button" class="sec p37-chip' + (ST.vista === 'HOY' ? ' on' : '') + '" data-a="vista" data-v="HOY">🕒 Movidos hoy' + (ST.hoy ? ' (' + ST.hoy.ids.length + ')' : '') + '</button>';
     $('p37-aviso').innerHTML = ST.vista === 'HOY' ? 'Los clientes que moviste hoy (el admin ve los de todos). Si te equivocaste, usa «↩ Deshacer» en el cambio.' : ST.vista === 'LISTOS' ? 'Todo está en OK. Marca los clientes y pulsa «Confirmar TODO OK» para sacarlos de la lista. Si te equivocas, tendrás 15 segundos para deshacer.' :
       ST.vista === 'CERRADOS' ? 'Clientes ya cerrados. Ábrelos para reabrirlos si hace falta.' :
-      'Toca un cliente para abrir su panel. Si cambias Internet/Móviles/TV a «OK» y todo queda en OK, el cliente pasa a «Listos para cerrar» (arriba) y podrás deshacerlo.';
+      (ST.modo === 'CONTRA' ? 'Toca un cliente para conversar con su comercial. El estado CONTRAOFERTA de las líneas es otra cosa y no cambia aquí.' : 'Aquí solo están los clientes que aún tienen algún servicio sin OK. Cuando Internet, Móviles y TV quedan en OK, el cliente sale solo de la lista; si algo vuelve a cambiar, reaparece.');
     var todosEst = ['SIN ESTADO'].concat(d.estados_todos || []);
     $('p37-estb').textContent = 'Estados' + (ST.estados.length ? ' (' + ST.estados.length + ')' : ' (todos)') + ' ▾';
     $('p37-estp').hidden = !ST.panel;
@@ -4754,7 +4766,7 @@ function ventaForm(l) {
     var acc = '';
     if (edit) {
       if (ST.vista === 'CERRADOS') acc = '<button type="button" class="sec p37-mini" data-d="reabrir">↩ Reabrir cliente</button> <span class="meta">Confirmado por ' + esc(v.confirmado_por || '—') + ' el ' + fd(v.confirmado_at) + '</span>';
-      else if (v.listo) acc = '<button type="button" class="p37-mini" data-d="todook">✅ Confirmar TODO OK</button>';
+      else if (v.listo) acc = '<span class="meta">✅ Todos los servicios están en OK: este cliente ya no aparece en la lista de seguimiento.</span>';
       acc = '<button type="button" class="sec p37-mini" data-d="cli">✏ Corregir datos del cliente</button> ' + acc;
     }
     host.innerHTML = '<div class="p37-dh"><div><h3>' + esc(v.cliente || 'Cliente') + '</h3><small>DNI ' + esc(v.dni || '—') + ' · Tel. ' + esc(v.telefono || '—') + (v.provincia || v.localidad ? ' · ' + esc((v.localidad || '') + ' ' + (v.provincia || '')) : '') + '</small><br>' +
@@ -4893,7 +4905,7 @@ function ventaForm(l) {
     if (!n) { b.hidden = true; b.innerHTML = ''; return; }
     b.hidden = false;
     b.innerHTML = '<b>' + n + ' marcado' + (n > 1 ? 's' : '') + '</b><button type="button" data-a="masivo">✏ Cambiar estado / fecha / comentario</button>' +
-      (ST.vista !== 'CERRADOS' ? '<button type="button" class="sec" data-a="todook-sel">✅ Confirmar TODO OK</button>' : '') + '<button type="button" class="sec" data-a="limpiar">Desmarcar</button>';
+      '<button type="button" class="sec" data-a="limpiar">Desmarcar</button>';
   }
   function masivo() {
     var sel = ids(); if (!sel.length) return;
@@ -4943,7 +4955,7 @@ function ventaForm(l) {
     var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-pa'; s.hidden = true;
     s.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>Seguimiento de clientes</h3></div>' +
       '<div class="p37-modos" id="p37-modos" hidden></div>' +
-      '<div class="p37-banner" id="p37-banner" hidden>💬 <b>Modo contraoferta.</b> Ves los clientes con alguna línea en CONTRAOFERTA. Al abrir uno hablas con el comercial; lo que escribas aquí <b>no se envía a MATRIZ</b>.</div>' +
+      '<div class="p37-banner" id="p37-banner" hidden>💬 <b>Contraoferta.</b> Aquí das seguimiento a todas las ventas en curso: abre un cliente, escribe al comercial y él te responde. Lo que escribas aquí <b>no se envía a MATRIZ</b>. No tiene relación con el estado CONTRAOFERTA de las líneas.</div>' +
       '<div class="p37-bar"><input id="p37-q" data-minus placeholder="Buscar cliente, DNI, teléfono o número"><button type="button" class="sec" id="p37-estb" data-a="estp">Estados (todos) ▾</button><select id="p37-ag"></select>' +
       '<label class="p37-ck" style="margin:0;flex:none"><input type="checkbox" id="p37-al"> Solo con alertas</label><button type="button" class="sec" data-a="ref">↻</button></div>' +
       '<div class="p37-estp" id="p37-estp" hidden></div><div class="p37-chips" id="p37-chips"></div><div class="p37-aviso" id="p37-aviso"></div><div class="p37-bulk" id="p37-bulk" hidden></div><div id="p37-out"></div><div class="p37-pg" id="p37-pg"></div></div>';
@@ -4962,7 +4974,7 @@ function ventaForm(l) {
         var prev = e.target.getAttribute('data-prev') || '', idv = e.target.getAttribute('data-id'), gr = e.target.getAttribute('data-g');
         var r = await sb.rpc('back_set_manual', { p_id: idv, p_grupo: gr, p_valor: e.target.value });
         if (r.error) { toast(msg(r.error), true); return cargar(); }
-        toastU('Guardado: ' + gr.toLowerCase() + ' → ' + (e.target.value || 'automático') + '. Si todo queda en OK, el cliente pasa a «Listos para cerrar».', function () {
+        toastU('Guardado: ' + gr.toLowerCase() + ' → ' + (e.target.value || 'automático') + '. Si todo queda en OK, el cliente sale de la lista.', function () {
           return sb.rpc('back_set_manual', { p_id: idv, p_grupo: gr, p_valor: prev }).then(function (u) { if (u.error) return toast(msg(u.error), true); toast('Deshecho'); cargar(); });
         });
         return cargar();
@@ -4988,7 +5000,7 @@ function ventaForm(l) {
       else if (a === 'abririd') abrirPorId(id);
       else if (a === 'modo') {
         ST.modo = b.getAttribute('data-m'); ST.pag = 0; ST.vista = 'PENDIENTES'; ST.sel = {};
-        ST.estados = ST.modo === 'CONTRA' ? ['CONTRAOFERTA'] : [];
+        ST.estados = [];
         cargar();
       }
       else if (a === 'estp') { ST.panel = !ST.panel; $('p37-estp').hidden = !ST.panel; }
@@ -5007,6 +5019,7 @@ function ventaForm(l) {
       if (DR && DR.tab === 'CONTRA' && !document.hidden) cargaNotas('CONTRAOFERTA').then(marcarVisto);
       else if (ST.contra && !document.hidden) cargarHilos();
     }, 30000);
+    cargarContra().then(function () { document.dispatchEvent(new Event('seg37')); return cargarHilos(); }).catch(function () { });
   }
 
   /* ---------- Cerrador: pestaña «💬 Contraofertas» ---------- */
@@ -5582,7 +5595,7 @@ function ventaForm(l) {
     host.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>Mis incentivos</h3></div>' +
       '<div class="d15-form" style="margin-bottom:12px"><div><label>Mes</label><select data-b="m">' + MESES.map(function (n, j) { return '<option value="' + (j + 1) + '"' + ((j + 1) === BK.m ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></div></div>' +
       '<div class="l22-tot"><div><small>' + MESES[BK.m - 1] + ' ' + BK.y + '</small><b>' + soles(d.total) + '</b><small>de incentivo</small></div><div class="l22-chips"><span>Tareas hechas<b>' + d.hechas + '</b></span><span>A tiempo<b>' + (d.hechas ? d.pct + '%' : '—') + '</b></span><span>Cambios MATRIZ<b>' + d.cambios + '</b></span></div></div>' +
-      ((d.detalle || []).length ? d.detalle.map(function (x) { return '<div class="l22-r" style="display:block;margin-top:10px"><div style="display:flex;justify-content:space-between;gap:10px"><b style="color:var(--ink)">' + esc(x.nombre) + '</b><b>' + soles(x.pago) + '</b></div><div class="meta">' + esc(ETQ[x.metrica]) + ': ' + val(x) + '</div>' +    progreso(x) + (function () { var r = (d.reglas || []).filter(function (q) { return q.nombre === x.nombre; })[0]; return r && r.escalones.length ? '<div class="meta" style="margin-top:6px">Escalones: ' + r.escalones.map(function (e) { return e.minimo + (x.metrica === 'PCT_A_TIEMPO' ? '%' : '') + ' → ' + soles(e.monto); }).join(' · ') + '</div>' : ''; })() + '</div>'; }).join('') : '<div class="d15-vacio">Aún no hay incentivos configurados.</div>') + '</div>';
+      ((d.detalle || []).length ? d.detalle.map(function (x) { return '<div class="l22-r" style="display:block;margin-top:10px"><div style="display:flex;justify-content:space-between;gap:10px"><b style="color:var(--ink)">' + esc(x.nombre) + '</b><b>' + soles(x.pago) + '</b></div><div class="meta">' + esc(ETQ[x.metrica]) + ': ' + val(x) + '</div>' + progreso(x) + (function () { var r = (d.reglas || []).filter(function (q) { return q.nombre === x.nombre; })[0]; return r && r.escalones.length ? '<div class="meta" style="margin-top:6px">Escalones: ' + r.escalones.map(function (e) { return e.minimo + (x.metrica === 'PCT_A_TIEMPO' ? '%' : '') + ' → ' + soles(e.monto); }).join(' · ') + '</div>' : ''; })() + '</div>'; }).join('') : '<div class="d15-vacio">Aún no hay incentivos configurados.</div>') + '</div>';
   }
   async function cargarBack() {
     var bar = $('tabs15'); if (!bar) return;
@@ -6117,26 +6130,31 @@ function ventaForm(l) {
     window[p[0]] = function () { var r = o.apply(this, arguments); try { p[1](); } catch (e) { console.error(e); } return r; };
   });
 })();
-  /* 45 · Pestañas agrupadas con menú lateral + pestaña «Configuración» (admin)
-   PEGAR al final del script de index.html, DESPUÉS del último bloque (el 43) y antes de.
+/* 45 · Pestañas agrupadas con menú lateral + «Contraoferta» arriba + pestaña «Configuración»   (v2)
+   REEMPLAZA a la versión anterior del bloque 45. Va al final del script de index.html, después del bloque 43, al final del script (antes de que cierre).
    No borra nada: oculta la barra de pestañas larga y la reemplaza por grupos; cada grupo abre un menú al costado
-   con las pantallas que ya existen (se abren exactamente igual que antes, con sus propias cargas y avisos).
+   con las pantallas que ya existen (se abren igual que antes, con sus propias cargas y avisos).
 
    Grupos:
-   - Admin:       Panel · Ventas y leads · Back office · Pagos · Configuración
+   - Admin:       Panel · Ventas y leads · Back office · 💬 Contraoferta · Pagos · Configuración
    - Cerrador:    Resumen · Mis clientes · Ventas y pagos
-   - Back:        Resumen · Mi trabajo · Seguimiento · Leads por calentar · Mi pago
+   - Back:        Resumen · Mi trabajo · Seguimiento · 💬 Contraoferta (solo si el admin lo habilitó) · Leads por calentar · Mi pago
    - Concertador: Resumen · Clientes · Ventas y pago
    Una pestaña que no esté en la lista aparece sola en «Otros» (así nunca se pierde nada).
+
+   «💬 Contraoferta» NO es un filtro del estado CONTRAOFERTA de las líneas: es el seguimiento que hace el back de todas
+   las ventas en curso, con la conversación back–comercial. Comparte la lista con «Seguimiento» (bloque 37) pero va aparte arriba.
 
    Configuración (admin) = Ajustes generales + Equipo + Permisos del back + Incentivos + Sueldos y bonos + Comisiones
    + Reglas de pago + Salud. «Ajustes generales» es nueva: fechas de corte, días de aviso y plazos, en un solo lugar. */
 (function () {
+  // [id, icono, título, pantallas, modo de la pantalla «pa» (solo back/admin)]
   var GR = {
     admin: [
       ['pan', '🏠', 'Panel', ['res', 'ana', 'ate']],
       ['ven', '💰', 'Ventas y leads', ['ven', 'der', 'cor']],
-      ['bk', '🗂️', 'Back office', ['pa', 'tz', 'au']],
+      ['bk', '🗂️', 'Back office', ['pa', 'tz', 'au'], 'SEG'],
+      ['con', '💬', 'Contraoferta', ['pa'], 'CONTRA'],
       ['pag', '💳', 'Pagos', ['liq', 'pe']],
       ['cfg', '⚙️', 'Configuración', ['cfg', 'equ', 'pb', 'in', 'sue', 'com', 'reg', 'sa']]
     ],
@@ -6148,7 +6166,8 @@ function ventaForm(l) {
     back: [
       ['res', '🏠', 'Resumen', ['res']],
       ['tra', '✅', 'Mi trabajo', ['ta', 'au']],
-      ['seg', '📋', 'Seguimiento', ['pa', 'ven']],
+      ['seg', '📋', 'Seguimiento', ['pa', 'ven'], 'SEG'],
+      ['con', '💬', 'Contraoferta', ['pa'], 'CONTRA'],
       ['lea', '🔥', 'Leads por calentar', ['col', 'tab', 'hec']],
       ['pag', '💳', 'Mi pago', ['mp', 'ic']]
     ],
@@ -6163,6 +6182,9 @@ function ventaForm(l) {
 
   function $(i) { return document.getElementById(i); }
   function rol() { try { return perfil && perfil.rol; } catch (e) { return null; } }
+  function seg() { try { return window.seg37 ? window.seg37.info() : null; } catch (e) { return null; } }
+  function modoPa() { var s = seg(); return (s && s.modo) || 'SEG'; }
+  function contraOk() { var s = seg(); return !!(s && s.contra); }
   function btns() {
     var m = {};
     Array.prototype.forEach.call(document.querySelectorAll('#tabs15 .t15'), function (b) { m[b.getAttribute('data-k')] = b; });
@@ -6172,12 +6194,13 @@ function ventaForm(l) {
   function defs(m) {
     var out = [], usados = {};
     (GR[rol()] || []).forEach(function (g) {
+      if (g[4] === 'CONTRA' && !contraOk()) return;          // el back sin permiso de contraoferta no ve esta opción
       var t = g[3].filter(function (k) { return m[k]; });
       t.forEach(function (k) { usados[k] = 1; });
-      if (t.length) out.push({ id: g[0], ico: g[1], t: g[2], tabs: t });
+      if (t.length) out.push({ id: g[0], ico: g[1], t: g[2], tabs: t, modo: g[4] || null });
     });
     var resto = Object.keys(m).filter(function (k) { return !usados[k]; });
-    if (resto.length) out.push({ id: 'otros', ico: '📁', t: 'Otros', tabs: resto });
+    if (resto.length) out.push({ id: 'otros', ico: '📁', t: 'Otros', tabs: resto, modo: null });
     return out;
   }
   function sinNum(b) {
@@ -6208,32 +6231,41 @@ function ventaForm(l) {
   ].join('');
   document.head.appendChild(css);
 
-  function abre(k) { var b = btns()[k]; if (b) b.click(); setTimeout(sync, 0); }
+  // modo = 'SEG' | 'CONTRA' | undefined. Solo importa para la pantalla «pa» (la lista del bloque 37).
+  function abre(k, modo) {
+    var b = btns()[k]; if (!b) return;
+    if (k === 'pa' && modo && window.seg37) window.seg37.modo(modo);   // se fija ANTES del clic: la carga que dispara el clic ya usa el modo nuevo
+    b.click(); setTimeout(sync, 0);
+  }
 
   function clic(e) {
     var gb = e.target.closest('.g45b'), sbn = e.target.closest('.s45b');
     if (gb) {
       var id = gb.getAttribute('data-g');
       var x = GRUPOS.filter(function (y) { return y.id === id; })[0]; if (!x) return;
-      abre(ULT[id] && x.tabs.indexOf(ULT[id]) >= 0 ? ULT[id] : x.tabs[0]);
-    } else if (sbn) abre(sbn.getAttribute('data-k'));
+      abre(ULT[id] && x.tabs.indexOf(ULT[id]) >= 0 ? ULT[id] : x.tabs[0], x.modo || undefined);
+    } else if (sbn) abre(sbn.getAttribute('data-k'), sbn.getAttribute('data-m') || undefined);
   }
 
   function sync() {
     var bar = $('tabs15'), g = $('g45g'), s = $('s45'), w = $('w45'); if (!bar || !g || !s || !w) return;
     var m = btns(), d = defs(m); if (!d.length) return;
     var k = activa() || d[0].tabs[0];
-    var ga = d.filter(function (x) { return x.tabs.indexOf(k) >= 0; })[0] || d[0];
+    var cand = d.filter(function (x) { return x.tabs.indexOf(k) >= 0; });
+    var ga = cand[0] || d[0];
+    if (k === 'pa' && cand.length > 1) { var mo = modoPa(); ga = cand.filter(function (x) { return x.modo === mo; })[0] || ga; }
     ULT[ga.id] = k; GRUPOS = d;
     g.innerHTML = d.map(function (x) {
-      var n = 0; x.tabs.forEach(function (kk) { n += num(m[kk]); });
-      return '<button type="button" class="t15 g45b' + (x.id === ga.id ? ' on' : '') + '" data-g="' + x.id + '"><span>' + x.ico + '</span>' + x.t + (n ? '<b class="g45n">' + n + '</b>' : '') + '</button>';
+      var n = 0;
+      if (x.modo === 'CONTRA') { var sc = seg(); n = (sc && sc.sinLeer) || 0; }
+      else x.tabs.forEach(function (kk) { n += num(m[kk]); });
+      return '<button type="button" class="t15 g45b' + (x.id === ga.id ? ' on' : '') + '" data-g="' + x.id + '"><span>' + x.ico + '</span>' + x.t + (n > 0 ? '<b class="g45n">' + n + '</b>' : '') + '</button>';
     }).join('');
     if (ga.tabs.length < 2) { s.innerHTML = ''; w.classList.add('solo'); return; }
     w.classList.remove('solo');
     s.innerHTML = '<h5>' + ga.t + '</h5>' + ga.tabs.map(function (kk) {
       var n = num(m[kk]);
-      return '<button type="button" class="s45b' + (kk === k ? ' on' : '') + '" data-k="' + kk + '">' + sinNum(m[kk]) + (n ? '<b class="g45n">' + n + '</b>' : '') + '</button>';
+      return '<button type="button" class="s45b' + (kk === k ? ' on' : '') + '" data-k="' + kk + '"' + (ga.modo && kk === 'pa' ? ' data-m="' + ga.modo + '"' : '') + '>' + sinNum(m[kk]) + (n ? '<b class="g45n">' + n + '</b>' : '') + '</button>';
     }).join('');
   }
 
@@ -6261,12 +6293,14 @@ function ventaForm(l) {
     acciones(); sync();
   }
 
+  // el bloque 37 avisa cuando sabe si este back atiende contraofertas y cuántos mensajes tiene sin leer
+  document.addEventListener('seg37', function () { clearTimeout(deb); deb = setTimeout(function () { acciones(); sync(); }, 60); });
+
   /* ================= ADMIN · AJUSTES GENERALES ================= */
   // [clave en la base, tipo, título, explicación, ¿puede quedar vacío?]
   var AJ = [
-    ['seguimiento_desde', 'date', 'Mostrar el seguimiento desde esta fecha', 'Las ventas anteriores a esta fecha no aparecen en Seguimiento. Sirve para ocultar ventas antiguas que comparten un mismo código y se mezclan en un solo «cliente». Vacío = mostrar todo.', true],
+    ['seguimiento_desde', 'date', 'Mostrar el seguimiento desde esta fecha', 'Las ventas anteriores a esta fecha no aparecen en Seguimiento. Opcional: los códigos históricos (TRIBU, APROOP…) ya se ocultan solos. Vacío = mostrar todo lo demás.', true],
     ['dias_sin_movimiento', 'number', 'Días sin movimiento para avisar', 'Un cliente sin cambios durante estos días sale con aviso 🕒 y genera una tarea para el back.', false],
-    ['listos_desde', 'date', '«Listos para cerrar» desde esta fecha', 'En la lista «Listos para cerrar» solo salen clientes con movimiento desde esta fecha.', false],
     ['tareas_desde', 'date', 'Crear tareas automáticas desde esta fecha', 'Evita que miles de ventas antiguas aparezcan como tareas vencidas.', false],
     ['por_vencer_horas', 'number', '«Por vencer» cuando faltan menos de (horas)', 'Una tarea se pone en amarillo cuando le falta menos que esto.', false]
   ];
@@ -6286,7 +6320,7 @@ function ventaForm(l) {
       }).join('') + '</div><p style="margin:14px 0 0"><button type="button" data-c="guardar">Guardar ajustes</button></p></div>' +
       '<div class="d15-sec"><h3>Qué hay en este menú</h3><div class="meta" style="line-height:1.7">' +
       '<b>Equipo</b>: usuarios, PIN, activar o desactivar personas y su nombre en MATRIZ. ' +
-      '<b>Permisos del back</b>: qué puede editar el back, estados y colores, tipos de back. ' +
+      '<b>Permisos del back</b>: qué puede editar el back, estados y colores, qué backs atienden contraofertas. ' +
       '<b>Incentivos</b>: reglas y el interruptor para mostrarlos a los backs. ' +
       '<b>Sueldos y bonos</b>, <b>Comisiones</b> y <b>Reglas de pago</b>: todo lo que alimenta las liquidaciones. ' +
       '<b>Salud</b>: revisa que los scripts y los correos funcionen.</div></div>';
@@ -6339,6 +6373,7 @@ function ventaForm(l) {
     };
   });
 })();
+
  </script>
 </body>
 </html>
