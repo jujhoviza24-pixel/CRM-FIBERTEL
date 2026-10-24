@@ -5827,6 +5827,69 @@ function ventaForm(l) {
   new MutationObserver(function () { clearTimeout(t); t = setTimeout(barrer, 60); }).observe(document.body, { childList: true, subtree: true });
   barrer();
 })();
+  /* 42 · Pestaña «Salud» del admin: ventas sin exportar, correos fallidos y cambios con error. Requiere el SQL A7 (admin_salud). */
+(function () {
+  function $(i) { return document.getElementById(i); }
+  function hace(iso) {
+    if (!iso) return 'sin datos';
+    var m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (m < 60) return 'hace ' + m + ' min';
+    if (m < 1440) return 'hace ' + Math.round(m / 60) + ' h';
+    return 'hace ' + Math.round(m / 1440) + ' días';
+  }
+  function tarjeta(ico, titulo, valor, detalle, mal) {
+    return '<div class="d15-k ' + (mal ? 'bad' : 'ok') + '"><div class="d15-ki">' + ico + '</div><div><div class="d15-kv">' + valor +
+      '</div><div class="d15-kl">' + titulo + '</div>' + (detalle ? '<div class="d15-ks">' + detalle + '</div>' : '') + '</div></div>';
+  }
+  async function cargar() {
+    var host = $('s42'); if (!host) return;
+    host.innerHTML = '<div class="d15-vacio">Revisando el sistema…</div>';
+    var r = await sb.rpc('admin_salud');
+    if (r.error) {
+      host.innerHTML = '<div class="d15-vacio">' + esc(/PGRST202|42883/.test(String(r.error.code || '')) ? 'Falta ejecutar el SQL A7 (admin_salud) en Supabase' : limpio(r.error.message)) + '</div>';
+      return;
+    }
+    var d = r.data || {}, mxViejo = d.sin_exportar > 0 && d.sin_exportar_min > 15;
+    var todoBien = !mxViejo && !d.correos_agotados && !d.cambios_error && !d.cambios_atascados;
+    var h = '<div class="d15-sec"><div class="d15-sh"><h3>' + (todoBien ? '✅ Todo funciona' : '⚠️ Hay cosas por revisar') +
+      '</h3><button type="button" class="sec p36-mini" data-s="ref">↻ Revisar de nuevo</button></div><div class="d15-kpis" style="margin:0">' +
+      tarjeta('📤', 'Ventas sin pasar a MATRIZ', d.sin_exportar, d.sin_exportar ? 'la más antigua espera ' + d.sin_exportar_min + ' min' : 'todas enviadas', mxViejo) +
+      tarjeta('✉️', 'Correos en cola', d.correos_pend, 'se envían cada minuto', false) +
+      tarjeta('📪', 'Correos que se rindieron', d.correos_agotados, d.correos_agotados ? 'revisar abajo' : 'ninguno', d.correos_agotados > 0) +
+      tarjeta('🛠️', 'Cambios del back con error (7 días)', d.cambios_error, d.cambios_error ? 'revisar abajo' : 'ninguno', d.cambios_error > 0) +
+      tarjeta('⏳', 'Cambios atascados (más de 10 min)', d.cambios_atascados, d.cambios_atascados ? 'el script de MATRIZ puede estar detenido' : 'ninguno', d.cambios_atascados > 0) +
+      tarjeta('🔄', 'Último cambio recibido de MATRIZ', hace(d.ult_cambio_matriz), 'si pasan muchas horas sin cambios, revisa los activadores', false) +
+      '</div></div>';
+    h += '<div class="d15-sec"><h3>Últimos cambios del back que MATRIZ rechazó</h3>' + ((d.errores || []).length ?
+      '<table class="d15-tbl"><thead><tr><th>Fecha</th><th>Venta</th><th>Campo</th><th>Motivo</th></tr></thead><tbody>' + d.errores.map(function (x) {
+        return '<tr><td>' + esc(fmt(x.created_at)) + '</td><td>' + esc(x.id_venta) + '</td><td>' + esc(x.campo) + '</td><td>' + esc(x.error || '') + '</td></tr>';
+      }).join('') + '</tbody></table>' : '<div class="d15-vacio">Ninguno. 🎉</div>') + '</div>';
+    h += '<div class="d15-sec"><h3>Correos con problemas</h3>' + ((d.correos_err || []).length ?
+      '<table class="d15-tbl"><thead><tr><th>Venta</th><th>Intentos</th><th>Error</th></tr></thead><tbody>' + d.correos_err.map(function (x) {
+        return '<tr><td>' + esc(x.codigo_venta) + '</td><td>' + esc(x.correo_intentos) + '</td><td>' + esc(x.correo_error || '') + '</td></tr>';
+      }).join('') + '</tbody></table>' : '<div class="d15-vacio">Ninguno. 🎉</div>') + '</div>';
+    host.innerHTML = h;
+  }
+  function montar() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-sa')) return;
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-sa'; s.hidden = true;
+    s.innerHTML = '<div id="s42"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>';
+    panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'sa');
+    bt.innerHTML = '<span>🩺</span>Salud';
+    bar.appendChild(bt);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'sa') cargar(); });
+    s.addEventListener('click', function (e) { if (e.target.closest('[data-s="ref"]')) cargar(); });
+  }
+  var o = window.adminView;
+  if (typeof o === 'function') {
+    window.adminView = function () {
+      var r = o.apply(this, arguments);
+      try { montar(); } catch (e) { console.error(e); }
+      return r;
+    };
+  }
+})();
  </script>
 </body>
 </html>
