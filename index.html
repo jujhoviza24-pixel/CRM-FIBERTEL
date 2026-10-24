@@ -5624,6 +5624,83 @@ function ventaForm(l) {
     };
   });
 })();
+  /* 37 · «Nombre en MATRIZ» como desplegable (admin · Equipo)
+   PEGAR al final de index.html, DESPUÉS del bloque 36 y antes del cierre del script. Antes ejecuta 37_matriz_comerciales.sql.
+   Convierte los campos de texto «Nombre en MATRIZ» (usuario nuevo, cerradores y backs) en una lista con los comerciales de MATRIZ.
+   - Los nombres que ya usa otro usuario salen apagados («ya es de …»), para no mezclar ventas.
+   - Si el nombre actual de alguien no está en la lista, se conserva y se marca para que lo corrijas.
+   - Si todavía no ejecutaste el SQL 37, los campos quedan como estaban. */
+(function () {
+  var LST = null, ts = 0, busy = null, avisado = false;
+  function $(i) { return document.getElementById(i); }
+
+  var css = document.createElement('style');
+  css.textContent = '.d15-row2 select.eq-mx{max-width:280px;flex:1 1 200px}';
+  document.head.appendChild(css);
+
+  function cargar() {
+    if (LST && Date.now() - ts < 60000) return Promise.resolve(LST);
+    if (busy) return busy;
+    busy = sb.rpc('matriz_comerciales_lista').then(function (r) {
+      busy = null;
+      if (r.error) { LST = null; return null; }
+      LST = r.data || []; ts = Date.now(); return LST;
+    }, function () { busy = null; return null; });
+    return busy;
+  }
+
+  function opciones(l, cur, propio) {
+    var h = '<option value="">— Elige el nombre de MATRIZ —</option>', hay = false, U = cur.toUpperCase();
+    l.forEach(function (x) {
+      var otro = x.asignado_id && x.asignado_id !== propio, sel = cur && String(x.nombre).toUpperCase() === U;
+      if (sel) hay = true;
+      h += '<option value="' + esc(x.nombre) + '"' + (sel ? ' selected' : '') + (otro ? ' disabled' : '') + '>' + esc(x.nombre) + (otro ? ' — ya es de ' + esc(x.asignado_nombre) : '') + '</option>';
+    });
+    if (cur && !hay) h = '<option value="' + esc(cur) + '" selected>' + esc(cur) + ' (no está en la lista de MATRIZ)</option>' + h;
+    if (!l.length) h += '<option value="" disabled>La lista está vacía: ejecuta cmxSincronizar en el libro B</option>';
+    return h;
+  }
+
+  function convertir() {
+    var host = $('eq15'); if (!host) return;
+    var ins = host.querySelectorAll('input#eq-mx, input.eq-mx'); if (!ins.length) return;
+    cargar().then(function (l) {
+      if (!l) {
+        if (!avisado) { avisado = true; toast('Falta ejecutar 37_matriz_comerciales.sql para ver la lista de MATRIZ', true); }
+        return;
+      }
+      ins.forEach(function (i) {
+        if (!i.isConnected) return;
+        var fila = i.closest('.d15-row2'), propio = fila ? fila.getAttribute('data-id') : null;
+        var s = document.createElement('select');
+        if (i.id) s.id = i.id;
+        s.className = i.className;
+        s.innerHTML = opciones(l, i.value.trim(), propio);
+        i.replaceWith(s);   // el código existente lee .value, igual que antes
+      });
+      var lb = $('eq-mx'); lb = lb && lb.previousElementSibling;
+      if (lb && lb.tagName === 'LABEL') lb.textContent = 'Nombre en MATRIZ (elige de la lista)';
+    });
+  }
+
+  function vigila() {
+    var host = $('eq15'); if (!host || host._v37) return; host._v37 = true;
+    new MutationObserver(convertir).observe(host, { childList: true, subtree: true });
+    host.addEventListener('click', function (e) {   // tras guardar o crear, la lista debe refrescarse
+      if (e.target.closest('[data-a="mx"],[data-a="crear"]')) ts = 0;
+    }, true);
+    convertir();
+  }
+
+  var o = window.adminView;
+  if (typeof o === 'function') {
+    window.adminView = function () {
+      var r = o.apply(this, arguments);
+      try { vigila(); } catch (e) { console.error(e); }
+      return r;
+    };
+  }
+})();
  </script>
 </body>
 </html>
