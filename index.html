@@ -6082,6 +6082,116 @@ function ventaForm(l) {
   var oL = window.loginView;
   if (typeof oL === 'function') window.loginView = function () { BK.on = false; return oL.apply(this, arguments); };
 })();
+  /* 40 · Audios de venta: pestaña «Audios» (back y admin) con el editor de audio incorporado
+   PEGAR al final de index.html, DESPUÉS del bloque 39. Antes: ejecuta 40_audio_ventas.sql y sube editor-audio.html junto a index.html.
+   - Lista las ventas de campañas que requieren audio, con plazo; «Audio listo» las marca (se puede deshacer).
+   - El editor se abre dentro de la pestaña. Los audios NO se guardan en el CRM: solo se descargan.
+   - Admin: marca qué campañas requieren audio. */
+(function () {
+  var ST = { d: null, busy: false, ed: false }, CF = { camps: [], map: {}, busy: false };
+  function $(i) { return document.getElementById(i); }
+  function falta(e) { return /PGRST202|PGRST205|42883|42P01|back_audio|campana_audio|venta_audio/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 40_audio_ventas.sql en Supabase' : limpio(e.message || ''); }
+  function dur(ms) { var m = Math.max(1, Math.round(Math.abs(ms) / 60000)); if (m < 60) return m + ' min'; if (m < 1440) return Math.floor(m / 60) + ' h'; var d = Math.floor(m / 1440); return d + (d === 1 ? ' día' : ' días'); }
+  function plazo(iso) { var ms = new Date(iso) - Date.now(); return ms < 0 ? { c: 'b-bad', t: 'Vencida hace ' + dur(ms) } : { c: ms < 10800000 ? 'b-warn' : 'b-info', t: 'Vence en ' + dur(ms) }; }
+  function hora(iso) { return new Date(iso).toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+
+  var css = document.createElement('style');
+  css.textContent = '.p40-fr{width:100%;height:880px;border:1px solid var(--line);border-radius:14px;background:#0a0a0f}.p40-it{display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;padding:10px 12px;margin-bottom:8px;border:1px solid var(--line);border-left:4px solid var(--line2);border-radius:12px;background:var(--card)}.p40-it .i{min-width:0;flex:1 1 240px}.p40-camps{display:flex;flex-wrap:wrap;gap:6px 18px}';
+  document.head.appendChild(css);
+
+  function pinta() {
+    var out = $('p40-lista'); if (!out || !ST.d) return;
+    var P = ST.d.pendientes || [], H = ST.d.hechos || [];
+    out.innerHTML = '<div class="meta" style="margin:0 0 10px"><b>' + P.length + '</b> venta(s) esperan audio' + (P.some(function (x) { return new Date(x.vence_at) < new Date(); }) ? ' · hay vencidas' : '') + '</div>' +
+      (P.length ? P.map(function (x) {
+        var p = plazo(x.vence_at);
+        return '<div class="p40-it"><div class="i"><b>' + esc(x.cliente || '—') + '</b> <span class="badge ' + p.c + '">' + p.t + '</span><div class="meta">' + esc(x.detalle || '') + ' · ' + esc(x.id_venta) + '</div></div>' +
+          '<button type="button" class="p36-mini" data-u="listo" data-id="' + esc(x.id_venta) + '">✔ Audio listo</button></div>';
+      }).join('') : '<div class="d15-vacio">No hay audios pendientes. 🎉</div>') +
+      '<details style="margin-top:12px"><summary class="meta">Entregados recientemente (' + H.length + ')</summary>' + (H.length ? H.map(function (x) {
+        return '<div class="p40-it"><div class="i"><b>' + esc(x.cliente || '—') + '</b> <span class="badge b-ok">Entregado</span><div class="meta">' + esc(x.campana || '') + ' · ' + esc(x.hecho_nombre || '') + ' · ' + hora(x.hecho_at) + '</div></div>' +
+          (x.puedo ? '<button type="button" class="sec p36-mini" data-u="deshacer" data-id="' + esc(x.id_venta) + '">↩ Deshacer</button>' : '') + '</div>';
+      }).join('') : '<div class="meta">Todavía no hay entregados.</div>') + '</details>';
+  }
+  async function cargar() {
+    var out = $('p40-lista'); if (!out || ST.busy) return; ST.busy = true;
+    if (!ST.d) out.innerHTML = '<div class="d15-vacio">Buscando ventas con audio pendiente…</div>';
+    var r = await sb.rpc('back_audios'); ST.busy = false;
+    if (r.error) { out.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
+    ST.d = r.data; pinta();
+  }
+
+  /* ---- editor dentro de la pestaña ---- */
+  function abreEditor() {
+    var box = $('p40-ed'); if (!box) return;
+    box.innerHTML = '<div class="d15-vacio">Abriendo el editor…</div>';
+    fetch('editor-audio.html', { method: 'HEAD' }).then(function (r) {
+      if (!r.ok) throw new Error('404');
+      box.innerHTML = '<iframe class="p40-fr" id="p40-fr" src="editor-audio.html" title="Editor de audio"></iframe>' +
+        '<p class="meta" style="margin:8px 0 0">Arrastra el audio de la venta, edítalo y descárgalo con 💾. No se guarda nada en el CRM. <a href="editor-audio.html" target="_blank" rel="noopener">Abrir en pantalla completa ↗</a></p>';
+      $('p40-fr').addEventListener('load', function () {
+        try {   // el editor se usa tal cual; aquí solo se ajusta lo que no aplica fuera de Google Sheets
+          var w = $('p40-fr').contentWindow, d = w.document;
+          if (typeof w.actualizarTamañoEstimado !== 'function') w.actualizarTamañoEstimado = function () { };
+          var b = d.querySelector('.btn-transcriptor'); if (b) b.style.display = 'none';
+        } catch (e) { }
+      });
+    }).catch(function () {
+      box.innerHTML = '<div class="warn">No se encontró <b>editor-audio.html</b> junto a index.html. Súbelo al mismo lugar donde está index.html (ver LEEME).</div>';
+    });
+  }
+
+  /* ---- admin: campañas que requieren audio ---- */
+  async function cargarCfg() {
+    var host = $('p40-cfg'); if (!host || CF.busy) return; CF.busy = true;
+    var R = await Promise.all([sb.from('campana_audio').select('*'), sb.from('catalogo').select('campana').eq('categoria', 'PRODUCTO').limit(3000)]);
+    CF.busy = false;
+    if (R[0].error) { host.innerHTML = '<div class="d15-vacio">' + esc(msg(R[0].error)) + '</div>'; return; }
+    CF.map = {}; (R[0].data || []).forEach(function (x) { CF.map[x.campana] = x.requiere_audio; });
+    var c = []; (R[1].data || []).forEach(function (x) { if (x.campana && c.indexOf(x.campana) < 0) c.push(x.campana); });
+    Object.keys(CF.map).forEach(function (k) { if (c.indexOf(k) < 0) c.push(k); });
+    CF.camps = c.sort();
+    host.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>Campañas que requieren audio</h3><span class="meta">Las ventas nuevas de estas campañas generan la tarea «Editar el audio»</span></div><div class="p40-camps">' +
+      CF.camps.map(function (k) { return '<label class="p36-ck"><input type="checkbox" data-u="camp" data-c="' + esc(k) + '"' + (CF.map[k] ? ' checked' : '') + '>' + esc(k) + '</label>'; }).join('') + '</div>' +
+      '<p class="meta" style="margin-top:8px">Solo cuentan ventas desde la fecha «Crear tareas desde» (pestaña Tareas del equipo). Si desmarcas una campaña, sus audios pendientes se cancelan.</p></div>';
+  }
+
+  function montar(admin) {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-au')) return;
+    ST = { d: null, busy: false, ed: false };
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-au'; s.hidden = true;
+    s.innerHTML = (admin ? '<div id="p40-cfg"></div>' : '') +
+      '<div class="d15-sec"><div class="d15-sh"><h3>Audios de venta pendientes</h3><button type="button" class="sec p36-mini" data-u="ref">↻ Actualizar</button></div><div id="p40-lista"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div></div>' +
+      '<div class="d15-sec"><div class="d15-sh"><h3>Editor de audio</h3><button type="button" class="sec p36-mini" data-u="ed">Abrir / recargar editor</button></div><div id="p40-ed"><div class="d15-vacio">Pulsa «Abrir editor» cuando lo necesites (así la pestaña carga más rápido).</div></div></div>';
+    panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'au'); bt.innerHTML = '<span>🎧</span>Audios';
+    var ref = bar.querySelector('[data-k="ta"]') || bar.querySelector('[data-k="tz"]') || bar.querySelector('[data-k="res"]'); if (ref) ref.insertAdjacentElement('afterend', bt); else bar.appendChild(bt);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'au') { cargar(); if (admin) cargarCfg(); } });
+    s.addEventListener('change', async function (e) {
+      var t = e.target; if (t.getAttribute('data-u') !== 'camp') return;
+      var r = await sb.from('campana_audio').upsert({ campana: t.getAttribute('data-c'), requiere_audio: t.checked, updated_at: new Date().toISOString() }, { onConflict: 'campana' });
+      if (r.error) { t.checked = !t.checked; return toast(msg(r.error), true); }
+      toast(t.checked ? 'Esa campaña ahora requiere audio' : 'Esa campaña ya no requiere audio');
+    });
+    s.addEventListener('click', async function (e) {
+      var b = e.target.closest('button[data-u]'); if (!b) return; var k = b.getAttribute('data-u'), r;
+      if (k === 'ref') cargar(); else if (k === 'ed') abreEditor();
+      else if (k === 'listo') {
+        if (!confirm('¿Marcar el audio de esta venta como entregado?')) return;
+        b.disabled = true; r = await sb.rpc('back_audio_listo', { p_id_venta: b.getAttribute('data-id') });
+        if (r.error) toast(msg(r.error), true); else toast('Audio marcado como listo'); cargar();
+      } else if (k === 'deshacer') {
+        b.disabled = true; r = await sb.rpc('back_audio_deshacer', { p_id_venta: b.getAttribute('data-id') });
+        if (r.error) toast(msg(r.error), true); else toast('Vuelve a la lista de pendientes'); cargar();
+      }
+    });
+  }
+  [['backView', false], ['adminView', true]].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () { var r = o.apply(this, arguments); try { montar(p[1]); } catch (e) { console.error(e); } return r; };
+  });
+})();
  </script>
 </body>
 </html>
