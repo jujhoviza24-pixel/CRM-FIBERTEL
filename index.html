@@ -5943,6 +5943,145 @@ function ventaForm(l) {
     };
   });
 })();
+  /* 39 · Incentivos del back (privados)
+   PEGAR al final de index.html, DESPUÉS del bloque 38. Antes ejecuta 39_incentivos_back.sql.
+   Admin: pestaña «Incentivos» (reglas con escalones, cálculo del mes y el interruptor «Mostrar a los backs», apagado de inicio).
+   Back: no ve nada. Solo si el admin activa el interruptor aparece la pestaña «Mis incentivos» con lo suyo. */
+(function () {
+  var MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  var HOY = new Date(), ETQ = { HECHAS: 'Tareas hechas en el mes', PCT_A_TIEMPO: '% de tareas hechas a tiempo', CAMBIOS_MATRIZ: 'Cambios hechos en MATRIZ' };
+  var AD = { y: HOY.getFullYear(), m: HOY.getMonth() + 1, d: null, reglas: [], esc: [], busy: false };
+  function $(i) { return document.getElementById(i); }
+  function soles(m) { return 'S/ ' + Number(m || 0).toFixed(2); }
+  function falta(e) { return /PGRST202|PGRST205|42883|42P01|back_incentivo|admin_incentivos|back_mis_incentivos/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 39_incentivos_back.sql en Supabase' : limpio(e.message || ''); }
+  function val(d) { return d.metrica === 'PCT_A_TIEMPO' ? d.valor + '%' : d.valor; }
+  function progreso(d) {
+    var p = d.siguiente ? Math.min(100, Math.round(d.valor * 100 / d.siguiente)) : 100;
+    return '<div class="l22-bar"><i style="width:' + p + '%"></i></div><small class="meta">' + (d.siguiente ? 'Siguiente escalón: ' + d.siguiente + (d.metrica === 'PCT_A_TIEMPO' ? '%' : '') : 'Escalón máximo alcanzado') + '</small>';
+  }
+  function ctlMes(pref) {
+    var ys = '', y0 = HOY.getFullYear(), i;
+    for (i = y0; i >= y0 - 2; i--) ys += '<option' + (i === AD.y ? ' selected' : '') + '>' + i + '</option>';
+    return '<div class="d15-form" style="margin-bottom:12px"><div><label>Año</label><select data-i="y">' + ys + '</select></div><div><label>Mes</label><select data-i="m">' +
+      MESES.map(function (n, j) { return '<option value="' + (j + 1) + '"' + ((j + 1) === AD.m ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></div></div>';
+  }
+
+  /* ================= ADMIN ================= */
+  function pintaAd() {
+    var host = $('s39'), d = AD.d; if (!host || !d) return;
+    var cols = (AD.reglas || []).filter(function (r) { return r.activa; });
+    var h = '<div class="d15-sec"><div class="d15-sh"><h3>Visibilidad para los backs</h3></div>' +
+      '<div class="switch"><input type="checkbox" data-i="vis"' + (d.visible ? ' checked' : '') + '><span>' + (d.visible ? 'Los backs ya ven su pestaña «Mis incentivos»' : 'Oculto: los backs no ven nada de incentivos') + '</span></div>' +
+      '<p class="meta" style="margin-top:8px">Mientras esté apagado puedes armar las reglas y ver el cálculo con total privacidad. El incentivo calculado se suma a lo que le corresponde pagar a cada back en el mes.</p></div>';
+    h += '<div class="d15-sec"><div class="d15-sh"><h3>Cálculo del mes</h3></div>' + ctlMes() +
+      (d.backs.length ? '<div class="p38-sc"><table class="d15-tbl"><thead><tr><th>Back</th><th>Tareas hechas</th><th>% a tiempo</th><th>Cambios MATRIZ</th>' + cols.map(function (c) { return '<th>' + esc(c.nombre) + '</th>'; }).join('') + '<th style="text-align:right">Incentivo total</th></tr></thead><tbody>' +
+        d.backs.map(function (b) {
+          return '<tr><td><b>' + esc(b.nombre) + '</b></td><td>' + b.hechas + '</td><td>' + (b.hechas ? b.pct + '%' : '—') + '</td><td>' + b.cambios + '</td>' +
+            cols.map(function (c) { var x = (b.detalle || []).filter(function (z) { return z.nombre === c.nombre; })[0]; return '<td>' + (x ? soles(x.pago) : '—') + '</td>'; }).join('') + '<td style="text-align:right"><b>' + soles(b.total) + '</b></td></tr>';
+        }).join('') + '</tbody></table></div>' : '<div class="d15-vacio">No hay backs activos.</div>') + '</div>';
+    h += '<div class="d15-sec"><div class="d15-sh"><h3>Reglas de incentivo</h3><span class="meta">Se paga el escalón más alto alcanzado en el mes</span></div>' +
+      (AD.reglas.length ? AD.reglas.map(function (r) {
+        var es = AD.esc.filter(function (x) { return x.incentivo_id === r.id; });
+        return '<div class="d15-vc" data-rid="' + esc(r.id) + '" style="margin-bottom:12px"><div class="d15-vh"><div class="d15-vt"><b>' + esc(r.nombre) + '</b><small>' + esc(ETQ[r.metrica]) + (r.metrica === 'PCT_A_TIEMPO' ? ' · cuenta desde ' + r.min_hechas + ' tareas hechas' : '') + '</small></div>' +
+          '<div class="switch"><input type="checkbox" data-i="ract"' + (r.activa ? ' checked' : '') + '><span class="meta">Activa</span></div><button type="button" class="sec" data-i="rdel" style="padding:5px 10px;font-size:.8em">Quitar</button></div>' +
+          '<table class="d15-tbl" style="margin-top:8px"><thead><tr><th>Desde</th><th>Incentivo</th><th></th></tr></thead><tbody>' +
+          (es.length ? es.map(function (x) { return '<tr data-eid="' + esc(x.id) + '"><td>' + x.minimo + (r.metrica === 'PCT_A_TIEMPO' ? '%' : '') + ' o más</td><td><input class="e-mo" type="number" min="0" step="0.01" value="' + esc(x.monto) + '" style="max-width:130px"></td><td style="white-space:nowrap"><button type="button" class="sec" data-i="esave" style="padding:4px 10px;font-size:.8em">Guardar</button> <button type="button" class="sec" data-i="edel" style="padding:4px 10px;font-size:.8em">Quitar</button></td></tr>'; }).join('') : '<tr><td colspan="3" class="meta">Sin escalones todavía.</td></tr>') +
+          '</tbody></table><div class="row" style="margin-top:8px"><input class="e-mi" type="number" min="0.01" step="0.01" placeholder="Desde (valor)"><input class="e-mn" type="number" min="0" step="0.01" placeholder="Incentivo (S/)"><button type="button" data-i="enew">+ Escalón</button></div></div>';
+      }).join('') : '<div class="d15-vacio">Aún no hay reglas. Crea la primera abajo.</div>') +
+      '<h4>Crear una regla</h4><div class="d15-form"><div><label>Nombre</label><input id="i-nom" data-minus placeholder="Ej. Constancia diaria"></div>' +
+      '<div><label>Qué se mide</label><select id="i-met">' + Object.keys(ETQ).map(function (k) { return '<option value="' + k + '">' + ETQ[k] + '</option>'; }).join('') + '</select></div>' +
+      '<div><label>Mínimo de tareas (solo para % a tiempo)</label><input id="i-min" type="number" min="0" step="1" value="20"></div><div><button type="button" data-i="rnew" style="width:100%">Crear regla</button></div></div></div>';
+    host.innerHTML = h;
+  }
+  async function cargarAd() {
+    var host = $('s39'); if (!host || AD.busy) return; AD.busy = true;
+    var R = await Promise.all([sb.rpc('admin_incentivos_calculo', { p_anio: AD.y, p_mes: AD.m }), sb.from('back_incentivos').select('*').order('created_at'), sb.from('back_incentivo_escalones').select('*').order('minimo')]);
+    AD.busy = false;
+    var er = R[0].error || R[1].error || R[2].error; if (er) { host.innerHTML = '<div class="d15-vacio">' + esc(msg(er)) + '</div>'; return; }
+    AD.d = R[0].data; AD.reglas = R[1].data || []; AD.esc = R[2].data || []; pintaAd();
+  }
+  function montarAdmin() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-in')) return;
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-in'; s.hidden = true; s.innerHTML = '<div id="s39"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'in'); bt.innerHTML = '<span>🎁</span>Incentivos';
+    var ref = bar.querySelector('[data-k="tz"]') || bar.querySelector('[data-k="ate"]'); if (ref) ref.insertAdjacentElement('afterend', bt); else bar.appendChild(bt);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'in') cargarAd(); });
+    s.addEventListener('change', async function (e) {
+      var t = e.target, k = t.getAttribute('data-i'), r; if (!k) return;
+      if (k === 'y') { AD.y = parseInt(t.value, 10); return cargarAd(); }
+      if (k === 'm') { AD.m = parseInt(t.value, 10); return cargarAd(); }
+      if (k === 'vis') {
+        if (t.checked && !confirm('Los backs verán su pestaña «Mis incentivos» con sus cifras del mes.\n\n¿Mostrar a los backs?')) { t.checked = false; return; }
+        r = await sb.from('back_incentivos_cfg').upsert({ clave: 'visible', valor: t.checked ? 'true' : 'false' }, { onConflict: 'clave' });
+        if (r.error) { t.checked = !t.checked; return toast(msg(r.error), true); }
+        toast(t.checked ? 'Ahora los backs ven sus incentivos' : 'Incentivos ocultos para los backs'); return cargarAd();
+      }
+      if (k === 'ract') {
+        r = await sb.from('back_incentivos').update({ activa: t.checked }).eq('id', t.closest('[data-rid]').getAttribute('data-rid'));
+        if (r.error) { t.checked = !t.checked; return toast(msg(r.error), true); } toast(t.checked ? 'Regla activada' : 'Regla desactivada'); cargarAd();
+      }
+    });
+    s.addEventListener('click', async function (e) {
+      var b = e.target.closest('button[data-i]'); if (!b) return; var k = b.getAttribute('data-i'), r;
+      if (k === 'rnew') {
+        var n = $('i-nom').value.trim(); if (!n) return toast('Escribe el nombre de la regla', true);
+        r = await sb.from('back_incentivos').insert({ nombre: n, metrica: $('i-met').value, min_hechas: parseInt($('i-min').value, 10) || 0 });
+        if (r.error) return toast(msg(r.error), true); toast('Regla creada. Agrégale escalones.'); cargarAd();
+      } else if (k === 'rdel') {
+        if (!confirm('¿Quitar esta regla y sus escalones?')) return;
+        r = await sb.from('back_incentivos').delete().eq('id', b.closest('[data-rid]').getAttribute('data-rid')); if (r.error) return toast(msg(r.error), true); toast('Regla quitada'); cargarAd();
+      } else if (k === 'enew') {
+        var c = b.closest('[data-rid]'), mi = parseFloat(c.querySelector('.e-mi').value), mo = parseFloat(c.querySelector('.e-mn').value);
+        if (isNaN(mi) || mi <= 0) return toast('Escribe desde qué valor empieza', true); if (isNaN(mo) || mo < 0) return toast('Escribe un monto válido', true);
+        r = await sb.from('back_incentivo_escalones').insert({ incentivo_id: c.getAttribute('data-rid'), minimo: mi, monto: mo });
+        if (r.error) return toast(r.error.code === '23505' ? 'Ya existe un escalón con ese valor' : msg(r.error), true); toast('Escalón agregado'); cargarAd();
+      } else if (k === 'esave') {
+        var tr = b.closest('[data-eid]'), m2 = parseFloat(tr.querySelector('.e-mo').value); if (isNaN(m2) || m2 < 0) return toast('Escribe un monto válido', true);
+        r = await sb.from('back_incentivo_escalones').update({ monto: m2 }).eq('id', tr.getAttribute('data-eid')); if (r.error) return toast(msg(r.error), true); toast('Escalón guardado'); cargarAd();
+      } else if (k === 'edel') {
+        r = await sb.from('back_incentivo_escalones').delete().eq('id', b.closest('[data-eid]').getAttribute('data-eid')); if (r.error) return toast(msg(r.error), true); toast('Escalón quitado'); cargarAd();
+      }
+    });
+  }
+
+  /* ================= BACK (solo si el admin lo activó) ================= */
+  var BK = { y: HOY.getFullYear(), m: HOY.getMonth() + 1, on: false };
+  function pintaBack(d) {
+    var host = $('s39b'); if (!host) return;
+    if (!d || !d.visible) { host.innerHTML = '<div class="d15-vacio">No hay incentivos disponibles por ahora.</div>'; return; }
+    host.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>Mis incentivos</h3></div>' +
+      '<div class="d15-form" style="margin-bottom:12px"><div><label>Mes</label><select data-b="m">' + MESES.map(function (n, j) { return '<option value="' + (j + 1) + '"' + ((j + 1) === BK.m ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></div></div>' +
+      '<div class="l22-tot"><div><small>' + MESES[BK.m - 1] + ' ' + BK.y + '</small><b>' + soles(d.total) + '</b><small>de incentivo</small></div><div class="l22-chips"><span>Tareas hechas<b>' + d.hechas + '</b></span><span>A tiempo<b>' + (d.hechas ? d.pct + '%' : '—') + '</b></span><span>Cambios MATRIZ<b>' + d.cambios + '</b></span></div></div>' +
+      ((d.detalle || []).length ? d.detalle.map(function (x) { return '<div class="l22-r" style="display:block;margin-top:10px"><div style="display:flex;justify-content:space-between;gap:10px"><b style="color:var(--ink)">' + esc(x.nombre) + '</b><b>' + soles(x.pago) + '</b></div><div class="meta">' + esc(ETQ[x.metrica]) + ': ' + val(x) + '</div>' + progreso(x) + '</div>'; }).join('') : '<div class="d15-vacio">Aún no hay incentivos configurados.</div>') + '</div>';
+  }
+  async function cargarBack() {
+    var bar = $('tabs15'); if (!bar) return;
+    var r = await sb.rpc('back_mis_incentivos', { p_anio: BK.y, p_mes: BK.m }), d = r.error ? null : r.data, tab = bar.querySelector('[data-k="ic"]'), sec = $('p15-ic');
+    if (!d || !d.visible) { if (tab) tab.remove(); if (sec) sec.remove(); return; }    // si el admin lo apaga, desaparece
+    if (!sec) {
+      sec = document.createElement('section'); sec.className = 'p15'; sec.id = 'p15-ic'; sec.hidden = true; sec.innerHTML = '<div id="s39b"></div>'; $('panels15').appendChild(sec);
+      sec.addEventListener('change', function (e) { if (e.target.getAttribute('data-b') === 'm') { BK.m = parseInt(e.target.value, 10); cargarBack(); } });
+    }
+    if (!tab) {
+      tab = document.createElement('button'); tab.className = 't15'; tab.type = 'button'; tab.setAttribute('data-k', 'ic'); tab.innerHTML = '<span>🎁</span>Mis incentivos';
+      var ref = bar.querySelector('[data-k="ta"]') || bar.querySelector('[data-k="res"]'); if (ref) ref.insertAdjacentElement('afterend', tab); else bar.appendChild(tab);
+      tab.addEventListener('click', function () { cargarBack(); });
+    }
+    pintaBack(d);
+  }
+  function montarBack() {
+    if (BK.on || !$('tabs15')) return; BK.on = true;
+    setTimeout(cargarBack, 3000); setInterval(function () { if ($('tabs15')) cargarBack(); }, 300000);
+  }
+
+  [['adminView', montarAdmin], ['backView', montarBack]].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () { var r = o.apply(this, arguments); try { p[1](); } catch (e) { console.error(e); } return r; };
+  });
+  var oL = window.loginView;
+  if (typeof oL === 'function') window.loginView = function () { BK.on = false; return oL.apply(this, arguments); };
+})();
  </script>
 </body>
 </html>
