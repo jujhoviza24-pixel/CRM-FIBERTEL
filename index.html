@@ -5890,6 +5890,233 @@ function ventaForm(l) {
     };
   }
 })();
+  /* 43 · Pagos del equipo (admin) · «Mi pago» (concertador y back) · tabla de comisiones editable (admin)
+   Requiere el SQL del paso 1. Oculta los «marcos de comisión» antiguos del admin. */
+(function () {
+  var MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  var HOY = new Date();
+  var PA = { y: HOY.getFullYear(), m: HOY.getMonth() + 1, per: [], d: {}, open: null, busy: false };
+  var MP = { y: HOY.getFullYear(), m: HOY.getMonth() + 1, busy: false };
+  var TS = { rows: [], cfg: { min: 6, max: 20 }, camp: null, busy: false };
+
+  function $(i) { return document.getElementById(i); }
+  function p2(n) { return (n < 10 ? '0' : '') + n; }
+  function soles(m) { return 'S/ ' + Number(m || 0).toFixed(2); }
+  function msg(e) {
+    var t = String(e && ((e.code || '') + ' ' + (e.message || '')));
+    return /PGRST202|PGRST205|42883|42703|42P01|liquidacion_simple|admin_set_tarifa|manual/.test(t) ? 'Falta ejecutar el SQL del paso 1 en Supabase' : limpio(e.message || '');
+  }
+  function rango(y, m) { var ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1; return [y + '-' + p2(m) + '-01T00:00:00-05:00', ny + '-' + p2(nm) + '-01T00:00:00-05:00']; }
+  function ctl(o, k) {
+    var ys = '', i, y0 = HOY.getFullYear();
+    for (i = y0; i >= y0 - 2; i--) ys += '<option' + (i === o.y ? ' selected' : '') + '>' + i + '</option>';
+    return '<div class="d15-form" style="margin-bottom:12px"><div><label>Año</label><select data-t="' + k + 'y">' + ys + '</select></div><div><label>Mes</label><select data-t="' + k + 'm">' +
+      MESES.map(function (n, j) { return '<option value="' + (j + 1) + '"' + ((j + 1) === o.m ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></div></div>';
+  }
+  function poner(bar, bt) { var m = $('btnManual17'); if (m) bar.insertBefore(bt, m); else bar.appendChild(bt); }
+
+  var css = document.createElement('style');
+  css.textContent = '#tr15{display:none!important}#c21>.d15-card:first-child{display:none}.t43-in{max-width:120px}.t43-sc{overflow-x:auto}.t43-m{outline:2px solid var(--warn);border-radius:6px}';
+  document.head.appendChild(css);
+
+  /* ================= ADMIN · PAGOS DEL EQUIPO ================= */
+  function detalle(r) {
+    var d = r.d, h = '';
+    if (r.p.rol === 'concertador') {
+      var lis = d.comisiones_lista || [], pend = lis.filter(function (x) { return x.estado_pago === 'PENDIENTE'; }).length;
+      h += '<h4>Comisiones generadas en el mes</h4>' + (lis.length ? lis.map(function (x) {
+        return '<div class="l22-r"><span>' + esc(x.id_venta) + ' · ' + esc(fmt(x.fecha)) + '</span><b>' + soles(x.monto) + ' <span class="badge ' + (x.estado_pago === 'PAGADA' ? 'b-ok' : 'b-warn') + '">' + esc(x.estado_pago) + '</span></b></div>';
+      }).join('') : '<div class="meta">Sin comisiones este mes.</div>') +
+        (pend ? '<p style="margin:10px 0 0"><button type="button" data-t="pagar">✔ Marcar como pagadas las ' + pend + ' del mes</button></p>' : '') +
+        '<div class="meta" style="margin-top:6px">Pendiente de pago (todos los meses): ' + soles(d.pendiente_pago) + '</div>';
+    }
+    h += '<h4>Descuentos y extras del mes</h4>' + ((d.ajustes || []).length ? d.ajustes.map(function (a) {
+      return '<div class="l22-r ' + (a.tipo === 'DESCUENTO' ? 'neg' : 'pos') + '"><span>' + esc(a.concepto) + '</span><b>' + (a.tipo === 'DESCUENTO' ? '− ' : '+ ') + soles(a.monto) +
+        ' <button type="button" class="sec p36-mini" data-t="deladj" data-id="' + esc(a.id) + '">Quitar</button></b></div>';
+    }).join('') : '<div class="meta">Sin ajustes este mes.</div>') +
+      '<div class="d15-form" style="margin-top:8px"><div><label>Concepto</label><input id="t43-con" data-minus placeholder="Ej. Tardanza, adelanto, bono puntual"></div>' +
+      '<div><label>Tipo</label><select id="t43-tip"><option value="DESCUENTO">Descuento</option><option value="EXTRA">Extra</option></select></div>' +
+      '<div><label>Monto (S/)</label><input id="t43-mon" type="number" min="0.01" step="0.01"></div><div><button type="button" data-t="addadj" style="width:100%">Agregar</button></div></div>';
+    return h;
+  }
+  function pintaPA() {
+    var host = $('s43a'); if (!host) return;
+    var rows = PA.per.map(function (p) { return { p: p, d: PA.d[p.id] }; });
+    var vis = rows.some(function (r) { return r.d && r.d.incentivo_visible; });
+    function tabla(rol, titulo) {
+      var L = rows.filter(function (r) { return r.p.rol === rol; }); if (!L.length) return '';
+      return '<div class="d15-sec"><div class="d15-sh"><h3>' + titulo + '</h3></div><div class="t43-sc"><table class="d15-tbl"><thead><tr><th>Persona</th><th>Sueldo mensual</th><th>' +
+        (rol === 'concertador' ? 'Comisiones del mes' : 'Incentivo') + '</th><th>Ajustes</th><th style="text-align:right">Total del mes</th><th></th></tr></thead><tbody>' + L.map(function (r) {
+          var d = r.d; if (!d || d.error) return '<tr><td>' + esc(r.p.nombre) + '</td><td colspan="5" class="meta">' + esc((d && d.error) || 'Sin datos') + '</td></tr>';
+          var col = rol === 'concertador' ? soles(d.comisiones) + ' <small>(' + d.n_comisiones + ')</small>' :
+            (d.incentivo_visible ? soles(d.incentivo) : '<span class="meta" title="Los backs no lo ven">oculto · calculado ' + soles(d.incentivo_calc) + '</span>');
+          var abierto = PA.open === r.p.id;
+          return '<tr data-id="' + esc(r.p.id) + '"><td><b>' + esc(r.p.nombre) + '</b></td><td style="white-space:nowrap"><input class="t43-in" type="number" min="0" step="0.01" placeholder="S/" value="' + (d.sueldo > 0 ? esc(d.sueldo) : '') +
+            '"> <button type="button" class="p36-mini" data-t="sueldo">Guardar</button></td><td>' + col + '</td><td>' + soles(Number(d.extras) - Number(d.descuentos)) +
+            '</td><td style="text-align:right"><b>' + soles(d.total) + '</b></td><td><button type="button" class="sec p36-mini" data-t="det">' + (abierto ? 'Cerrar' : 'Detalle') + '</button></td></tr>' +
+            (abierto ? '<tr><td colspan="6">' + detalle(r) + '</td></tr>' : '');
+        }).join('') + '</tbody></table></div></div>';
+    }
+    host.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>Pagos del equipo</h3><span class="meta">Incentivos de los backs: <b>' + (vis ? 'VISIBLES para los backs' : 'OCULTOS') + '</b> (se cambia en la pestaña Incentivos)</span></div>' + ctl(PA, 'p') +
+      '<div class="meta">Los sueldos de los cerradores se ponen en «Sueldos y bonos» y su liquidación está en «Liquidaciones».</div></div>' +
+      tabla('concertador', 'Concertadores') + tabla('back', 'Backs') + (rows.length ? '' : '<div class="d15-vacio">No hay concertadores ni backs activos.</div>');
+  }
+  async function cargarPA() {
+    var host = $('s43a'); if (!host || PA.busy) return; PA.busy = true;
+    var r = await sb.from('perfiles').select('id,nombre,rol,activo').in('rol', ['concertador', 'back']).order('nombre');
+    if (r.error) { PA.busy = false; host.innerHTML = '<div class="d15-vacio">' + esc(limpio(r.error.message)) + '</div>'; return; }
+    PA.per = (r.data || []).filter(function (p) { return p.activo !== false; });
+    var R = await Promise.all(PA.per.map(function (p) { return sb.rpc('liquidacion_simple', { p_agente: p.id, p_anio: PA.y, p_mes: PA.m }); }));
+    PA.d = {}; PA.per.forEach(function (p, i) { PA.d[p.id] = R[i].error ? { error: msg(R[i].error) } : R[i].data; });
+    PA.busy = false; pintaPA();
+  }
+  async function accionPA(b) {
+    var a = b.getAttribute('data-t'), tr = b.closest('tr[data-id]'), id = tr ? tr.getAttribute('data-id') : PA.open, r;
+    if (a === 'det') { PA.open = PA.open === id ? null : id; return pintaPA(); }
+    if (a === 'sueldo') {
+      var v = parseFloat(tr.querySelector('.t43-in').value); if (isNaN(v) || v < 0) return toast('Escribe un sueldo válido', true);
+      b.disabled = true; r = await sb.rpc('fijar_sueldo', { p_agente: id, p_monto: v }); b.disabled = false;
+      if (r.error) return toast(msg(r.error), true); toast('Sueldo guardado'); return cargarPA();
+    }
+    if (a === 'pagar') {
+      if (!confirm('¿Marcar como PAGADAS las comisiones pendientes de este mes?')) return;
+      var rg = rango(PA.y, PA.m);
+      r = await sb.from('comisiones_generadas').update({ estado_pago: 'PAGADA' }).eq('concertador_id', id).eq('estado_pago', 'PENDIENTE').gte('generada_en', rg[0]).lt('generada_en', rg[1]);
+      if (r.error) return toast(limpio(r.error.message), true); toast('Marcadas como pagadas'); return cargarPA();
+    }
+    if (a === 'addadj') {
+      var con = $('t43-con').value.trim(), mon = parseFloat($('t43-mon').value);
+      if (!con) return toast('Escribe el concepto', true); if (isNaN(mon) || mon <= 0) return toast('Escribe un monto válido', true);
+      r = await sb.from('liquidacion_ajustes').insert({ agente_id: id, periodo: PA.y + '-' + p2(PA.m) + '-01', concepto: con, tipo: $('t43-tip').value, monto: mon });
+      if (r.error) return toast(limpio(r.error.message), true); toast('Ajuste agregado'); return cargarPA();
+    }
+    if (a === 'deladj') {
+      if (!confirm('¿Quitar este ajuste?')) return;
+      r = await sb.from('liquidacion_ajustes').delete().eq('id', b.getAttribute('data-id'));
+      if (r.error) return toast(limpio(r.error.message), true); toast('Ajuste quitado'); return cargarPA();
+    }
+  }
+
+  /* ================= ADMIN · TABLA DE COMISIONES EDITABLE ================= */
+  async function cargarTS() {
+    var host = $('t43'); if (!host || TS.busy) return; TS.busy = true;
+    var out = [], i, r;
+    for (i = 0; i < 6; i++) {
+      r = await sb.from('comision_tarifas').select('campana,producto,categoria,tramo,monto,manual').order('campana').order('tramo').range(i * 1000, i * 1000 + 999);
+      if (r.error) { TS.busy = false; host.innerHTML = '<div class="d15-card"><div class="d15-vacio">' + esc(msg(r.error)) + '</div></div>'; return; }
+      out = out.concat(r.data || []); if ((r.data || []).length < 1000) break;
+    }
+    TS.rows = out;
+    var C = await sb.from('comision_config').select('clave,valor');
+    (C.data || []).forEach(function (x) { if (x.clave === 'tramo_minimo') TS.cfg.min = Number(x.valor); if (x.clave === 'tramo_maximo') TS.cfg.max = Number(x.valor); });
+    TS.busy = false; pintaTS();
+  }
+  function pintaTS() {
+    var host = $('t43'); if (!host) return;
+    var camps = []; TS.rows.forEach(function (x) { if (camps.indexOf(x.campana) < 0) camps.push(x.campana); }); camps.sort();
+    if (!TS.camp || camps.indexOf(TS.camp) < 0) TS.camp = camps[0] || null;
+    if (!TS.camp) { host.innerHTML = '<div class="d15-card"><h2>Comisiones por tramo</h2><div class="d15-vacio">Aún no hay tarifas. Sincroniza la hoja COMISIONES primero.</div></div>'; return; }
+    var del = TS.rows.filter(function (x) { return x.campana === TS.camp; }), prods = [], cel = {}, tr = [];
+    del.forEach(function (x) { if (prods.indexOf(x.producto) < 0) prods.push(x.producto); cel[x.tramo + '|' + x.producto] = x; if (tr.indexOf(x.tramo) < 0) tr.push(x.tramo); });
+    prods.sort(function (a, b) { return (/LINEA/.test(a) ? 1 : 0) - (/LINEA/.test(b) ? 1 : 0); });
+    tr = tr.filter(function (t) { return t >= TS.cfg.min && t <= TS.cfg.max; }).sort(function (a, b) { return a - b; });
+    host.innerHTML = '<div class="d15-card"><h2>Comisiones por tramo del cerrador (editable)</h2>' +
+      '<div class="meta" style="margin-bottom:10px">Cambia un monto y sal de la casilla: se guarda solo. Las casillas con <span class="t43-m" style="padding:0 6px">borde naranja</span> están editadas aquí y la hoja ya no las pisa. Los cambios valen para las liquidaciones de ahora en adelante.</div>' +
+      '<div class="d15-form" style="margin-bottom:10px"><div><label>Campaña</label><select id="t43-camp">' + camps.map(function (c) { return '<option' + (c === TS.camp ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select></div>' +
+      '<div><label>&nbsp;</label><button type="button" class="sec" data-t="reset">↺ Volver a los valores de la hoja</button></div></div>' +
+      '<div class="t43-sc"><table class="d15-tbl"><thead><tr><th>Tramo</th>' + prods.map(function (p) { return '<th>' + esc(p) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      tr.map(function (t) {
+        return '<tr><td><b>' + t + '</b></td>' + prods.map(function (p) {
+          var x = cel[t + '|' + p]; if (!x) return '<td>—</td>';
+          return '<td><input class="t43-in t43-c' + (x.manual ? ' t43-m' : '') + '" type="number" min="0" step="0.01" data-p="' + esc(p) + '" data-r="' + t + '" value="' + esc(x.monto) + '"></td>';
+        }).join('') + '</tr>';
+      }).join('') + '</tbody></table></div></div>';
+  }
+  async function guardaCelda(inp) {
+    var p = inp.getAttribute('data-p'), t = parseInt(inp.getAttribute('data-r'), 10), v = parseFloat(inp.value);
+    var x = TS.rows.filter(function (y) { return y.campana === TS.camp && y.producto === p && y.tramo === t; })[0]; if (!x) return;
+    if (isNaN(v) || v < 0) { inp.value = x.monto; return toast('Escribe un monto válido', true); }
+    if (v === Number(x.monto)) return;
+    var r = await sb.rpc('admin_set_tarifa', { p_campana: TS.camp, p_producto: p, p_tramo: t, p_monto: v });
+    if (r.error) { inp.value = x.monto; return toast(msg(r.error), true); }
+    x.monto = v; x.manual = true; inp.classList.add('t43-m'); toast('Comisión guardada');
+  }
+
+  /* ================= CONCERTADOR Y BACK · MI PAGO ================= */
+  async function cargarMP() {
+    var host = $('s43m'); if (!host || MP.busy) return; MP.busy = true;
+    var r = await sb.rpc('liquidacion_simple', { p_agente: me.id, p_anio: MP.y, p_mes: MP.m });
+    MP.busy = false;
+    if (r.error) { host.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
+    var d = r.data, conc = d.rol === 'concertador', lis = d.comisiones_lista || [];
+    host.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>Mi pago</h3></div>' + ctl(MP, 'm') + '</div>' +
+      '<div class="l22-tot"><div><small>' + MESES[MP.m - 1] + ' ' + MP.y + '</small><b>' + soles(d.total) + '</b><small>a cobrar</small></div><div class="l22-chips"><span>Sueldo<b>' + soles(d.sueldo) + '</b></span>' +
+      (conc ? '<span>Comisiones<b>' + soles(d.comisiones) + '</b></span>' : (d.incentivo_visible ? '<span>Incentivo<b>' + soles(d.incentivo) + '</b></span>' : '')) + '</div></div>' +
+      '<div class="d15-sec"><h3>Detalle</h3><div class="l22-r"><span>Sueldo</span><b>' + soles(d.sueldo) + '</b></div>' +
+      (conc ? '<div class="l22-r"><span>Comisiones por ventas (' + d.n_comisiones + ')</span><b>' + soles(d.comisiones) + '</b></div>' : (d.incentivo_visible ? '<div class="l22-r"><span>Incentivo</span><b>' + soles(d.incentivo) + '</b></div>' : '')) +
+      (Number(d.extras) ? '<div class="l22-r pos"><span>Extras</span><b>+ ' + soles(d.extras) + '</b></div>' : '') +
+      (Number(d.descuentos) ? '<div class="l22-r neg"><span>Descuentos</span><b>− ' + soles(d.descuentos) + '</b></div>' : '') +
+      '<div class="l22-r fin"><span>A cobrar</span><b>' + soles(d.total) + '</b></div></div>' +
+      (Number(d.extras) || Number(d.descuentos) ? '<div class="d15-sec"><h3>Ajustes del mes</h3>' + (d.ajustes || []).map(function (a) {
+        return '<div class="l22-r ' + (a.tipo === 'DESCUENTO' ? 'neg' : 'pos') + '"><span>' + esc(a.concepto) + '</span><b>' + (a.tipo === 'DESCUENTO' ? '− ' : '+ ') + soles(a.monto) + '</b></div>';
+      }).join('') + '</div>' : '') +
+      (conc ? '<div class="d15-sec"><h3>Comisiones del mes</h3>' + (lis.length ? lis.map(function (x) {
+        return '<div class="l22-r"><span>' + esc(x.id_venta) + ' · ' + esc(fmt(x.fecha)) + '</span><b>' + soles(x.monto) + ' <span class="badge ' + (x.estado_pago === 'PAGADA' ? 'b-ok' : 'b-warn') + '">' + esc(x.estado_pago) + '</span></b></div>';
+      }).join('') : '<div class="d15-vacio">Todavía no tienes comisiones este mes.</div>') +
+        '<div class="meta" style="margin-top:8px">Pendiente de pago (todos los meses): ' + soles(d.pendiente_pago) + '</div></div>' : '');
+  }
+
+  /* ================= MONTAJE ================= */
+  function montarAdmin() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-pe')) return;
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-pe'; s.hidden = true;
+    s.innerHTML = '<div id="s43a"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'pe'); bt.innerHTML = '<span>💳</span>Pagos del equipo';
+    var ref = bar.querySelector('[data-k="sue"]'); if (ref) ref.insertAdjacentElement('afterend', bt); else bar.appendChild(bt);
+    s.addEventListener('click', function (e) { var b = e.target.closest('button[data-t]'); if (b) accionPA(b); });
+    s.addEventListener('change', function (e) {
+      var t = e.target.getAttribute('data-t');
+      if (t === 'py') { PA.y = parseInt(e.target.value, 10); PA.open = null; cargarPA(); }
+      else if (t === 'pm') { PA.m = parseInt(e.target.value, 10); PA.open = null; cargarPA(); }
+    });
+    var com = $('p15-com');
+    if (com && !$('t43')) {
+      var d = document.createElement('div'); d.id = 't43'; d.innerHTML = '<div class="d15-vacio">Se carga al abrir la pestaña…</div>'; d.style.marginTop = '16px';
+      var c21 = $('c21'); if (c21 && c21.parentNode === com) com.insertBefore(d, c21); else com.appendChild(d);
+      d.addEventListener('change', function (e) {
+        if (e.target.id === 't43-camp') { TS.camp = e.target.value; pintaTS(); }
+        else if (e.target.classList.contains('t43-c')) guardaCelda(e.target);
+      });
+      d.addEventListener('click', async function (e) {
+        var b = e.target.closest('[data-t="reset"]'); if (!b) return;
+        if (!confirm('Las casillas editadas de ' + TS.camp + ' volverán a los valores de la hoja COMISIONES en la próxima sincronización (hasta 1 hora).\n\n¿Continuar?')) return;
+        var r = await sb.rpc('admin_tarifas_reset', { p_campana: TS.camp });
+        if (r.error) return toast(msg(r.error), true);
+        toast('Listo. La hoja volverá a mandar en la próxima sincronización.'); cargarTS();
+      });
+    }
+    bar.addEventListener('click', function (e) {
+      var b = e.target.closest('.t15'); if (!b) return; var k = b.getAttribute('data-k');
+      if (k === 'pe') cargarPA(); else if (k === 'com') cargarTS();
+    });
+  }
+  function montarMi() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-mp')) return;
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-mp'; s.hidden = true;
+    s.innerHTML = '<div id="s43m"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'mp'); bt.innerHTML = '<span>💳</span>Mi pago';
+    poner(bar, bt);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'mp') cargarMP(); });
+    s.addEventListener('change', function (e) {
+      var t = e.target.getAttribute('data-t');
+      if (t === 'my') { MP.y = parseInt(e.target.value, 10); cargarMP(); } else if (t === 'mm') { MP.m = parseInt(e.target.value, 10); cargarMP(); }
+    });
+  }
+  [['adminView', montarAdmin], ['concertadorView', montarMi], ['backView', montarMi]].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () { var r = o.apply(this, arguments); try { p[1](); } catch (e) { console.error(e); } return r; };
+  });
+})();
  </script>
 </body>
 </html>
