@@ -6192,6 +6192,112 @@ function ventaForm(l) {
     window[p[0]] = function () { var r = o.apply(this, arguments); try { montar(p[1]); } catch (e) { console.error(e); } return r; };
   });
 })();
+  /* 41 · «Provincia» como desplegable (concertador, «Subir cliente al back» y cualquier otro formulario)
+   PEGAR al final del script de index.html, DESPUÉS del último bloque y antes del cierre del script. No requiere SQL.
+   Cómo funciona: vigila la pantalla; cada vez que aparece una casilla de texto cuya etiqueta o id dice «provincia»,
+   la cambia por un desplegable con el MISMO id (el código que ya existe sigue leyendo el valor igual que antes).
+   Lista de provincias: la tabla `catalogo` (categoría PROVINCIA, la misma que usa el formulario de venta).
+   Si el catálogo está vacío o falla, usa las 50 provincias de España + Ceuta y Melilla.
+   Si un lead antiguo trae una provincia que no está en la lista, se agrega sola como opción para no perderla. */
+(function () {
+  if (window.__prov41) return; window.__prov41 = true;
+
+  var FALLBACK = ['A CORUÑA', 'ÁLAVA', 'ALBACETE', 'ALICANTE', 'ALMERÍA', 'ASTURIAS', 'ÁVILA', 'BADAJOZ', 'BALEARES', 'BARCELONA', 'BIZKAIA', 'BURGOS',
+    'CÁCERES', 'CÁDIZ', 'CANTABRIA', 'CASTELLÓN', 'CEUTA', 'CIUDAD REAL', 'CÓRDOBA', 'CUENCA', 'GIPUZKOA', 'GIRONA', 'GRANADA', 'GUADALAJARA', 'HUELVA',
+    'HUESCA', 'JAÉN', 'LA RIOJA', 'LAS PALMAS', 'LEÓN', 'LLEIDA', 'LUGO', 'MADRID', 'MÁLAGA', 'MELILLA', 'MURCIA', 'NAVARRA', 'OURENSE', 'PALENCIA',
+    'PONTEVEDRA', 'SALAMANCA', 'SANTA CRUZ DE TENERIFE', 'SEGOVIA', 'SEVILLA', 'SORIA', 'TARRAGONA', 'TERUEL', 'TOLEDO', 'VALENCIA', 'VALLADOLID',
+    'ZAMORA', 'ZARAGOZA'];
+
+  var lista = null, cargando = null, cargadoEn = 0;
+  function norm(s) { return String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase(); }
+
+  function cargarLista() {
+    if (lista && Date.now() - cargadoEn < 300000) return Promise.resolve(lista);
+    if (cargando) return cargando;
+    cargando = Promise.resolve().then(function () {
+      if (typeof sb === 'undefined') return null;
+      return sb.from('catalogo').select('valor,orden').eq('categoria', 'PROVINCIA').order('orden', { ascending: true }).limit(500);
+    }).then(function (r) {
+      var vistos = {}, out = [];
+      ((r && r.data) || []).forEach(function (x) {
+        var v = String(x.valor || '').trim().toUpperCase(), k = norm(v);
+        if (v && !vistos[k]) { vistos[k] = true; out.push(v); }
+      });
+      lista = out.length >= 10 ? out : FALLBACK.slice();
+      cargadoEn = Date.now(); cargando = null; return lista;
+    }).catch(function () { lista = FALLBACK.slice(); cargadoEn = Date.now(); cargando = null; return lista; });
+    return cargando;
+  }
+
+  function textoEtiqueta(el) {
+    var t = '';
+    try { if (el.labels && el.labels.length) t = Array.prototype.map.call(el.labels, function (l) { return l.textContent; }).join(' '); } catch (e) { }
+    if (!t) { var p = el.previousElementSibling; if (p && /^(LABEL|SPAN|DIV|B)$/.test(p.tagName) && p.textContent.length < 40) t = p.textContent; }
+    return t;
+  }
+
+  function esProvincia(el) {
+    if (el.tagName !== 'INPUT' || el.dataset.p41) return false;
+    var tipo = (el.getAttribute('type') || 'text').toLowerCase();
+    if (tipo !== 'text' && tipo !== 'search') return false;
+    if (el.closest('#p41-skip, [data-p41-skip]')) return false;
+    var pistas = [el.id, el.name, el.getAttribute('data-k'), el.getAttribute('data-f'), el.placeholder].join(' ');
+    if (/provincia/i.test(pistas)) return true;
+    return /^\s*provincia\b/i.test(textoEtiqueta(el));
+  }
+
+  function opcion(sel, texto) { var o = document.createElement('option'); o.value = texto; o.textContent = texto || '— Elige provincia —'; sel.appendChild(o); return o; }
+
+  function convertir(inp, prov) {
+    if (!inp.parentNode) return;
+    var actual = String(inp.value || '').trim().toUpperCase();
+    var sel = document.createElement('select');
+    sel.dataset.p41 = '1';
+    // conserva todo lo que el código existente pueda necesitar
+    Array.prototype.forEach.call(inp.attributes, function (a) {
+      if (/^(type|value|placeholder|inputmode|maxlength|autocomplete|list|pattern|size)$/i.test(a.name)) return;
+      try { sel.setAttribute(a.name, a.value); } catch (e) { }
+    });
+    sel.dataset.p41 = '1';
+    opcion(sel, '');
+    prov.forEach(function (p) { opcion(sel, p); });
+
+    var proto = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+    function poner(v) {
+      var t = String(v == null ? '' : v).trim().toUpperCase();
+      if (t) {
+        var hay = Array.prototype.some.call(sel.options, function (o) { return o.value === t; });
+        if (!hay) {   // equivalencia sin tildes (ej. «CORDOBA» -> «CÓRDOBA») o, si no existe, se agrega como opción
+          var k = norm(t), m = Array.prototype.filter.call(sel.options, function (o) { return norm(o.value) === k; })[0];
+          if (m) t = m.value; else opcion(sel, t);
+        }
+      }
+      proto.set.call(sel, t);
+    }
+    // el código existente hace «campo.value = ...» al cargar un lead: que nunca se pierda un valor
+    Object.defineProperty(sel, 'value', { configurable: true, get: function () { return proto.get.call(sel); }, set: poner });
+
+    inp.parentNode.replaceChild(sel, inp);
+    poner(actual);
+    // quien escuchaba «input» sigue enterándose
+    sel.addEventListener('change', function () { sel.dispatchEvent(new Event('input', { bubbles: true })); });
+  }
+
+  var ocupado = false, pendiente = false;
+  function barrer() {
+    if (ocupado) { pendiente = true; return; }
+    var cand = Array.prototype.filter.call(document.querySelectorAll('input'), esProvincia);
+    if (!cand.length) return;
+    ocupado = true;
+    cargarLista().then(function (prov) { cand.forEach(function (c) { if (c.parentNode && !c.dataset.p41) convertir(c, prov); }); })
+      .then(function () { ocupado = false; if (pendiente) { pendiente = false; barrer(); } },
+        function () { ocupado = false; });
+  }
+
+  var t = null;
+  new MutationObserver(function () { clearTimeout(t); t = setTimeout(barrer, 60); }).observe(document.body, { childList: true, subtree: true });
+  barrer();
+})();
  </script>
 </body>
 </html>
