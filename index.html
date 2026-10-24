@@ -6148,7 +6148,7 @@ function ventaForm(l) {
    las ventas en curso, con la conversación back–comercial. Comparte la lista con «Seguimiento» (bloque 37) pero va aparte arriba.
 
    Configuración (admin) = Ajustes generales + Equipo + Permisos del back + Incentivos + Sueldos y bonos + Comisiones
-   + Reglas de pago + Salud. «Ajustes generales» es nueva: fechas de corte, días de aviso y plazos, en un solo lugar. */
+   + Reglas de pago + Notificaciones (bloque 48) + Salud. «Ajustes generales» es nueva: fechas de corte, días de aviso y plazos, en un solo lugar. */
 (function () {
   // [id, icono, título, pantallas, modo de la pantalla «pa» (solo back/admin)]
   var GR = {
@@ -6158,7 +6158,7 @@ function ventaForm(l) {
       ['bk', '🗂️', 'Back office', ['pa', 'tz', 'au'], 'SEG'],
       ['con', '💬', 'Contraoferta', ['pa'], 'CONTRA'],
       ['pag', '💳', 'Pagos', ['liq', 'pe']],
-      ['cfg', '⚙️', 'Configuración', ['cfg', 'equ', 'pb', 'in', 'sue', 'com', 'reg', 'sa']]
+      ['cfg', '⚙️', 'Configuración', ['cfg', 'equ', 'pb', 'in', 'sue', 'com', 'reg', 'nt', 'sa']]
     ],
     cerrador: [
       ['res', '🏠', 'Resumen', ['res']],
@@ -6239,6 +6239,8 @@ function ventaForm(l) {
     if (k === 'pa' && modo && window.seg37) window.seg37.modo(modo);   // se fija ANTES del clic: la carga que dispara el clic ya usa el modo nuevo
     b.click(); setTimeout(sync, 0);
   }
+
+  window.abrir45 = abre;   // lo usa el bloque 48 (notificaciones) para llevarte a la pantalla de cada aviso
 
   function clic(e) {
     var gb = e.target.closest('.g45b'), sbn = e.target.closest('.s45b');
@@ -6764,7 +6766,7 @@ function ventaForm(l) {
     KP = { dias: 7, d: null, busy: false, tabla: false, orden: 'vol', host: null, esAdmin: false, hora: null, err: null };
     SG = { q: '', alertas: false, agente: '', pag: 0, d: null, busy: false, abierto: {}, tq: null, err: null };
     TZ = { dias: 7, d: null, busy: false, err: null };
-    main.innerHTML = '<div class="s46" id="s46"><div class="s46-hero"><small style="opacity:.85;text-transform:capitalize">' + esc(hoy) + '</small><h2>Hola, ' + esc(nombre) + '</h2><p>Supervisor · ves cómo va el grupo, sigues los clientes y repartes las tareas del back. No editas estados.</p></div>' +
+    main.innerHTML = '<div class="s46" id="s46"><div class="s46-hero"><small style="opacity:.85;text-transform:capitalize">' + esc(hoy) + '</small><h2>Hola, ' + esc(nombre) + '</h2><p>Supervisor · ves cómo va el grupo, sigues los clientes y repartes las tareas del back. No editas estados ni ves dinero.</p></div>' +
       '<div class="s46-tabs" id="s46-tabs" role="tablist">' + TABS.map(function (t) { return '<button type="button" class="s46-t" role="tab" data-k="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div>' +
       '<section id="s46-p-pan"></section><section id="s46-p-tar" hidden><div id="s46-tz"></div></section><section id="s46-p-seg" hidden><div class="s46-sec"><div class="s46-sh"><h3>Seguimiento de clientes</h3><span class="meta">Clientes con algún servicio sin OK</span></div><div id="s46-seg"></div></div></section></div>';
     KP.host = $('s46-p-pan'); ganchosPanel(KP.host); ganchosTz($('s46-p-tar')); ganchosSeg($('s46-p-seg'));
@@ -6817,6 +6819,639 @@ function ventaForm(l) {
   if (typeof oA === 'function') window.adminView = function () { var r = oA.apply(this, arguments); try { montarAdmin(); } catch (e) { console.error(e); } return r; };
   var oL = window.loginView;
   if (typeof oL === 'function') window.loginView = function () { clearInterval(tmr); return oL.apply(this, arguments); };
+})();
+
+/* 48 · Notificaciones: campana, sonidos, ventanitas, «Mis avisos» y anuncios del administrador
+   VA DESPUÉS del bloque 46 (el del supervisor), al final del script de index.html.
+   Necesita haber ejecutado 48_notificaciones.sql en Supabase. Si todavía no lo ejecutaste, la campana NO aparece y nada se rompe.
+
+   Qué hace
+   - 🔔 en la cabecera con el número de avisos sin leer (también en el título de la pestaña del navegador).
+   - Cada 15 s (60 s si la pestaña está oculta) pregunta si hay avisos nuevos. Si llegan: suena el sonido que corresponde,
+     aparece una ventanita arriba a la derecha y la campana se sacude. Al entrar NO suena nada (solo se cargan los pendientes).
+   - Cada 3 min pide al servidor que genere los avisos «por tiempo» (tareas por vencer, citas próximas, etc.). El servidor lo limita solo.
+   - Clic en un aviso: lo marca como leído y te lleva a la pantalla que corresponde a tu perfil.
+   - ⚙️ «Mis avisos»: por cada tipo de aviso, activar o no y elegir sonido (los urgentes no se pueden apagar). Volumen y «No molestar»
+     se guardan en este equipo. Avisos del navegador (opcional) cuando la pestaña está en segundo plano.
+   - 🆘 «Pedir ayuda»: concertador, cerrador y back avisan al supervisor y al administrador (máximo una vez cada 2 minutos).
+   - Administrador: en Configuración aparece «🔔 Notificaciones»: enciende/apaga cada aviso, cambia su sonido y prioridad,
+     envía anuncios (a todos o a algunos perfiles, normales o urgentes) y ve quién los leyó.
+   Los sonidos se fabrican en el navegador (no hay archivos de audio que subir). */
+(function () {
+  var SONIDOS = [['campanilla', 'Campanilla'], ['exito', 'Éxito'], ['dinero', 'Moneda'], ['triunfo', 'Triunfo'], ['discreto', 'Discreto'],
+    ['mensaje', 'Mensaje (tipo chat)'], ['aviso', 'Aviso'], ['alerta', 'Alerta'], ['prioridad', 'Urgente (sirena)'], ['ninguno', 'Sin sonido']];
+  var PRIO = { baja: 0, normal: 1, alta: 2, critica: 3 };
+  var PRIO_T = [['baja', 'Baja'], ['normal', 'Normal'], ['alta', 'Alta'], ['critica', 'Urgente']];
+  var ROLES = [['concertador', 'Concertadores'], ['cerrador', 'Cerradores (comerciales)'], ['back', 'Backs'], ['supervisor', 'Supervisores'], ['admin', 'Otros administradores']];
+  var ROL_T = { concertador: 'concertador', cerrador: 'cerrador', back: 'back', supervisor: 'supervisor', admin: 'admin' };
+  // a qué pantalla lleva cada aviso según el perfil: [pestaña, modo]; «s:xxx» = pestaña del panel del supervisor
+  var RUTA = {
+    leads:       { concertador: ['lis'], cerrador: ['tab'], back: ['col'], admin: ['ven'], supervisor: ['s:seg'] },
+    ventas:      { concertador: ['ven'], cerrador: ['ven'], back: ['pa', 'SEG'], admin: ['ven'], supervisor: ['s:seg'] },
+    seguimiento: { concertador: ['ven'], cerrador: ['ven'], back: ['pa', 'SEG'], admin: ['pa', 'SEG'], supervisor: ['s:seg'] },
+    contra:      { cerrador: ['ven'], back: ['pa', 'CONTRA'], admin: ['pa', 'CONTRA'], supervisor: ['s:seg'] },
+    tareas:      { back: ['ta'], admin: ['tz'], supervisor: ['s:tar'] },
+    comision:    { concertador: ['mp'], cerrador: ['liq'], back: ['mp'], admin: ['liq'] },
+    salud:       { admin: ['sa'] },
+    kpi:         { admin: ['kpi'], supervisor: ['s:pan'] }
+  };
+  var S = nuevo(), T0 = document.title, listos = false;
+
+  function nuevo() {
+    return { uid: null, items: [], noLeidas: 0, ultimo: null, visible: false, off: false, abierto: false, vista: 'lista', evs: null, timer: null,
+      genT: 0, busy: false, ayuda: false, adm: null };
+  }
+  function $(i) { return document.getElementById(i); }
+  function rol() { try { return perfil && perfil.rol; } catch (e) { return null; } }
+  function uid() { try { return me && me.id; } catch (e) { return null; } }
+  function falta(e) { return /PGRST202|PGRST205|42883|42P01|42501|nt2_/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 48_notificaciones.sql en Supabase' : limpio(e && e.message); }
+  function nomSon(k) { for (var i = 0; i < SONIDOS.length; i++) if (SONIDOS[i][0] === k) return SONIDOS[i][1]; return k || ''; }
+
+  /* ---------- ajustes de ESTE equipo (no viajan a otros equipos) ---------- */
+  function pref(k, d) { try { var v = localStorage.getItem('crm_n48_' + k + '_' + uid()); return v === null ? d : v; } catch (e) { return d; } }
+  function setPref(k, v) { try { localStorage.setItem('crm_n48_' + k + '_' + uid(), String(v)); } catch (e) { } }
+  function dnd() { return pref('dnd', '0') === '1'; }
+  function vol() { var v = parseInt(pref('vol', '70'), 10); return isNaN(v) ? 0.7 : Math.min(1, Math.max(0, v / 100)); }
+  function webOn() { return pref('web', '0') === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted'; }
+
+  /* ---------- sonidos fabricados con WebAudio ---------- */
+  var AC = null, master = null;
+  function ctx() {
+    try {
+      var A = window.AudioContext || window.webkitAudioContext; if (!A) return null;
+      if (!AC) { AC = new A(); master = AC.createGain(); master.connect(AC.destination); }
+      if (AC.state === 'suspended' && AC.resume) AC.resume();
+      return AC;
+    } catch (e) { return null; }
+  }
+  function nota(c, t, f, dur, tipo, v, f2) {
+    var o = c.createOscillator(), g = c.createGain();
+    o.type = tipo || 'sine'; o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(v, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+  }
+  var SON = {
+    campanilla: function (c, t) { nota(c, t, 880, .55, 'sine', .22); nota(c, t, 1760, .3, 'sine', .05); nota(c, t + .15, 1318.5, .7, 'sine', .2); nota(c, t + .15, 2637, .35, 'sine', .04); },
+    exito: function (c, t) { [523.25, 659.25, 783.99].forEach(function (f, i) { nota(c, t + i * .11, f, .3, 'triangle', .2); }); nota(c, t + .33, 1046.5, .55, 'triangle', .18); },
+    dinero: function (c, t) { nota(c, t, 1568, .09, 'square', .07); nota(c, t + .08, 2093, .6, 'sine', .22); nota(c, t + .08, 3136, .45, 'triangle', .06); nota(c, t + .08, 4186, .4, 'sine', .04); },
+    triunfo: function (c, t) {
+      [523.25, 659.25, 783.99].forEach(function (f, i) { nota(c, t + i * .12, f, .16, 'triangle', .2); });
+      [1046.5, 783.99, 659.25].forEach(function (f, i) { nota(c, t + .36, f, .8, 'triangle', i ? .1 : .2); });
+    },
+    discreto: function (c, t) { nota(c, t, 720, .12, 'sine', .12); },
+    mensaje: function (c, t) { nota(c, t, 520, .09, 'sine', .22, 900); nota(c, t + .11, 700, .12, 'sine', .22, 1200); },
+    aviso: function (c, t) { nota(c, t, 740, .16, 'triangle', .22); nota(c, t + .2, 740, .16, 'triangle', .22); nota(c, t + .4, 988, .3, 'triangle', .22); },
+    alerta: function (c, t) { nota(c, t, 466, .22, 'triangle', .26); nota(c, t + .24, 349, .22, 'triangle', .26); nota(c, t + .48, 233, .4, 'triangle', .26); },
+    prioridad: function (c, t) { for (var i = 0; i < 6; i++) nota(c, t + i * .2, i % 2 ? 660 : 990, .18, 'square', .09); nota(c, t + 1.25, 1320, .5, 'sine', .2); }
+  };
+  function suena(nombre, minVol) {
+    if (!nombre || nombre === 'ninguno' || !SON[nombre]) return;
+    var c = ctx(); if (!c) return;
+    try { master.gain.value = Math.min(1, Math.max(vol(), minVol || 0)); SON[nombre](c, c.currentTime + 0.02); } catch (e) { }
+  }
+
+  /* ---------- utilidades de pantalla ---------- */
+  function hace(iso) {
+    var t = new Date(iso).getTime(); if (isNaN(t)) return '';
+    var s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (s < 45) return 'ahora';
+    var m = Math.max(1, Math.floor(s / 60)); if (m < 60) return 'hace ' + m + ' min';
+    var h = Math.floor(m / 60); if (h < 24) return 'hace ' + h + ' h';
+    var d = new Date(t), hoy = new Date(), ayer = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 1);
+    var hh = d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+    if (d.toDateString() === ayer.toDateString()) return 'ayer ' + hh;
+    return d.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' }) + ' ' + hh;
+  }
+  function optsSon(sel, base, critico, conBase) {
+    var h = conBase ? '<option value=""' + (sel ? '' : ' selected') + '>Por defecto: ' + esc(nomSon(base)) + '</option>' : '';
+    SONIDOS.forEach(function (s) {
+      if (critico && s[0] === 'ninguno') return;
+      h += '<option value="' + s[0] + '"' + (sel === s[0] ? ' selected' : '') + '>' + s[1] + '</option>';
+    });
+    return h;
+  }
+  function optsPrio(sel) { return PRIO_T.map(function (p) { return '<option value="' + p[0] + '"' + (sel === p[0] ? ' selected' : '') + '>' + p[1] + '</option>'; }).join(''); }
+  function rolesTxt(a) { return (a || []).map(function (r) { return ROL_T[r] || r; }).join(', '); }
+  function grupos(evs) {
+    var o = [], m = {};
+    (evs || []).forEach(function (e) { if (!m[e.grupo]) { m[e.grupo] = { t: e.grupo, l: [] }; o.push(m[e.grupo]); } m[e.grupo].l.push(e); });
+    return o;
+  }
+
+  /* ---------- estilos ---------- */
+  var css = document.createElement('style');
+  css.textContent = [
+    '.n48-bell{position:relative;width:38px;height:38px;padding:0;border-radius:50%;display:grid;place-items:center;font-size:1.1em;line-height:1;background:var(--acc2);color:var(--acc);border:1px solid var(--line);box-shadow:none;flex:none}',
+    '.n48-bell[hidden]{display:none}.n48-bell:hover{background:color-mix(in srgb,var(--acc) 18%,var(--card))}',
+    '.n48-bell[aria-expanded="true"]{background:var(--acc);color:var(--on-acc)}',
+    '.n48-bn{position:absolute;top:-5px;right:-5px;min-width:19px;height:19px;border-radius:99px;background:var(--bad);color:#fff;font-size:.62em;font-weight:800;display:grid;place-items:center;padding:0 5px;border:2px solid var(--card);line-height:1}',
+    '.n48-bn[hidden]{display:none}',
+    '.n48-ring span{display:inline-block;animation:n48-ring 1s ease-in-out 1;transform-origin:50% 12%}',
+    '@keyframes n48-ring{0%,100%{transform:rotate(0)}15%{transform:rotate(16deg)}30%{transform:rotate(-14deg)}45%{transform:rotate(10deg)}60%{transform:rotate(-7deg)}75%{transform:rotate(3deg)}}',
+    '@media(prefers-reduced-motion:reduce){.n48-ring span{animation:none}.n48-pop{animation:none!important}}',
+    /* panel */
+    '#n48p{position:fixed;top:60px;right:14px;z-index:9070;width:min(410px,calc(100vw - 20px));max-height:calc(100vh - 76px);display:none;flex-direction:column;background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:16px;box-shadow:var(--sh-lg);overflow:hidden}',
+    '#n48p.on{display:flex}',
+    '@media(max-width:560px){#n48p{top:56px;right:8px;left:8px;width:auto;max-height:calc(100vh - 66px)}}',
+    '.n48-h{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}',
+    '.n48-h b{flex:1;min-width:0;font-size:.98em}',
+    '.n48-ib{padding:6px 10px;font-size:.8em;border-radius:8px;background:transparent;color:var(--acc);border:1px solid transparent;box-shadow:none;white-space:nowrap}',
+    '.n48-ib:hover{background:var(--acc2);color:var(--acc)}',
+    '.n48-l{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}',
+    '.n48-dnd{margin:10px 12px 0;padding:8px 12px;border-radius:10px;background:var(--warn-bg);color:var(--warn);font-size:.82em;font-weight:600}',
+    '.n48-i{display:flex;align-items:flex-start;gap:11px;width:100%;text-align:left;background:transparent;color:var(--ink);box-shadow:none;border-radius:0;border-bottom:1px solid var(--line);padding:11px 14px;font-weight:500}',
+    '.n48-i:hover{background:var(--acc2);color:var(--ink)}',
+    '.n48-i.un{background:color-mix(in srgb,var(--acc) 7%,var(--card))}.n48-i.un:hover{background:var(--acc2)}',
+    '.n48-i.cr{box-shadow:inset 3px 0 0 var(--bad)}',
+    '.n48-ic{flex:none;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--acc2);font-size:1.05em}',
+    '.n48-i.cr .n48-ic{background:var(--bad-bg)}',
+    '.n48-tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}',
+    '.n48-tx b{font-size:.9em;line-height:1.3;font-weight:600}.n48-i.un .n48-tx b{font-weight:800}',
+    '.n48-tx span{font-size:.84em;color:var(--mut);line-height:1.35;overflow-wrap:anywhere}',
+    '.n48-tx small{font-size:.74em;color:var(--mut);margin-top:2px}',
+    '.n48-dot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--acc);margin-top:6px}.n48-i:not(.un) .n48-dot{visibility:hidden}',
+    '.n48-vacio{padding:34px 18px;text-align:center;color:var(--mut);font-size:.9em}',
+    '.n48-f{padding:10px 14px;border-top:1px solid var(--line)}',
+    '.n48-f button.sec{width:100%}.n48-f label{margin:0 0 6px}',
+    '.n48-f textarea{font-size:.9em;margin-bottom:8px}',
+    '.n48-f .row>button{flex:1 1 auto}',
+    /* ajustes */
+    '.n48-sec{padding:12px 14px;border-bottom:1px solid var(--line)}',
+    '.n48-sec h4{margin:0 0 8px;font-size:.72em;letter-spacing:.09em;text-transform:uppercase;color:var(--mut)}',
+    '.n48-fila{display:flex;align-items:center;gap:12px;padding:7px 0}',
+    '.n48-fila .n48-fx{flex:1;min-width:0}.n48-fila .n48-fx b{display:block;font-size:.88em;font-weight:600}.n48-fila .n48-fx small{display:block;color:var(--mut);font-size:.76em;line-height:1.35}',
+    '.n48-fila select{width:auto;min-width:0;max-width:100%;padding:7px 30px 7px 10px;font-size:.84em}',
+    '.n48-fila input[type=range]{padding:0;border:0;box-shadow:none;accent-color:var(--acc);height:26px;width:130px;flex:none}',
+    '.n48-pl{padding:6px 12px;font-size:.8em;flex:none;line-height:1.3}',
+    '.n48-ev select{padding:7px 28px 7px 10px;font-size:.82em}',
+    '.n48-ev{padding:9px 0;border-bottom:1px dashed var(--line)}.n48-ev:last-child{border-bottom:0}',
+    '.n48-ev .n48-top{display:flex;align-items:center;gap:10px}',
+    '.n48-ev .n48-top .n48-ic{width:30px;height:30px;font-size:.95em}',
+    '.n48-ev .n48-top .n48-fx{flex:1;min-width:0}',
+    '.n48-ev .n48-bt{display:flex;align-items:center;gap:8px;margin:7px 0 0 40px}',
+    '.n48-ev .n48-bt select{flex:1;min-width:0}',
+    '.n48-lock{font-size:.74em;color:var(--mut);white-space:nowrap}',
+    '#n48p .switch input:disabled{opacity:.55;cursor:not-allowed}',
+    /* ventanitas */
+    '#n48-pops{position:fixed;top:62px;right:14px;z-index:9080;display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 20px));pointer-events:none}',
+    '@media(max-width:560px){#n48-pops{right:8px;left:8px;width:auto}}',
+    '.n48-pop{pointer-events:auto;display:flex;align-items:flex-start;gap:11px;padding:11px 12px;background:var(--card);color:var(--ink);border:1px solid var(--line2);border-left:4px solid var(--acc);border-radius:12px;box-shadow:var(--sh-lg);cursor:pointer;animation:n48-in .28s ease-out}',
+    '.n48-pop.cr{border-left-color:var(--bad)}',
+    '@keyframes n48-in{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}',
+    '.n48-pop .n48-x{flex:none;padding:0 6px;background:transparent;color:var(--mut);box-shadow:none;font-size:.9em;border-radius:6px}.n48-pop .n48-x:hover{background:var(--acc2);color:var(--ink)}',
+    /* administrador */
+    '.n48a{display:flex;flex-direction:column;gap:16px}',
+    '.n48a .n48-cnt{float:right;font-weight:500;color:var(--mut)}',
+    '.n48a .n48-ck{display:flex;flex-wrap:wrap;gap:6px 18px;margin:2px 0 4px}',
+    '.n48a .n48-ck label{display:flex;align-items:center;gap:8px;margin:0;font-size:.88em;font-weight:500;color:var(--ink);cursor:pointer}',
+    '.n48a .n48-ck input{width:18px;height:18px;padding:0;accent-color:var(--acc);flex:none}',
+    '.n48a .n48-urg{display:flex;align-items:flex-start;gap:8px;margin:10px 0 12px;font-size:.88em;font-weight:500;color:var(--ink);cursor:pointer}',
+    '.n48a .n48-urg input{width:18px;height:18px;padding:0;accent-color:var(--bad);flex:none;margin-top:2px}',
+    '.n48a .n48-g{margin:14px 0 4px;font-size:.72em;letter-spacing:.09em;text-transform:uppercase;color:var(--mut)}',
+    '.n48a .n48-er{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 2px;border-bottom:1px solid var(--line)}',
+    '.n48a .n48-er .n48-fx{flex:1 1 220px;min-width:0}.n48a .n48-er .n48-fx b{font-size:.9em}.n48a .n48-er .n48-fx small{display:block;color:var(--mut);font-size:.78em}',
+    '.n48a .n48-er select{width:auto;min-width:0;padding:7px 30px 7px 10px;font-size:.85em}',
+    '.n48a .n48-er.off .n48-fx{opacity:.55}',
+    '.n48a .n48-an{display:flex;gap:10px;justify-content:space-between;align-items:flex-start;padding:9px 2px;border-bottom:1px solid var(--line)}',
+    '.n48a .n48-an small{color:var(--mut);font-size:.78em}.n48a .n48-an .badge{flex:none}',
+    '.n48a .n48-sn{display:flex;flex-wrap:wrap;gap:8px}.n48a .n48-sn button{padding:7px 12px;font-size:.85em}'
+  ].join('');
+  document.head.appendChild(css);
+
+  /* ---------- campana y paneles ---------- */
+  function montar() {
+    var u = document.querySelector('header .user'); if (!u || !uid()) return;
+    if (S.uid !== uid()) { parar(); S = nuevo(); S.uid = uid(); }
+    if (!$('n48b')) {
+      var b = document.createElement('button'); b.type = 'button'; b.id = 'n48b'; b.className = 'n48-bell'; b.hidden = !S.visible;
+      b.setAttribute('aria-label', 'Notificaciones'); b.setAttribute('aria-expanded', 'false'); b.setAttribute('aria-controls', 'n48p');
+      b.innerHTML = '<span aria-hidden="true">🔔</span><b class="n48-bn" id="n48n" hidden></b>';
+      u.insertBefore(b, u.firstChild);
+      b.addEventListener('click', alternar);
+    }
+    if (!$('n48p')) {
+      var p = document.createElement('div'); p.id = 'n48p'; p.setAttribute('role', 'dialog'); p.setAttribute('aria-label', 'Notificaciones');
+      document.body.appendChild(p);
+      p.addEventListener('click', clicPanel); p.addEventListener('change', cambioPanel); p.addEventListener('input', entradaPanel);
+    }
+    if (!$('n48-pops')) {
+      var q = document.createElement('div'); q.id = 'n48-pops'; document.body.appendChild(q);
+      q.addEventListener('click', clicPop);
+    }
+    if (!listos) {
+      listos = true;
+      document.addEventListener('click', function (e) {
+        if (!S.abierto || !document.contains(e.target)) return;      // un clic sobre algo que el panel acaba de redibujar no cuenta como «fuera»
+        if (!e.target.closest('#n48p,#n48b,.n48-pop')) cerrar();
+      });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && S.abierto) { cerrar(); var bb = $('n48b'); if (bb) bb.focus(); } });
+      document.addEventListener('visibilitychange', function () { if (!document.hidden && $('n48b') && !S.off) { tick(); } });
+      var desbloquear = function () { ctx(); document.removeEventListener('pointerdown', desbloquear); document.removeEventListener('keydown', desbloquear); };
+      document.addEventListener('pointerdown', desbloquear); document.addEventListener('keydown', desbloquear);
+    }
+    if (rol() === 'admin') montarTab();
+    badge();
+    if (!S.timer && !S.off) programa(400);
+  }
+
+  function parar() {
+    clearTimeout(S.timer); S.timer = null;
+    try { document.title = T0; } catch (e) { }
+  }
+  function quitar() {
+    parar(); S = nuevo();
+    ['n48p', 'n48-pops'].forEach(function (i) { var e = $(i); if (e) e.remove(); });
+  }
+  function hayBarra() { return !!$('n48b'); }
+
+  function badge() {
+    var n = S.noLeidas, e = $('n48n'), b = $('n48b');
+    if (e) { e.hidden = n <= 0; e.textContent = n > 99 ? '99+' : String(n); }
+    if (b) b.setAttribute('aria-label', n > 0 ? 'Notificaciones: ' + n + ' sin leer' : 'Notificaciones');
+    try { document.title = (n > 0 ? '(' + (n > 99 ? '99+' : n) + ') ' : '') + T0.replace(/^\(\d+\+?\)\s*/, ''); } catch (e2) { }
+  }
+  function sacude() {
+    var b = $('n48b'); if (!b) return;
+    b.classList.remove('n48-ring'); void b.offsetWidth; b.classList.add('n48-ring');
+    setTimeout(function () { b.classList.remove('n48-ring'); }, 1200);
+  }
+
+  function alternar() { if (S.abierto) cerrar(); else abrir(); }
+  function abrir() {
+    var p = $('n48p'), b = $('n48b'); if (!p) return;
+    S.abierto = true; S.vista = 'lista'; S.ayuda = false;
+    p.classList.add('on'); if (b) b.setAttribute('aria-expanded', 'true');
+    quitarPops();
+    pintaPanel();
+    refrescarLista();
+  }
+  function cerrar() {
+    var p = $('n48p'), b = $('n48b'); S.abierto = false;
+    if (p) p.classList.remove('on'); if (b) b.setAttribute('aria-expanded', 'false');
+  }
+
+  /* ---------- lista de avisos ---------- */
+  function itemHtml(it) {
+    var cr = it.prioridad === 'critica';
+    return '<button type="button" class="n48-i' + (it.leida ? '' : ' un') + (cr ? ' cr' : '') + '" data-a="ir" data-id="' + it.id + '">' +
+      '<span class="n48-ic" aria-hidden="true">' + esc(it.icono || '🔔') + '</span>' +
+      '<span class="n48-tx"><b>' + esc(it.titulo) + '</b>' + (it.texto ? '<span>' + esc(it.texto) + '</span>' : '') + '<small>' + esc(hace(it.creada)) + (it.leida ? '' : ' · sin leer') + '</small></span>' +
+      '<i class="n48-dot"></i></button>';
+  }
+  function pintaLista() {
+    var l = $('n48-ls'); if (!l) return;
+    l.innerHTML = (dnd() ? '<div class="n48-dnd">🔕 No molestar está activado en este equipo: sin sonidos ni ventanitas (los urgentes sí suenan).</div>' : '') +
+      (S.items.length ? S.items.map(itemHtml).join('') : '<div class="n48-vacio">✅ Todo al día.<br>No tienes avisos.</div>');
+  }
+  function pintaPanel() {
+    var p = $('n48p'); if (!p) return;
+    if (S.vista === 'ajustes') return pintaAjustes();
+    p.innerHTML = '<div class="n48-h" id="n48-hd"></div><div class="n48-l" id="n48-ls"></div><div id="n48-ft"></div>';
+    pintaCab(); pintaLista(); pintaAyuda();
+  }
+  function pintaCab() {
+    var h = $('n48-hd'); if (!h) return;
+    var hay = S.items.some(function (x) { return !x.leida; });
+    h.innerHTML = '<b>🔔 Avisos</b>' +
+      (hay ? '<button type="button" class="n48-ib" data-a="todas" title="Marcar todos como leídos">✓ Marcar leídos</button>' : '') +
+      '<button type="button" class="n48-ib" data-a="ajustes" title="Mis avisos" aria-label="Mis avisos">⚙️</button>' +
+      '<button type="button" class="n48-ib" data-a="cerrar" title="Cerrar" aria-label="Cerrar">✕</button>';
+  }
+  function pintaAyuda() {
+    var f = $('n48-ft'); if (!f) return;
+    if (['concertador', 'cerrador', 'back'].indexOf(rol()) < 0) { f.innerHTML = ''; return; }
+    f.innerHTML = !S.ayuda
+      ? '<div class="n48-f"><button type="button" class="sec" data-a="ayuda">🆘 Pedir ayuda urgente al supervisor</button></div>'
+      : '<div class="n48-f"><label for="n48-ay">¿Qué necesitas? (opcional)</label><textarea id="n48-ay" maxlength="200" rows="2" placeholder="Ej.: cliente molesto en línea, necesito apoyo"></textarea>' +
+        '<div class="row"><button type="button" data-a="ayuda-ok">Enviar aviso</button><button type="button" class="sec" data-a="ayuda-no">Cancelar</button></div></div>';
+    if (S.ayuda) { var t = $('n48-ay'); if (t) t.focus(); }
+  }
+  async function refrescarLista() {
+    try {
+      var r = await sb.rpc('nt2_mis', { p_ultimo: null, p_limite: 30 });
+      if (r.error || !r.data) return;
+      S.items = r.data.items || []; S.noLeidas = r.data.no_leidas || 0;
+      if (S.ultimo === null || r.data.ultimo > S.ultimo) S.ultimo = r.data.ultimo;
+      badge();
+      if (S.abierto && S.vista === 'lista') { pintaCab(); pintaLista(); }
+    } catch (e) { }
+  }
+
+  async function marcar(ids) {
+    var todos = !ids;
+    S.items.forEach(function (x) { if (todos || ids.indexOf(x.id) >= 0) { if (!x.leida) { x.leida = true; S.noLeidas = Math.max(0, S.noLeidas - 1); } } });
+    if (todos) S.noLeidas = 0;
+    badge();
+    try { await sb.rpc('nt2_marcar', todos ? {} : { p_ids: ids }); } catch (e) { }
+  }
+
+  function navegar(dest) {
+    if (!dest) return;
+    var r = rol();
+    if (dest === 'chat') { var c = $('chat23-btn'); if (c) c.click(); return; }
+    var ruta = (RUTA[dest] || {})[r];
+    if (!ruta) ruta = r === 'supervisor' ? ['s:pan'] : ['res'];
+    var k = ruta[0], modo = ruta[1];
+    if (k.indexOf('s:') === 0) {
+      var sb2 = document.querySelector('#s46-tabs .s46-t[data-k="' + k.slice(2) + '"]'); if (sb2) sb2.click();
+      return;
+    }
+    var btn = document.querySelector('#tabs15 .t15[data-k="' + k + '"]');
+    if (!btn) { k = 'res'; modo = null; btn = document.querySelector('#tabs15 .t15[data-k="res"]'); }
+    if (!btn) return;
+    if (k === 'pa' && modo === 'CONTRA') {
+      var inf = null; try { inf = window.seg37 && window.seg37.info ? window.seg37.info() : null; } catch (e) { }
+      if (!inf || !inf.contra) modo = 'SEG';
+    }
+    if (typeof window.abrir45 === 'function') window.abrir45(k, modo || undefined);
+    else { if (k === 'pa' && modo && window.seg37) window.seg37.modo(modo); btn.click(); }
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e2) { }
+  }
+  function ir(it) { if (!it) return; if (!it.leida) marcar([it.id]); cerrar(); quitarPops(); navegar(it.destino); }
+  function porId(id) { id = Number(id); for (var i = 0; i < S.items.length; i++) if (S.items[i].id === id) return S.items[i]; return null; }
+
+  /* ---------- aviso de llegada: sonido, ventanita, aviso del navegador ---------- */
+  function sonar(nuevos) {
+    if (!nuevos.length) return;
+    var crit = nuevos.some(function (i) { return i.prioridad === 'critica'; });
+    if (dnd() && !crit) return;
+    var orden = nuevos.slice().sort(function (a, b) { return (PRIO[b.prioridad] || 0) - (PRIO[a.prioridad] || 0) || b.id - a.id; });
+    var el = orden.filter(function (i) { return i.sonido && i.sonido !== 'ninguno'; })[0];
+    if (el) suena(el.sonido, crit ? 0.5 : 0);
+  }
+  function quitarPops() { var q = $('n48-pops'); if (q) q.innerHTML = ''; }
+  function pop(it, resumen) {
+    var q = $('n48-pops'); if (!q) return;
+    var d = document.createElement('div'); var cr = it && it.prioridad === 'critica';
+    d.className = 'n48-pop' + (cr ? ' cr' : ''); d.setAttribute('role', 'status');
+    if (resumen) { d.setAttribute('data-r', '1'); d.innerHTML = '<span class="n48-ic" aria-hidden="true">🔔</span><div class="n48-tx"><b>' + esc(resumen) + '</b><span>Toca para verlos</span></div><button type="button" class="n48-x" aria-label="Cerrar">✕</button>'; }
+    else { d.setAttribute('data-id', it.id); d.innerHTML = '<span class="n48-ic" aria-hidden="true">' + esc(it.icono || '🔔') + '</span><div class="n48-tx"><b>' + esc(it.titulo) + '</b>' + (it.texto ? '<span>' + esc(it.texto) + '</span>' : '') + '</div><button type="button" class="n48-x" aria-label="Cerrar">✕</button>'; }
+    q.appendChild(d);
+    setTimeout(function () { if (d.parentNode) d.remove(); }, cr ? 25000 : 7000);
+  }
+  function mostrarPops(nuevos) {
+    if (S.abierto && S.vista === 'lista') return;     // ya los está viendo en la lista
+    var l = nuevos.filter(function (i) { return !dnd() || i.prioridad === 'critica'; });
+    if (!l.length) return;
+    l.sort(function (a, b) { return (PRIO[b.prioridad] || 0) - (PRIO[a.prioridad] || 0) || b.id - a.id; });
+    var q = $('n48-pops'); if (q) while (q.children.length > 2) q.removeChild(q.firstChild);
+    l.slice(0, 3).forEach(function (i) { pop(i); });
+    if (l.length > 3) pop(null, 'y ' + (l.length - 3) + ' avisos más');
+  }
+  function avisoWeb(it) {
+    try {
+      if (!webOn()) return;
+      if (!document.hidden && document.hasFocus()) return;
+      if (dnd() && it.prioridad !== 'critica') return;
+      var n = new Notification(it.titulo, { body: it.texto || '', tag: 'crm48-' + it.id, requireInteraction: it.prioridad === 'critica' });
+      n.onclick = function () { try { window.focus(); } catch (e) { } ir(porId(it.id) || it); n.close(); };
+    } catch (e) { }
+  }
+  function clicPop(e) {
+    var d = e.target.closest('.n48-pop'); if (!d) return;
+    if (e.target.closest('.n48-x')) { d.remove(); return; }
+    if (d.getAttribute('data-r')) { d.remove(); abrir(); return; }
+    var it = porId(d.getAttribute('data-id')); d.remove(); if (it) ir(it);
+  }
+
+  /* ---------- consulta periódica ---------- */
+  function programa(ms) { clearTimeout(S.timer); S.timer = setTimeout(ciclo, ms); }
+  async function ciclo() {
+    if (!hayBarra()) { parar(); return; }
+    await tick();
+    if (!hayBarra() || S.off) { if (!hayBarra()) parar(); return; }
+    var ahora = Date.now();
+    if (ahora - S.genT > 180000) {
+      S.genT = ahora;
+      try { var g = await sb.rpc('nt2_generar'); if (g && !g.error && !(g.data && g.data.omitido)) await tick(); } catch (e) { }
+    }
+    if (hayBarra() && !S.off) programa(document.hidden ? 60000 : 15000);
+  }
+  async function tick() {
+    if (S.off || S.busy || !hayBarra()) return;
+    S.busy = true;
+    try {
+      var r = await sb.rpc('nt2_mis', { p_ultimo: S.ultimo, p_limite: 30 });
+      if (r.error) {
+        if (falta(r.error)) { S.off = true; var b = $('n48b'); if (b) b.hidden = true; clearTimeout(S.timer); S.timer = null; console.warn('Notificaciones apagadas: ' + msg(r.error)); }
+        return;
+      }
+      var d = r.data || {}, primera = S.ultimo === null, lista = d.items || [];
+      if (primera) { S.items = lista; }
+      else {
+        var nuevos = lista.filter(function (it) { return !S.items.some(function (x) { return x.id === it.id; }); });
+        if (nuevos.length) {
+          S.items = nuevos.concat(S.items).sort(function (a, b) { return b.id - a.id; }).slice(0, 60);
+          sonar(nuevos); mostrarPops(nuevos); nuevos.forEach(avisoWeb); sacude();
+        }
+      }
+      S.noLeidas = d.no_leidas || 0; S.ultimo = d.ultimo || 0;
+      if (!S.visible) { S.visible = true; var b2 = $('n48b'); if (b2) b2.hidden = false; }
+      badge();
+      if (S.abierto && S.vista === 'lista') { pintaCab(); pintaLista(); }
+    } catch (e) { /* sin red: se reintenta en el siguiente ciclo */ }
+    finally { S.busy = false; }
+  }
+
+  /* ---------- panel: clics ---------- */
+  function clicPanel(e) {
+    var b = e.target.closest('[data-a]'); if (!b) return;
+    var a = b.getAttribute('data-a');
+    if (a === 'ir') ir(porId(b.getAttribute('data-id')));
+    else if (a === 'cerrar') cerrar();
+    else if (a === 'todas') { marcar(null); pintaCab(); pintaLista(); }
+    else if (a === 'ajustes') { S.vista = 'ajustes'; pintaAjustes(); cargaEventos(); }
+    else if (a === 'atras') { S.vista = 'lista'; S.ayuda = false; pintaPanel(); refrescarLista(); }
+    else if (a === 'ayuda') { S.ayuda = true; pintaAyuda(); }
+    else if (a === 'ayuda-no') { S.ayuda = false; pintaAyuda(); }
+    else if (a === 'ayuda-ok') enviaAyuda(b);
+    else if (a === 'pl') {
+      var fila = b.closest('.n48-ev,.n48-fila'), sel = fila && fila.querySelector('select');
+      suena((sel && sel.value) || (sel && sel.getAttribute('data-base')) || 'campanilla');
+    }
+    else if (a === 'pvol') suena('campanilla');
+    else if (a === 'notif') { /* se maneja en el cambio del interruptor */ }
+  }
+  async function enviaAyuda(btn) {
+    var t = $('n48-ay'), txt = t ? t.value.trim() : '';
+    btn.disabled = true;
+    var r = await sb.rpc('pedir_ayuda', { p_texto: txt || null });
+    btn.disabled = false;
+    if (r.error) return toast(msg(r.error), true);
+    S.ayuda = false; pintaAyuda();
+    toast((r.data && r.data.avisados) ? 'Aviso enviado a tu supervisor y al administrador' : 'No hay nadie conectado a quien avisar. Habla por el chat.');
+  }
+
+  /* ---------- panel: «Mis avisos» ---------- */
+  function ajusteEquipoHtml() {
+    var web = typeof Notification !== 'undefined';
+    return '<div class="n48-sec"><h4>En este equipo</h4>' +
+      '<div class="n48-fila"><div class="n48-fx"><b>🔕 No molestar</b><small>Sin sonidos ni ventanitas. Los avisos urgentes sí suenan.</small></div><div class="switch"><input type="checkbox" data-f="dnd" aria-label="No molestar"' + (dnd() ? ' checked' : '') + '></div></div>' +
+      '<div class="n48-fila"><div class="n48-fx"><b>🔊 Volumen</b></div><input type="range" min="0" max="100" step="5" data-f="vol" value="' + Math.round(vol() * 100) + '" aria-label="Volumen"><button type="button" class="sec n48-pl" data-a="pvol">▶</button></div>' +
+      (web ? '<div class="n48-fila"><div class="n48-fx"><b>🖥️ Avisos del navegador</b><small>Cuando tengas esta pestaña en segundo plano.' + (Notification.permission === 'denied' ? ' <span style="color:var(--bad)">Bloqueado en el navegador: actívalo en el candado de la dirección.</span>' : '') + '</small></div><div class="switch"><input type="checkbox" data-f="web" aria-label="Avisos del navegador"' + (webOn() ? ' checked' : '') + '></div></div>' : '') +
+      '</div>';
+  }
+  function filaEvento(e) {
+    var crit = !!e.critico;
+    return '<div class="n48-ev" data-c="' + esc(e.codigo) + '" data-crit="' + (crit ? 1 : 0) + '">' +
+      '<div class="n48-top"><span class="n48-ic" aria-hidden="true">' + esc(e.icono || '🔔') + '</span><div class="n48-fx"><b style="font-size:.88em">' + esc(e.nombre) + '</b>' +
+      (e.descripcion ? '<small style="display:block;color:var(--mut);font-size:.76em;line-height:1.35">' + esc(e.descripcion) + '</small>' : '') +
+      (rol() === 'admin' ? '<small style="display:block;color:var(--mut);font-size:.72em">Para: ' + esc(rolesTxt(e.roles)) + '</small>' : '') + '</div>' +
+      (crit ? '<span class="n48-lock">🔒 Siempre</span>' : '') +
+      '<div class="switch"><input type="checkbox" data-f="av" aria-label="Avisarme: ' + esc(e.nombre) + '"' + (e.avisar ? ' checked' : '') + (crit ? ' disabled checked' : '') + '></div></div>' +
+      '<div class="n48-bt"><select data-f="so" data-base="' + esc(e.sonido_base) + '" aria-label="Sonido"' + (e.avisar || crit ? '' : ' disabled') + '>' + optsSon(e.sonido_mio, e.sonido_base, crit, true) + '</select>' +
+      '<button type="button" class="sec n48-pl" data-a="pl" title="Probar sonido">▶</button></div></div>';
+  }
+  function pintaAjustes() {
+    var p = $('n48p'); if (!p) return;
+    var cuerpo = S.evs
+      ? grupos(S.evs.filter(function (e) { return e.activo || rol() === 'admin'; })).map(function (g) { return '<div class="n48-sec"><h4>' + esc(g.t) + '</h4>' + g.l.map(filaEvento).join('') + '</div>'; }).join('')
+      : '<div class="n48-vacio">Cargando…</div>';
+    p.innerHTML = '<div class="n48-h"><button type="button" class="n48-ib" data-a="atras">← Volver</button><b>Mis avisos</b><button type="button" class="n48-ib" data-a="cerrar" aria-label="Cerrar">✕</button></div>' +
+      '<div class="n48-l" id="n48-cf">' + ajusteEquipoHtml() + cuerpo + '</div>';
+  }
+  async function cargaEventos() {
+    var r = await sb.rpc('nt2_eventos');
+    if (r.error) { toast(msg(r.error), true); return; }
+    S.evs = r.data || [];
+    if (S.abierto && S.vista === 'ajustes') { var y = $('n48-cf'), top = y ? y.scrollTop : 0; pintaAjustes(); var y2 = $('n48-cf'); if (y2) y2.scrollTop = top; }
+  }
+  async function cambioPanel(e) {
+    var t = e.target, f = t.getAttribute('data-f'); if (!f) return;
+    if (f === 'dnd') { setPref('dnd', t.checked ? '1' : '0'); toast(t.checked ? 'No molestar activado en este equipo' : 'No molestar desactivado'); return; }
+    if (f === 'vol') { setPref('vol', t.value); return; }
+    if (f === 'web') {
+      if (!t.checked) { setPref('web', '0'); return; }
+      try {
+        var perm = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+        if (perm === 'granted') { setPref('web', '1'); toast('Avisos del navegador activados'); }
+        else { t.checked = false; setPref('web', '0'); toast('El navegador no permitió los avisos', true); if (S.vista === 'ajustes') pintaAjustes(); }
+      } catch (err) { t.checked = false; }
+      return;
+    }
+    var fila = t.closest('.n48-ev'); if (!fila) return;
+    var cod = fila.getAttribute('data-c'), crit = fila.getAttribute('data-crit') === '1';
+    var av = fila.querySelector('[data-f="av"]'), so = fila.querySelector('[data-f="so"]');
+    var avisar = crit ? true : av.checked;
+    so.disabled = !avisar && !crit;
+    var r = await sb.rpc('nt2_guardar_pref', { p_evento: cod, p_avisar: avisar, p_sonido: so.value || null });
+    if (r.error) { toast(msg(r.error), true); return cargaEventos(); }
+    (S.evs || []).forEach(function (x) { if (x.codigo === cod) { x.avisar = avisar; x.sonido_mio = so.value || null; } });
+    toast('Guardado');
+    if (f === 'so' && so.value) suena(so.value);
+  }
+  function entradaPanel(e) { if (e.target.getAttribute('data-f') === 'vol') setPref('vol', e.target.value); }
+
+  /* ================= ADMIN · pestaña «Notificaciones» dentro de Configuración ================= */
+  function montarTab() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-nt')) return;
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-nt'; s.hidden = true;
+    s.innerHTML = '<div id="n48-adm" class="n48a"><div class="d15-vacio">Se carga al abrir la pantalla…</div></div>';
+    panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'nt');
+    bt.innerHTML = '<span>🔔</span>Notificaciones';
+    bar.appendChild(bt);
+    bar.addEventListener('click', function (ev) { var b = ev.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'nt') cargaAdmin(); });
+    s.addEventListener('click', clicAdmin); s.addEventListener('change', cambioAdmin); s.addEventListener('input', entradaAdmin);
+  }
+  function esqueletoAdmin() {
+    return '<div class="d15-sec"><div class="d15-sh"><h3 style="margin:0">📣 Anuncio para el equipo</h3><span class="meta">Llega a la campana con sonido. Solo el administrador puede enviarlos.</span></div>' +
+      '<label for="n48-at">Título <span class="n48-cnt" id="n48-ct">0/80</span></label><input id="n48-at" maxlength="80" placeholder="Ej.: Reunión a las 5 pm" autocomplete="off">' +
+      '<label for="n48-ax">Mensaje (opcional) <span class="n48-cnt" id="n48-cx">0/300</span></label><textarea id="n48-ax" maxlength="300" rows="3" placeholder="Detalles que quieres que lean"></textarea>' +
+      '<label>¿A quién?</label><div class="n48-ck">' + ROLES.map(function (r) { return '<label><input type="checkbox" data-r="' + r[0] + '"' + (r[0] === 'admin' ? '' : ' checked') + '>' + r[1] + '</label>'; }).join('') + '</div>' +
+      '<label class="n48-urg"><input type="checkbox" id="n48-au"><span>🚨 <b>Urgente</b>: suena fuerte y nadie puede silenciarlo ni apagarlo. Úsalo solo para emergencias.</span></label>' +
+      '<button type="button" data-a="anunciar">Enviar anuncio</button></div>' +
+      '<div class="d15-sec"><div class="d15-sh"><h3 style="margin:0">Últimos anuncios</h3><span class="meta">Cuántos ya los leyeron</span></div><div id="n48-an"><div class="d15-vacio">Cargando…</div></div></div>' +
+      '<div class="d15-sec"><div class="d15-sh"><h3 style="margin:0">Qué avisa el sistema</h3><span class="meta">Apaga lo que no quieras, cambia el sonido o la importancia. Los «Urgentes» no pueden ser apagados por cada persona.</span></div><div id="n48-ev"><div class="d15-vacio">Cargando…</div></div></div>' +
+      '<div class="d15-sec"><div class="d15-sh"><h3 style="margin:0">Probar sonidos</h3><span class="meta">Se oyen con el volumen de este equipo</span></div><div class="n48-sn">' +
+      SONIDOS.filter(function (s) { return s[0] !== 'ninguno'; }).map(function (s) { return '<button type="button" class="sec" data-a="son" data-s="' + s[0] + '">▶ ' + s[1] + '</button>'; }).join('') + '</div></div>';
+  }
+  async function cargaAdmin() {
+    var h = $('n48-adm'); if (!h) return;
+    if (!$('n48-at')) h.innerHTML = esqueletoAdmin();
+    pintaAnuncios(); pintaEventosAdmin();
+  }
+  async function pintaAnuncios() {
+    var c = $('n48-an'); if (!c) return;
+    var r = await sb.rpc('admin_nt2_anuncios');
+    if (r.error) { c.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
+    var l = r.data || [];
+    c.innerHTML = l.length ? l.map(function (a) {
+      return '<div class="n48-an"><div><b>' + esc(a.titulo) + '</b>' + (a.texto ? '<br><small>' + esc(a.texto) + '</small>' : '') + '<br><small>' + esc(hace(a.creada)) + '</small></div>' +
+        '<span class="badge ' + (a.evento === 'ANUNCIO_URGENTE' ? 'b-bad' : 'b-info') + '">' + (a.evento === 'ANUNCIO_URGENTE' ? '🚨 ' : '') + a.leidos + ' de ' + a.enviados + ' leído</span></div>';
+    }).join('') : '<div class="d15-vacio">Todavía no enviaste anuncios.</div>';
+  }
+  async function pintaEventosAdmin() {
+    var c = $('n48-ev'); if (!c) return;
+    var r = await sb.rpc('nt2_eventos');
+    if (r.error) { c.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
+    S.adm = r.data || [];
+    c.innerHTML = grupos(S.adm).map(function (g) {
+      return '<div class="n48-g">' + esc(g.t) + '</div>' + g.l.map(function (e) {
+        return '<div class="n48-er' + (e.activo ? '' : ' off') + '" data-c="' + esc(e.codigo) + '">' +
+          '<span class="n48-ic" aria-hidden="true" style="flex:none;width:30px;height:30px;border-radius:10px;display:grid;place-items:center;background:var(--acc2)">' + esc(e.icono || '🔔') + '</span>' +
+          '<div class="n48-fx"><b>' + esc(e.nombre) + '</b><small>' + esc(e.descripcion || '') + ' · Para: ' + esc(rolesTxt(e.roles)) + '</small></div>' +
+          '<div class="switch" title="Encender o apagar para todos"><input type="checkbox" data-f="act" aria-label="Activo: ' + esc(e.nombre) + '"' + (e.activo ? ' checked' : '') + '></div>' +
+          '<select data-f="pri" aria-label="Importancia">' + optsPrio(e.prioridad) + '</select>' +
+          '<select data-f="son" aria-label="Sonido">' + optsSon(e.sonido_base, e.sonido_base, false, false) + '</select>' +
+          '<button type="button" class="sec" data-a="pl" style="padding:6px 11px">▶</button></div>';
+      }).join('');
+    }).join('');
+  }
+  function entradaAdmin(e) {
+    if (e.target.id === 'n48-at') { var a = $('n48-ct'); if (a) a.textContent = e.target.value.length + '/80'; }
+    if (e.target.id === 'n48-ax') { var b = $('n48-cx'); if (b) b.textContent = e.target.value.length + '/300'; }
+  }
+  async function cambioAdmin(e) {
+    var t = e.target, f = t.getAttribute('data-f'); if (!f) return;
+    var fila = t.closest('.n48-er'); if (!fila) return;
+    var cod = fila.getAttribute('data-c');
+    var act = fila.querySelector('[data-f="act"]').checked, pri = fila.querySelector('[data-f="pri"]').value, son = fila.querySelector('[data-f="son"]').value;
+    t.disabled = true;
+    var r = await sb.rpc('admin_nt2_evento', { p_codigo: cod, p_activo: act, p_sonido: son, p_prioridad: pri });
+    t.disabled = false;
+    if (r.error) { toast(msg(r.error), true); return pintaEventosAdmin(); }
+    fila.classList.toggle('off', !act);
+    toast('Guardado');
+    if (f === 'son') suena(son);
+  }
+  async function clicAdmin(e) {
+    var b = e.target.closest('[data-a]'); if (!b) return;
+    var a = b.getAttribute('data-a');
+    if (a === 'son') return suena(b.getAttribute('data-s'));
+    if (a === 'pl') { var sel = b.closest('.n48-er').querySelector('[data-f="son"]'); return suena(sel.value); }
+    if (a !== 'anunciar') return;
+    var tit = ($('n48-at').value || '').trim(), txt = ($('n48-ax').value || '').trim(), urg = $('n48-au').checked;
+    var roles = Array.prototype.filter.call(document.querySelectorAll('#n48-adm .n48-ck input'), function (i) { return i.checked; }).map(function (i) { return i.getAttribute('data-r'); });
+    if (!tit) return toast('Escribe el título del anuncio', true);
+    if (!roles.length) return toast('Elige a quién enviarlo', true);
+    var quien = ROLES.filter(function (r) { return roles.indexOf(r[0]) >= 0; }).map(function (r) { return r[1]; }).join(', ');
+    if (!confirm((urg ? '🚨 ANUNCIO URGENTE\n\n' : 'Anuncio\n\n') + '«' + tit + '»\n\nSe enviará a: ' + quien + '.\nLes sonará en cuanto tengan el CRM abierto.\n\n¿Enviar ahora?')) return;
+    b.disabled = true;
+    var r = await sb.rpc('admin_anunciar', { p_titulo: tit, p_texto: txt || null, p_roles: roles, p_urgente: urg });
+    b.disabled = false;
+    if (r.error) return toast(msg(r.error), true);
+    toast('Anuncio enviado a ' + ((r.data && r.data.enviados) || 0) + ' persona(s)');
+    $('n48-at').value = ''; $('n48-ax').value = ''; $('n48-au').checked = false; entradaAdmin({ target: $('n48-at') }); entradaAdmin({ target: $('n48-ax') });
+    pintaAnuncios();
+  }
+
+  /* ---------- enganche con las vistas ---------- */
+  ['concertadorView', 'cerradorView', 'backView', 'adminView', 'supervisorView'].forEach(function (n) {
+    var o = window[n]; if (typeof o !== 'function') return;
+    window[n] = function () {
+      var r = o.apply(this, arguments);
+      try { montar(); } catch (e) { console.error(e); }
+      return r;
+    };
+  });
+  var oLogin = window.loginView;
+  if (typeof oLogin === 'function') {
+    window.loginView = function () { quitar(); return oLogin.apply(this, arguments); };
+  }
+  window.nt48 = { tick: tick, estado: function () { return S; }, suena: suena, navegar: navegar };
 })();
 
  </script>
