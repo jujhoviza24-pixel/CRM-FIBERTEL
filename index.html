@@ -187,6 +187,7 @@ async function entrar() {
   else if (perfil.rol === 'cerrador') cerradorView();
     else if (perfil.rol === 'back') backView();
       else if (perfil.rol === 'admin') adminView();
+  else if (perfil.rol === 'supervisor' && typeof supervisorView === 'function') supervisorView();
   else $('#main').innerHTML = '<div class="card"><h2>Vista en preparación</h2><p>La pantalla de ' + esc(perfil.rol) + ' se entrega en la siguiente parte.</p></div>';
 }
 
@@ -2244,7 +2245,7 @@ function ventaForm(l) {
   }
 
   /* ================= ADMIN · EQUIPO ================= */
-  var ROLES = [['admin', 'Administradores'], ['cerrador', 'Cerradores'], ['concertador', 'Concertadores'], ['back', 'Backs']];
+  var ROLES = [['admin', 'Administradores'], ['supervisor', 'Supervisores'], ['cerrador', 'Cerradores'], ['concertador', 'Concertadores'], ['back', 'Backs']];
   async function pintaEquipo() {
     var host = document.getElementById('eq15'); if (!host) return;
     var r = await sb.from('perfiles').select('id,nombre,rol,activo,disponible,nombre_matriz').order('nombre');
@@ -2253,7 +2254,7 @@ function ventaForm(l) {
     var form = '<div class="d15-card"><h2>Nuevo usuario</h2><div class="d15-form">' +
       '<div><label>Usuario (para entrar)</label><input id="eq-user" autocomplete="off" placeholder="ej. lucia"></div>' +
       '<div><label>Nombre completo</label><input id="eq-nom" autocomplete="off"></div>' +
-      '<div><label>Rol</label><select id="eq-rol"><option value="concertador">Concertador</option><option value="cerrador">Cerrador</option><option value="back">Back</option><option value="admin">Administrador</option></select></div>' +
+      '<div><label>Rol</label><select id="eq-rol"><option value="concertador">Concertador</option><option value="cerrador">Cerrador</option><option value="back">Back</option><option value="supervisor">Supervisor</option><option value="admin">Administrador</option></select></div>' +
       '<div><label>PIN (mínimo 6)</label><input id="eq-pin" autocomplete="off"></div>' +
       '<div><label>Nombre en MATRIZ (solo cerradores)</label><input id="eq-mx" data-minus autocomplete="off" placeholder="Exacto, como en la columna V"></div>' +
       '<div><button data-a="crear" style="width:100%">Crear usuario</button></div></div>' +
@@ -2265,7 +2266,7 @@ function ventaForm(l) {
         return '<div class="d15-row2" data-id="' + esc(p.id) + '"><div class="d15-av">' + esc(ini(p.nombre)) + '</div><div class="d15-rt"><b>' + esc(p.nombre) + '</b><small>' +
           (p.rol === 'cerrador' ? (p.disponible ? 'Disponible hoy' : 'No disponible') : esc(p.rol)) + '</small></div>' +
           (p.rol === 'cerrador' ? (p.nombre_matriz ? '' : '<span class="badge b-warn">Falta nombre MATRIZ</span>') + '<input class="eq-mx" data-minus placeholder="Nombre exacto en MATRIZ" value="' + esc(p.nombre_matriz || '') + '"><button class="sec" data-a="mx">Guardar</button>' : '') +
-          '<div class="switch"><input type="checkbox" class="eq-ac" ' + (p.activo !== false ? 'checked' : '') + (p.id === me.id ? ' disabled' : '') + '><span>Activo</span></div>' +
+          (window.rolSel46 ? window.rolSel46(p, me.id) : '') + '<div class="switch"><input type="checkbox" class="eq-ac" ' + (p.activo !== false ? 'checked' : '') + (p.id === me.id ? ' disabled' : '') + '><span>Activo</span></div>' +
           '<button class="sec" data-a="pin">Nuevo PIN</button></div>';
       }).join('') + '</div>';
     }).join('');
@@ -2410,6 +2411,7 @@ function ventaForm(l) {
     panels.addEventListener('click', clic);
     panels.addEventListener('change', function (ev) {
       var t = ev.target;
+      if (t.classList.contains('eq-rl')) { if (window.cambiaRol46) window.cambiaRol46(t); return; }
       if (t.classList.contains('eq-ac')) {
         var id = t.closest('.d15-row2').getAttribute('data-id'), val = t.checked;
         sb.from('perfiles').update({ activo: val }).eq('id', id).then(function (r) {
@@ -6151,7 +6153,7 @@ function ventaForm(l) {
   // [id, icono, título, pantallas, modo de la pantalla «pa» (solo back/admin)]
   var GR = {
     admin: [
-      ['pan', '🏠', 'Panel', ['res', 'ana', 'ate']],
+      ['pan', '🏠', 'Panel', ['res', 'kpi', 'ana', 'ate']],
       ['ven', '💰', 'Ventas y leads', ['ven', 'der', 'cor']],
       ['bk', '🗂️', 'Back office', ['pa', 'tz', 'au'], 'SEG'],
       ['con', '💬', 'Contraoferta', ['pa'], 'CONTRA'],
@@ -6372,6 +6374,449 @@ function ventaForm(l) {
       return r;
     };
   });
+})();
+
+  /* 46 · Rol SUPERVISOR: pantalla propia + panel gráfico de KPIs (también para el admin) + cambio de rol en «Equipo»
+   PEGAR al final de index.html, DESPUÉS del bloque 45. Antes: ejecuta 46_supervisor.sql en Supabase.
+   - El supervisor solo MIRA el Seguimiento, ve y ASIGNA tareas del equipo y ve los KPIs del grupo. No edita estados ni ve dinero.
+   - El admin ve el mismo panel de KPIs en la pestaña «KPIs del grupo» y puede fijar el objetivo del mes.
+   - Todo entra por funciones de la base que comprueban el rol: aunque alguien abra la consola, el supervisor no puede escribir ni leer más. */
+(function () {
+  function $(i) { return document.getElementById(i); }
+  function falta(e) { return /PGRST202|42883|42P01|sup_resumen|admin_cambiar_rol|rol_cambios|perfiles_rol_check/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 46_supervisor.sql en Supabase' : limpio((e && e.message) || ''); }
+  function n0(n) { return Number(n || 0).toLocaleString('es-PE'); }
+  function pc(a, b) { return b ? Math.round(a * 100 / b) + ' % (' + a + '/' + b + ')' : '— (0/0)'; }
+  function pcn(a, b) { return b ? Math.round(a * 100 / b) : 0; }
+  function ini(s) { return String(s || '?').split(/\s+/).slice(0, 2).map(function (x) { return x.charAt(0); }).join('').toUpperCase(); }
+  function fdia(s) { var p = String(s || '').slice(0, 10).split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : '—'; }
+  function fcorta(s) { var p = String(s || '').slice(0, 10).split('-'); return p.length === 3 ? parseInt(p[2], 10) + '/' + parseInt(p[1], 10) : ''; }
+  function hhmm(d) { return d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' }); }
+  var DIAS_SEM = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+  function fdiaLarga(s) { var p = String(s).split('-'), d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])); return DIAS_SEM[d.getUTCDay()] + ' ' + fdia(s); }
+  var PERIODOS = [[1, 'Hoy'], [7, 'Últimos 7 días'], [30, 'Últimos 30 días'], [0, 'Mes en curso']];
+  var ROLES46 = [['concertador', 'Concertador'], ['cerrador', 'Cerrador'], ['back', 'Back'], ['supervisor', 'Supervisor'], ['admin', 'Administrador']];
+
+  /* ================= ESTILOS ================= */
+  var css = document.createElement('style');
+  css.textContent = [
+    '.s46{--c-act:#1baf7a;--c-tra:#2a78d6;--c-cai:#eb6834}',
+    '@media(prefers-color-scheme:dark){html:not([data-tema="claro"]) .s46{--c-act:#199e70;--c-tra:#3987e5;--c-cai:#d95926}}',
+    'html[data-tema="oscuro"] .s46{--c-act:#199e70;--c-tra:#3987e5;--c-cai:#d95926}',
+    '.s46 section[hidden]{display:none}.s46>*{margin-bottom:16px}',
+    '.s46-hero{padding:20px 24px;border-radius:20px;color:var(--on-acc);background:linear-gradient(120deg,var(--acc),color-mix(in srgb,var(--acc) 45%,#38bdf8));box-shadow:var(--sh)}',
+    '.s46-hero h2{margin:0;font-size:1.4em;letter-spacing:-.02em;color:inherit}.s46-hero h2::before{display:none}.s46-hero p{margin:4px 0 0;opacity:.92;font-size:.92em}',
+    '.s46-tabs{position:sticky;top:55px;z-index:4;display:flex;gap:6px;overflow-x:auto;padding:8px 2px 10px;background:linear-gradient(var(--bg) 78%,transparent);scrollbar-width:none}',
+    '.s46-tabs::-webkit-scrollbar{display:none}',
+    '.s46-t{flex:none;display:flex;align-items:center;gap:7px;background:transparent;color:var(--mut);border:1px solid transparent;box-shadow:none;border-radius:99px;padding:8px 15px;font-weight:700;font-size:.9em}',
+    '.s46-t:hover{background:var(--acc2);color:var(--acc)}.s46-t.on{background:var(--card);color:var(--acc);border-color:var(--line2);box-shadow:var(--sh)}',
+    '.s46-sec{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--sh)}',
+    '.s46-sh{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}',
+    '.s46-sh h3{margin:0;font-size:1.05em;letter-spacing:-.01em}.s46-sh .meta{margin:0}',
+    '.s46-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.s46-bar .meta{margin:0 0 0 auto}',
+    '.s46-pills{display:flex;gap:6px;flex-wrap:wrap}',
+    '.s46-pill{background:var(--bg);color:var(--ink);border:1px solid var(--line);box-shadow:none;border-radius:99px;padding:6px 13px;font-size:.82em;font-weight:700}',
+    '.s46-pill:hover{background:var(--acc2)}.s46-pill.on{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}',
+    '.s46-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}',
+    '.s46-k{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;box-shadow:var(--sh);border-top:3px solid var(--line2)}',
+    '.s46-k.act{border-top-color:var(--c-act)}.s46-k.tra{border-top-color:var(--c-tra)}.s46-k.cai{border-top-color:var(--c-cai)}.s46-k.bad{border-top-color:var(--bad)}',
+    '.s46-kv{font-size:1.7em;font-weight:800;line-height:1.1;letter-spacing:-.03em}.s46-kl{color:var(--mut);font-size:.8em;font-weight:600;margin-top:2px}.s46-ks{color:var(--mut);font-size:.74em;margin-top:2px}',
+    '.s46-legend{display:flex;gap:16px;flex-wrap:wrap;margin:0 0 8px;font-size:.84em}',
+    '.s46-lg{display:inline-flex;align-items:center;gap:7px;color:var(--ink)}.s46-lg i{width:12px;height:12px;border-radius:3px;display:inline-block}',
+    '.s46-lg b{font-weight:800}.s46-lg span{color:var(--mut)}',
+    '.s46-chart{width:100%;position:relative}.s46-chart svg{display:block;width:100%;height:auto;overflow:visible}',
+    '.s46-chart text{font:11px Inter,system-ui,sans-serif;fill:var(--mut)}',
+    '.s46-tip{position:fixed;z-index:9600;pointer-events:none;background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:10px;box-shadow:var(--sh-lg);padding:8px 11px;font-size:.8em;line-height:1.5;min-width:150px}',
+    '.s46-tip b{display:block;margin-bottom:2px}.s46-tip div{display:flex;justify-content:space-between;gap:14px;align-items:center}',
+    '.s46-tip i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}',
+    '.s46-tbl{width:100%;border-collapse:collapse;font-size:.88em}.s46-tbl th{text-align:left;color:var(--mut);font-size:.76em;text-transform:uppercase;letter-spacing:.05em;padding:6px 10px;border-bottom:1px solid var(--line)}',
+    '.s46-tbl td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}.s46-tbl tr:last-child td{border-bottom:0}.s46-tbl td.n,.s46-tbl th.n{text-align:right;font-variant-numeric:tabular-nums}',
+    '.s46-sc{overflow-x:auto}',
+    '.s46-stack{display:flex;height:10px;gap:2px;min-width:120px}.s46-stack i{display:block;height:100%;border-radius:3px;min-width:2px}',
+    '.s46-meter{height:12px;border-radius:99px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:10px 0 6px}',
+    '.s46-meter i{display:block;height:100%;background:var(--c-act);border-radius:99px}',
+    '.s46-hb{display:grid;grid-template-columns:minmax(110px,190px) 1fr 40px;gap:10px;align-items:center;margin:7px 0;font-size:.86em}',
+    '.s46-hb span.l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s46-hb .t{height:10px;background:var(--bg);border-radius:3px;overflow:hidden}.s46-hb .t i{display:block;height:100%;background:var(--c-tra);border-radius:3px}.s46-hb b{text-align:right}',
+    '.s46-vacio{padding:22px;text-align:center;color:var(--mut)}',
+    '.s46-seg{display:grid;gap:10px}',
+    '.s46-v{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;box-shadow:var(--sh)}',
+    '.s46-v>button.s46-vh{all:unset;box-sizing:border-box;display:flex;width:100%;gap:12px;align-items:center;cursor:pointer}',
+    '.s46-v>button.s46-vh:focus-visible{outline:2px solid var(--acc);outline-offset:3px;border-radius:8px}',
+    '.s46-vt{min-width:0;flex:1}.s46-vt b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s46-vt small{color:var(--mut);font-size:.78em}',
+    '.s46-ch{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}',
+    '.s46-det{margin-top:10px;border-top:1px solid var(--line);padding-top:8px;font-size:.84em}',
+    '.s46-det table{width:100%;border-collapse:collapse}.s46-det th{text-align:left;color:var(--mut);font-size:.74em;text-transform:uppercase;padding:4px 6px}.s46-det td{padding:5px 6px;border-top:1px solid var(--line)}',
+    '.s46-tb{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}.s46-tb input[type=search],.s46-tb select{width:auto;min-width:160px}',
+    '.s46-t38{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--line)}.s46-t38:last-child{border-bottom:0}.s46-t38.rojo{box-shadow:inset 3px 0 var(--bad);padding-left:10px}',
+    '.s46-ro{display:inline-flex;gap:6px;align-items:center;font-size:.8em;color:var(--mut);background:var(--bg);border:1px solid var(--line);border-radius:99px;padding:3px 10px}',
+    '.eq-rl{width:auto;padding:6px 8px;font-size:.84em}',
+    '@media(max-width:640px){.s46-tbl .rep{display:none}.s46-tbl td,.s46-tbl th{padding:8px 6px}.s46-hb{grid-template-columns:96px 1fr 34px}.s46-hero{padding:16px}}'
+  ].join('');
+  document.head.appendChild(css);
+
+  var tip = document.createElement('div'); tip.className = 's46-tip'; tip.hidden = true; document.body.appendChild(tip);
+  function mueveTip(ev) {
+    var w = tip.offsetWidth, h = tip.offsetHeight, x = ev.clientX + 14, y = ev.clientY + 14;
+    if (x + w > window.innerWidth - 8) x = ev.clientX - w - 14;
+    if (y + h > window.innerHeight - 8) y = ev.clientY - h - 14;
+    tip.style.left = Math.max(4, x) + 'px'; tip.style.top = Math.max(4, y) + 'px';
+  }
+
+  /* ================= PANEL DE KPIs ================= */
+  var KP = { dias: 7, d: null, busy: false, tabla: false, orden: 'vol', host: null, esAdmin: false, hora: null, err: null };
+  var SER = [['act', 'Activados', 'var(--c-act)'], ['tra', 'En trámite', 'var(--c-tra)'], ['cai', 'Caídos', 'var(--c-cai)']];
+
+  function kpi(cls, v, l, s) { return '<div class="s46-k ' + cls + '"><div class="s46-kv">' + v + '</div><div class="s46-kl">' + l + '</div>' + (s ? '<div class="s46-ks">' + s + '</div>' : '') + '</div>'; }
+  function paso(max) {
+    var raw = Math.max(1, max) / 4, p = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10)), c = [1, 2, 2.5, 5, 10];
+    for (var i = 0; i < c.length; i++) if (c[i] * p >= raw) return Math.max(1, Math.ceil(c[i] * p));
+    return Math.ceil(10 * p);
+  }
+
+  function graficoDias(dias, W) {
+    var H = 250, m = { l: 36, r: 6, t: 10, b: 28 }, n = dias.length, iw = W - m.l - m.r, ih = H - m.t - m.b;
+    var mx = 0; dias.forEach(function (x) { mx = Math.max(mx, x.act + x.tra + x.cai); });
+    var st = paso(mx), top = st * 4, band = iw / n, bw = Math.max(3, Math.min(30, band - 4));
+    function y(v) { return m.t + ih - v / top * ih; }
+    var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Servicios por día, apilados por estado">';
+    for (var k = 0; k <= 4; k++) {
+      var v = st * k;
+      s += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)" stroke-width="1"' + (k ? ' stroke-dasharray="3 4"' : '') + '/>' +
+        '<text x="' + (m.l - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + v + '</text>';
+    }
+    var cada = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(iw / 52))));
+    dias.forEach(function (x, i) {
+      var cx = m.l + band * i + band / 2, cur = 0;
+      SER.forEach(function (sr) {
+        var val = x[sr[0]]; if (!val) return;
+        var yt = y(cur + val), yb = y(cur) - (cur > 0 ? 2 : 0);
+        s += '<rect x="' + (cx - bw / 2) + '" y="' + yt + '" width="' + bw + '" height="' + Math.max(1, yb - yt) + '" rx="3" fill="' + sr[2] + '"/>';
+        cur += val;
+      });
+      if (i % cada === 0 || i === n - 1 && n <= 12) s += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle">' + fcorta(x.d) + '</text>';
+      s += '<rect class="s46-hit" data-i="' + i + '" x="' + (m.l + band * i) + '" y="' + m.t + '" width="' + band + '" height="' + ih + '" fill="transparent"/>';
+    });
+    return s + '<rect id="s46-hl" x="0" y="' + m.t + '" width="0" height="' + ih + '" fill="var(--ink)" opacity=".06" pointer-events="none"/></svg>';
+  }
+
+  function pintaDias(host) {
+    var d = KP.d, dias = d.dias || [], tot = d.totales;
+    if (!dias.length) { host.innerHTML = '<div class="s46-vacio">Sin datos en este periodo.</div>'; return; }
+    var leyenda = '<div class="s46-legend">' + SER.map(function (sr) { return '<span class="s46-lg"><i style="background:' + sr[2] + '"></i>' + sr[1] + ' <b>' + n0(tot[sr[0] === 'act' ? 'activados' : sr[0] === 'tra' ? 'tramite' : 'caidos']) + '</b></span>'; }).join('') + '</div>';
+    if (KP.tabla) {
+      host.innerHTML = leyenda + '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Día</th><th class="n">Activados</th><th class="n">En trámite</th><th class="n">Caídos</th><th class="n">Total</th></tr></thead><tbody>' +
+        dias.map(function (x) { return '<tr><td>' + fdiaLarga(x.d) + '</td><td class="n">' + x.act + '</td><td class="n">' + x.tra + '</td><td class="n">' + x.cai + '</td><td class="n"><b>' + (x.act + x.tra + x.cai) + '</b></td></tr>'; }).join('') + '</tbody></table></div>';
+      return;
+    }
+    host.innerHTML = leyenda + '<div class="s46-chart" id="s46-cd"></div>';
+    var cd = $('s46-cd'), W = Math.max(300, cd.clientWidth || host.clientWidth || 640);
+    cd.innerHTML = graficoDias(dias, W);
+    var svg = cd.querySelector('svg'), hl = $('s46-hl'), band = (W - 42) / dias.length;
+    function fuera() { tip.hidden = true; if (hl) hl.setAttribute('width', 0); }
+    svg.addEventListener('mousemove', function (ev) {
+      var t = ev.target.closest ? ev.target.closest('.s46-hit') : null; if (!t) return fuera();
+      var x = dias[+t.getAttribute('data-i')];
+      hl.setAttribute('x', t.getAttribute('x')); hl.setAttribute('width', t.getAttribute('width'));
+      tip.innerHTML = '<b>' + fdiaLarga(x.d) + '</b>' + SER.map(function (sr) { return '<div><span><i style="background:' + sr[2] + '"></i>' + sr[1] + '</span><b style="margin:0">' + x[sr[0]] + '</b></div>'; }).join('') +
+        '<div style="border-top:1px solid var(--line);margin-top:3px;padding-top:3px"><span>Total</span><b style="margin:0">' + (x.act + x.tra + x.cai) + '</b></div>';
+      tip.hidden = false; mueveTip(ev);
+    });
+    svg.addEventListener('mouseleave', fuera);
+    void band;
+  }
+
+  function filaGrupo(r, max, etiqueta) {
+    var tot = r.servicios, res = r.activados + r.caidos, w = max ? tot / max * 100 : 0;
+    function seg(v, c, t) { return v ? '<i style="width:' + (v / tot * 100) + '%;background:' + c + '" title="' + t + ': ' + v + '"></i>' : ''; }
+    return '<tr><td><b>' + esc(r[etiqueta]) + '</b></td><td class="n"><b>' + n0(tot) + '</b></td>' +
+      '<td class="rep" style="width:26%"><div class="s46-stack" style="width:' + w + '%">' + seg(r.activados, 'var(--c-act)', 'Activados') + seg(r.tramite, 'var(--c-tra)', 'En trámite') + seg(r.caidos, 'var(--c-cai)', 'Caídos') + '</div></td>' +
+      '<td class="n">' + r.activados + '</td><td class="n">' + r.tramite + '</td><td class="n">' + r.caidos + '</td>' +
+      '<td class="n">' + (res ? '<b>' + pcn(r.caidos, res) + ' %</b> <span class="meta">(' + r.caidos + '/' + res + ')</span>' : '<span class="meta">— (0/0)</span>') + '</td></tr>';
+  }
+  function tablaGrupo(rows, etiqueta, titulo) {
+    if (!rows.length) return '<div class="s46-vacio">Sin datos en este periodo.</div>';
+    var max = 0; rows.forEach(function (r) { max = Math.max(max, r.servicios); });
+    return '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>' + titulo + '</th><th class="n">Servicios</th><th class="rep">Reparto</th><th class="n">Activ.</th><th class="n">Trámite</th><th class="n">Caídos</th><th class="n">Tasa de caída</th></tr></thead><tbody>' +
+      rows.map(function (r) { return filaGrupo(r, max, etiqueta); }).join('') + '</tbody></table></div>';
+  }
+  function ordenaAgentes(rows) {
+    var a = rows.slice();
+    if (KP.orden === 'caida') a.sort(function (p, q) {
+      var rp = p.activados + p.caidos, rq = q.activados + q.caidos;
+      return (rq ? q.caidos / rq : -1) - (rp ? p.caidos / rp : -1) || q.servicios - p.servicios;
+    });
+    return a;
+  }
+
+  function pintaPanel() {
+    var host = KP.host; if (!host) return;
+    var d = KP.d;
+    var barra = '<div class="s46-sec"><div class="s46-bar"><div class="s46-pills">' + PERIODOS.map(function (p) {
+      return '<button type="button" class="s46-pill' + (p[0] === KP.dias ? ' on' : '') + '" data-k="per" data-v="' + p[0] + '">' + p[1] + '</button>';
+    }).join('') + '</div><button type="button" class="sec" data-k="ref">↻ Actualizar</button>' +
+      '<span class="meta">' + (KP.hora ? 'Actualizado a las ' + hhmm(KP.hora) : '') + (d ? ' · del ' + fdia(d.periodo.desde) + ' al ' + fdia(d.periodo.hasta) : '') + '</span></div></div>';
+    if (KP.err) { host.innerHTML = barra + '<div class="s46-sec"><div class="s46-vacio">' + esc(KP.err) + '</div></div>'; return; }
+    if (!d) { host.innerHTML = barra + '<div class="s46-sec"><div class="s46-vacio">Calculando…</div></div>'; return; }
+    var t = d.totales, res = t.activados + t.caidos, tk = d.tareas;
+    var h = barra;
+    h += '<div class="s46-kpis">' +
+      kpi('', n0(t.servicios), 'Servicios registrados', n0(t.ventas) + ' ventas · por fecha de venta') +
+      kpi('act', n0(t.activados), 'Activados', pc(t.activados, t.servicios) + ' de los registrados') +
+      kpi('tra', n0(t.tramite), 'En trámite', pc(t.tramite, t.servicios) + ' de los registrados') +
+      kpi('cai', n0(t.caidos), 'Caídos', pc(t.caidos, t.servicios) + ' de los registrados') +
+      kpi('cai', res ? pcn(t.caidos, res) + ' %' : '—', 'Tasa de caída', res ? 'Caídos ' + t.caidos + ' de ' + res + ' ya resueltos (activados + caídos)' : 'Aún no hay servicios resueltos') +
+      kpi(tk.vencidas ? 'bad' : '', n0(tk.vencidas), 'Tareas vencidas', n0(tk.sin_asignar) + ' sin asignar · ' + n0(tk.pendientes) + ' pendientes') + '</div>';
+
+    var me_ = d.mes, obj = me_.objetivo, rit = me_.dia ? me_.activados / me_.dia : 0, proy = Math.round(rit * me_.dias_mes);
+    h += '<div class="s46-sec"><div class="s46-sh"><h3>Objetivo del mes</h3><span class="meta">Servicios de este mes (por fecha de venta) que ya están activados</span></div>';
+    if (obj) {
+      h += '<div><b style="font-size:1.4em">' + n0(me_.activados) + '</b> <span class="meta">de ' + n0(obj) + ' · ' + pc(me_.activados, obj) + '</span></div>' +
+        '<div class="s46-meter" role="progressbar" aria-valuemin="0" aria-valuemax="' + obj + '" aria-valuenow="' + me_.activados + '"><i style="width:' + Math.min(100, pcn(me_.activados, obj)) + '%"></i></div>' +
+        '<div class="meta">Ritmo ' + rit.toLocaleString('es-PE', { maximumFractionDigits: 2 }) + ' por día · proyección a fin de mes: <b>' + n0(proy) + '</b> (estimación lineal con días del calendario, solo orientativa; ' + me_.dia + ' de ' + me_.dias_mes + ' días transcurridos)</div>';
+    } else {
+      h += '<div class="meta">' + (KP.esAdmin ? 'Todavía no has fijado un objetivo. Escríbelo aquí y el supervisor verá el avance.' : 'El administrador aún no ha fijado el objetivo del mes.') + ' Este mes van ' + n0(me_.activados) + ' activados de ' + n0(me_.servicios) + ' registrados.</div>';
+    }
+    if (KP.esAdmin) h += '<div class="s46-tb" style="margin:12px 0 0"><label style="margin:0">Objetivo de activados del mes</label><input id="s46-obj" type="number" min="1" step="1" value="' + esc(obj || '') + '" style="width:120px"><button type="button" data-k="obj">Guardar objetivo</button></div>';
+    h += '</div>';
+
+    h += '<div class="s46-sec"><div class="s46-sh"><h3>Servicios por día</h3><span class="s46-pills"><button type="button" class="s46-pill' + (KP.tabla ? '' : ' on') + '" data-k="vista" data-v="g">Gráfico</button><button type="button" class="s46-pill' + (KP.tabla ? ' on' : '') + '" data-k="vista" data-v="t">Tabla</button></span></div>' +
+      '<div id="s46-dias"></div><p class="meta" style="margin-top:8px">Fecha de referencia: <b>fecha de venta</b>. «Servicio» = una fila de MATRIZ. Activado / caído / en trámite se clasifica igual que en la pestaña Ventas.</p></div>';
+
+    h += '<div class="s46-sec"><div class="s46-sh"><h3>Calidad por agente</h3><span class="s46-pills"><button type="button" class="s46-pill' + (KP.orden === 'vol' ? ' on' : '') + '" data-k="ord" data-v="vol">Más servicios</button><button type="button" class="s46-pill' + (KP.orden === 'caida' ? ' on' : '') + '" data-k="ord" data-v="caida">Mayor tasa de caída</button></span></div>' +
+      tablaGrupo(ordenaAgentes(d.agentes), 'agente', 'Agente') +
+      '<p class="meta" style="margin-top:8px">El volumen nunca va solo: junto a cada agente está su tasa de caída = caídos ÷ (activados + caídos). Con pocos servicios resueltos el porcentaje engaña: mira el denominador.</p></div>';
+
+    h += '<div class="s46-sec"><div class="s46-sh"><h3>Por campaña</h3></div>' + tablaGrupo(d.campanas, 'campana', 'Campaña') + '</div>';
+
+    var mxE = 0; d.estados.forEach(function (e) { mxE = Math.max(mxE, e.n); });
+    h += '<div class="s46-sec"><div class="s46-sh"><h3>Dónde se atascan los servicios en trámite</h3><span class="meta">' + n0(t.tramite) + ' en trámite en el periodo</span></div>' +
+      (d.estados.length ? d.estados.map(function (e) { return '<div class="s46-hb"><span class="l" title="' + esc(e.estado) + '">' + esc(e.estado) + '</span><div class="t"><i style="width:' + (mxE ? e.n / mxE * 100 : 0) + '%"></i></div><b>' + e.n + '</b></div>'; }).join('') : '<div class="s46-vacio">Nada en trámite en este periodo.</div>') + '</div>';
+
+    h += '<div class="s46-sec"><div class="s46-sh"><h3>Back office · tareas</h3><span class="meta">Cumplimiento = hechas dentro de plazo ÷ hechas en el periodo</span></div>' +
+      '<div class="s46-kpis" style="margin-bottom:12px">' + kpi('', n0(tk.pendientes), 'Pendientes', n0(tk.sin_asignar) + ' sin asignar') + kpi(tk.vencidas ? 'bad' : '', n0(tk.vencidas), 'Vencidas', 'Ya pasó su plazo') +
+      kpi('act', n0(tk.hechas), 'Hechas en el periodo', '') + kpi('', tk.hechas ? pcn(tk.a_tiempo, tk.hechas) + ' %' : '—', 'Cumplimiento del plazo', pc(tk.a_tiempo, tk.hechas)) + '</div>' +
+      (tk.por_back.length ? '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Back</th><th class="n">Pendientes</th><th class="n">Vencidas</th><th class="n">Hechas</th><th class="n">Cumplimiento</th></tr></thead><tbody>' +
+        tk.por_back.map(function (b) { return '<tr><td><b>' + esc(b.nombre) + '</b></td><td class="n">' + b.pendientes + '</td><td class="n">' + (b.vencidas ? '<span class="badge b-bad">' + b.vencidas + '</span>' : '0') + '</td><td class="n">' + b.hechas + '</td><td class="n">' + (b.hechas ? pcn(b.a_tiempo, b.hechas) + ' % <span class="meta">(' + b.a_tiempo + '/' + b.hechas + ')</span>' : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="s46-vacio">No hay backs activos.</div>') + '</div>';
+
+    host.innerHTML = h;
+    pintaDias($('s46-dias'));
+  }
+
+  async function cargarPanel(forzar) {
+    if (!KP.host || KP.busy) return; KP.busy = true;
+    if (forzar) KP.d = null;
+    if (!KP.d) pintaPanel();
+    var r = await sb.rpc('sup_resumen', { p_dias: KP.dias });
+    KP.busy = false;
+    if (r.error) { KP.err = msg(r.error); KP.d = null; } else { KP.err = null; KP.d = r.data; KP.hora = new Date(); }
+    pintaPanel();
+  }
+  function ganchosPanel(host) {
+    host.addEventListener('click', async function (e) {
+      var b = e.target.closest('[data-k]'); if (!b || !host.contains(b)) return; var k = b.getAttribute('data-k');
+      if (k === 'per') { KP.dias = parseInt(b.getAttribute('data-v'), 10); KP.d = null; cargarPanel(); }
+      else if (k === 'ref') cargarPanel(true);
+      else if (k === 'vista') { KP.tabla = b.getAttribute('data-v') === 't'; pintaPanel(); }
+      else if (k === 'ord') { KP.orden = b.getAttribute('data-v'); pintaPanel(); }
+      else if (k === 'obj') {
+        var v = parseInt($('s46-obj').value, 10);
+        if (!(v > 0)) return toast('Escribe un número mayor que 0', true);
+        b.disabled = true;
+        var r = await sb.from('back_config').upsert({ clave: 'objetivo_activadas_mes', valor: String(v) }, { onConflict: 'clave' });
+        b.disabled = false;
+        if (r.error) return toast(msg(r.error), true);
+        toast('Objetivo guardado'); cargarPanel(true);
+      }
+    });
+  }
+  var rsz = null;
+  window.addEventListener('resize', function () { clearTimeout(rsz); rsz = setTimeout(function () { var h = $('s46-dias'); if (KP.d && h && h.offsetParent && !KP.tabla) pintaDias(h); }, 200); });
+
+  /* ================= SEGUIMIENTO (solo lectura) ================= */
+  var SG = { q: '', alertas: false, agente: '', pag: 0, d: null, busy: false, abierto: {}, tq: null };
+  var PAG = 30;
+  function chipSt(nombre, x) {
+    if (!x) return '';
+    var c = x.st === 'OK' ? 'b-ok' : x.st === 'INCIDENCIA' ? 'b-warn' : x.st === 'CERRADO' ? 'b-bad' : 'b-info';
+    return '<span class="badge ' + c + '">' + nombre + ' · ' + esc(x.st) + (x.n ? ' ' + (x.done || 0) + '/' + x.n : '') + '</span>';
+  }
+  function tarjetaVenta(v, dias) {
+    var ab = !!SG.abierto[v.id_venta];
+    var alert = (v.plan_venc > 0 ? '<span class="badge b-bad">Planificada vencida</span>' : '') + (v.dias_sin > dias ? '<span class="badge b-warn">' + v.dias_sin + ' días sin movimiento</span>' : '');
+    var det = '';
+    if (ab) {
+      det = '<div class="s46-det"><div class="meta" style="margin:0 0 6px">' + esc([v.telefono, v.localidad, v.provincia].filter(Boolean).join(' · ')) + '</div>' +
+        '<div class="s46-sc"><table><thead><tr><th>Servicio</th><th>Número</th><th>Estado</th><th>Desde</th><th>Comentario</th></tr></thead><tbody>' +
+        (v.lineas || []).map(function (l) { return '<tr><td>' + esc(l.producto || l.tipo || '') + '</td><td>' + esc(l.numero || '') + '</td><td><b>' + esc(l.estado || '—') + '</b></td><td>' + fdia(l.fecha_estado) + '</td><td>' + esc(l.comentario || '') + '</td></tr>'; }).join('') +
+        '</tbody></table></div></div>';
+    }
+    return '<div class="s46-v"><button type="button" class="s46-vh" data-k="abre" data-id="' + esc(v.id_venta) + '" aria-expanded="' + ab + '"><div class="d15-av" style="flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:.8em;background:var(--acc2);color:var(--acc)">' + esc(ini(v.cliente)) + '</div>' +
+      '<div class="s46-vt"><b>' + esc(v.cliente || '(sin nombre)') + '</b><small>' + esc(v.id_venta) + ' · ' + esc(v.campana || '') + ' · ' + esc(v.agente || '') + ' · ' + fdia(v.fecha) + '</small></div><span aria-hidden="true">' + (ab ? '▾' : '▸') + '</span></button>' +
+      '<div class="s46-ch">' + chipSt('Internet', v.internet) + chipSt('Móviles', v.moviles) + chipSt('TV', v.tv) + alert + '</div>' + det + '</div>';
+  }
+  function pintaSeg() {
+    var host = $('s46-seg'); if (!host) return;
+    var d = SG.d;
+    var tb = '<div class="s46-tb"><input type="search" id="s46-q" placeholder="Buscar cliente, DNI, teléfono, nº de línea…" value="' + esc(SG.q) + '" autocomplete="off">' +
+      '<select id="s46-ag"><option value="">Todos los agentes</option>' + ((d && d.agentes) || []).map(function (a) { return '<option value="' + esc(a) + '"' + (a === SG.agente ? ' selected' : '') + '>' + esc(a) + '</option>'; }).join('') + '</select>' +
+      '<label style="display:inline-flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="s46-al"' + (SG.alertas ? ' checked' : '') + ' style="width:auto"> Solo con alertas</label>' +
+      '<span class="s46-ro" title="El supervisor solo consulta">👁 Solo lectura</span></div>';
+    var body;
+    if (!d) body = '<div class="s46-vacio">' + (SG.busy ? 'Cargando…' : 'Sin datos') + '</div>';
+    else if (SG.err) body = '<div class="s46-vacio">' + esc(SG.err) + '</div>';
+    else {
+      var desde = d.total ? SG.pag * PAG + 1 : 0, hasta = Math.min(d.total, SG.pag * PAG + (d.ventas || []).length);
+      body = '<p class="meta" style="margin:0 0 10px">Clientes con algún servicio sin OK: <b>' + n0(d.cont.pendientes) + '</b> · con alertas: <b>' + n0(d.cont.alertas) + '</b> · mostrando ' + desde + '–' + hasta + ' de ' + n0(d.total) + '</p>' +
+        ((d.ventas || []).length ? '<div class="s46-seg">' + d.ventas.map(function (v) { return tarjetaVenta(v, d.dias); }).join('') + '</div>' : '<div class="s46-vacio">No hay clientes con ese filtro.</div>') +
+        '<div class="s46-tb" style="margin:12px 0 0;justify-content:center"><button type="button" class="sec" data-k="ant"' + (SG.pag ? '' : ' disabled') + '>← Anteriores</button><button type="button" class="sec" data-k="sig"' + (hasta >= d.total ? ' disabled' : '') + '>Siguientes →</button></div>';
+    }
+    var enfoque = document.activeElement && document.activeElement.id === 's46-q';
+    host.innerHTML = tb + body;
+    if (enfoque) { var q = $('s46-q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  }
+  async function cargarSeg() {
+    if (SG.busy) return; SG.busy = true; SG.err = null; pintaSeg();
+    var r = await sb.rpc('back_seguimiento', { p_vista: 'PENDIENTES', p_texto: SG.q || null, p_estados: null, p_agente: SG.agente || null, p_solo_alertas: SG.alertas, p_limit: PAG, p_offset: SG.pag * PAG });
+    SG.busy = false;
+    if (r.error) { SG.err = msg(r.error); SG.d = SG.d || {}; } else SG.d = r.data;
+    pintaSeg();
+  }
+  function ganchosSeg(sec) {
+    sec.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-k]'); if (!b) return; var k = b.getAttribute('data-k');
+      if (k === 'abre') { var id = b.getAttribute('data-id'); SG.abierto[id] = !SG.abierto[id]; pintaSeg(); }
+      else if (k === 'ant' && SG.pag > 0) { SG.pag--; cargarSeg(); }
+      else if (k === 'sig') { SG.pag++; cargarSeg(); }
+    });
+    sec.addEventListener('input', function (e) {
+      if (e.target.id === 's46-q') { SG.q = e.target.value.trim(); SG.pag = 0; clearTimeout(SG.tq); SG.tq = setTimeout(cargarSeg, 400); }
+    });
+    sec.addEventListener('change', function (e) {
+      if (e.target.id === 's46-ag') { SG.agente = e.target.value; SG.pag = 0; cargarSeg(); }
+      else if (e.target.id === 's46-al') { SG.alertas = e.target.checked; SG.pag = 0; cargarSeg(); }
+    });
+  }
+
+  /* ================= TAREAS DEL EQUIPO (ver y asignar) ================= */
+  var TZ = { dias: 7, d: null, busy: false, err: null };
+  function dur(ms) { var m = Math.max(1, Math.round(Math.abs(ms) / 60000)); if (m < 60) return m + ' min'; if (m < 1440) return Math.floor(m / 60) + ' h'; var d = Math.floor(m / 1440); return d + (d === 1 ? ' día' : ' días'); }
+  function vence(iso, pv) {
+    var ms = new Date(iso) - Date.now();
+    if (ms < 0) return { rojo: true, c: 'b-bad', t: 'Vencida hace ' + dur(ms) };
+    return { rojo: false, c: ms < pv * 3600000 ? 'b-warn' : 'b-info', t: 'Vence en ' + dur(ms) };
+  }
+  function pintaTz() {
+    var host = $('s46-tz'); if (!host) return;
+    var d = TZ.d;
+    if (TZ.err) { host.innerHTML = '<div class="s46-vacio">' + esc(TZ.err) + '</div>'; return; }
+    if (!d) { host.innerHTML = '<div class="s46-vacio">Calculando…</div>'; return; }
+    var tot = d.backs.reduce(function (a, b) { a.p += b.pendientes; a.v += b.vencidas; return a; }, { p: 0, v: 0 });
+    var h = '<div class="s46-kpis">' + kpi('', n0(tot.p + d.pool.pendientes), 'Pendientes en total', n0(d.pool.pendientes) + ' sin asignar') +
+      kpi(tot.v + d.pool.vencidas ? 'bad' : '', n0(tot.v + d.pool.vencidas), 'Vencidas', n0(d.pool.vencidas) + ' sin asignar') + kpi('act', n0(d.hechas_hoy), 'Hechas hoy', 'Todo el equipo') + '</div>';
+    h += '<div class="s46-sec"><div class="s46-sh"><h3>Rendimiento por back</h3><span><select data-k="dias" style="width:auto;display:inline-block">' +
+      [[1, 'Hoy'], [7, 'Últimos 7 días'], [30, 'Últimos 30 días']].map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === TZ.dias ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select> <button type="button" class="sec" data-k="ref">↻</button></span></div>' +
+      (d.backs.length ? '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Back</th><th class="n">Pendientes</th><th class="n">Vencidas</th><th class="n">Por vencer</th><th class="n">Hechas hoy</th><th class="n">Hechas (periodo)</th><th class="n">A tiempo</th><th class="n">Cambios MATRIZ</th></tr></thead><tbody>' +
+        d.backs.map(function (b) {
+          return '<tr><td><b>' + esc(b.nombre) + '</b></td><td class="n">' + b.pendientes + '</td><td class="n">' + (b.vencidas ? '<span class="badge b-bad">' + b.vencidas + '</span>' : '0') + '</td><td class="n">' + b.por_vencer + '</td><td class="n">' + b.hechas_hoy + '</td><td class="n">' + b.hechas_periodo + '</td><td class="n">' +
+            (b.hechas_periodo ? pcn(b.a_tiempo, b.hechas_periodo) + ' % <span class="meta">(' + b.a_tiempo + '/' + b.hechas_periodo + ')</span>' : '—') + '</td><td class="n">' + b.gestiones_periodo + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '<div class="s46-vacio">No hay backs activos.</div>') + '</div>';
+    h += '<div class="s46-sec"><div class="s46-sh"><h3>Necesitan atención</h3><span class="meta">Sin asignar o vencidas. Asígnalas a un back</span></div>' +
+      (d.atencion.length ? d.atencion.map(function (t) {
+        var v = vence(t.vence_at, d.por_vencer_horas);
+        return '<div class="s46-t38' + (v.rojo ? ' rojo' : '') + '"><div style="min-width:0;flex:1"><b>' + esc(t.titulo) + '</b> <span class="badge ' + v.c + '">' + v.t + '</span><div class="meta">' + esc(t.cliente || '—') + ' · ' + (t.asignado_nombre ? 'Asignada a ' + esc(t.asignado_nombre) : 'Sin asignar') + '</div></div>' +
+          '<select data-k="asig" data-id="' + esc(t.id) + '" style="width:auto" aria-label="Asignar tarea"><option value="">Asignar a…</option>' + d.backs.map(function (b) { return '<option value="' + esc(b.id) + '"' + (b.id === t.asignado_a ? ' disabled' : '') + '>' + esc(b.nombre) + '</option>'; }).join('') + '<option value="NONE"' + (t.asignado_a ? '' : ' disabled') + '>Quitar asignación</option></select></div>';
+      }).join('') : '<div class="s46-vacio">Nada pendiente de atención. 🎉</div>') + '</div>';
+    host.innerHTML = h;
+  }
+  async function cargarTz() {
+    if (TZ.busy) return; TZ.busy = true;
+    var r = await sb.rpc('admin_tareas_resumen', { p_dias: TZ.dias });
+    TZ.busy = false;
+    if (r.error) { TZ.err = msg(r.error); TZ.d = null; } else { TZ.err = null; TZ.d = r.data; }
+    pintaTz();
+  }
+  function ganchosTz(sec) {
+    sec.addEventListener('change', async function (e) {
+      var t = e.target, k = t.getAttribute('data-k'); if (!k) return;
+      if (k === 'dias') { TZ.dias = parseInt(t.value, 10); return cargarTz(); }
+      if (k === 'asig') {
+        if (!t.value) return;
+        var r = await sb.rpc('back_tarea_asignar', { p_id: t.getAttribute('data-id'), p_back: t.value === 'NONE' ? null : t.value });
+        if (r.error) { toast(msg(r.error), true); return cargarTz(); }
+        toast('Tarea asignada'); cargarTz();
+      }
+    });
+    sec.addEventListener('click', function (e) { var b = e.target.closest('button[data-k="ref"]'); if (b) cargarTz(); });
+  }
+
+  /* ================= PANTALLA DEL SUPERVISOR ================= */
+  var TABS = [['pan', '📊', 'Panel de KPIs'], ['tar', '✅', 'Tareas del equipo'], ['seg', '👁', 'Seguimiento']];
+  var tmr = null;
+  function irSup(k) {
+    Array.prototype.forEach.call(document.querySelectorAll('#s46-tabs .s46-t'), function (b) { var on = b.getAttribute('data-k') === k; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+    Array.prototype.forEach.call(document.querySelectorAll('#s46 > section'), function (s) { s.hidden = s.id !== 's46-p-' + k; });
+    if (k === 'pan') cargarPanel(); else if (k === 'tar') cargarTz(); else if (k === 'seg') cargarSeg();
+  }
+  window.supervisorView = function () {
+    var main = $('main'); if (!main) return;
+    var nombre = String((typeof perfil !== 'undefined' && perfil && perfil.nombre) || '').split(' ')[0];
+    var hoy = new Date().toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Lima' });
+    KP = { dias: 7, d: null, busy: false, tabla: false, orden: 'vol', host: null, esAdmin: false, hora: null, err: null };
+    SG = { q: '', alertas: false, agente: '', pag: 0, d: null, busy: false, abierto: {}, tq: null, err: null };
+    TZ = { dias: 7, d: null, busy: false, err: null };
+    main.innerHTML = '<div class="s46" id="s46"><div class="s46-hero"><small style="opacity:.85;text-transform:capitalize">' + esc(hoy) + '</small><h2>Hola, ' + esc(nombre) + '</h2><p>Supervisor · ves cómo va el grupo, sigues los clientes y repartes las tareas del back. No editas estados ni ves dinero.</p></div>' +
+      '<div class="s46-tabs" id="s46-tabs" role="tablist">' + TABS.map(function (t) { return '<button type="button" class="s46-t" role="tab" data-k="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div>' +
+      '<section id="s46-p-pan"></section><section id="s46-p-tar" hidden><div id="s46-tz"></div></section><section id="s46-p-seg" hidden><div class="s46-sec"><div class="s46-sh"><h3>Seguimiento de clientes</h3><span class="meta">Clientes con algún servicio sin OK</span></div><div id="s46-seg"></div></div></section></div>';
+    KP.host = $('s46-p-pan'); ganchosPanel(KP.host); ganchosTz($('s46-p-tar')); ganchosSeg($('s46-p-seg'));
+    $('s46-tabs').addEventListener('click', function (e) { var b = e.target.closest('.s46-t'); if (b) irSup(b.getAttribute('data-k')); });
+    irSup('pan');
+    clearInterval(tmr);
+    tmr = setInterval(function () {
+      if (!$('s46')) { clearInterval(tmr); return; }
+      if (document.hidden) return;
+      var on = document.querySelector('#s46-tabs .s46-t.on'), k = on && on.getAttribute('data-k');
+      if (k === 'pan') cargarPanel(); else if (k === 'tar') cargarTz();
+    }, 120000);
+  };
+
+  /* ================= PANEL DE KPIs PARA EL ADMIN (pestaña «KPIs del grupo») ================= */
+  function montarAdmin() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-kpi')) return;
+    var s = document.createElement('section'); s.className = 'p15 s46'; s.id = 'p15-kpi'; s.hidden = true; s.innerHTML = '<div id="s46-ad"><div class="s46-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'kpi'); bt.innerHTML = '<span>📊</span>KPIs del grupo';
+    var ref = bar.querySelector('[data-k="res"]'); if (ref) ref.insertAdjacentElement('afterend', bt); else bar.appendChild(bt);
+    var ya = false;
+    bar.addEventListener('click', function (e) {
+      var b = e.target.closest('.t15'); if (!b || b.getAttribute('data-k') !== 'kpi') return;
+      KP.host = $('s46-ad'); KP.esAdmin = true;
+      if (!ya) { ya = true; KP.d = null; ganchosPanel(KP.host); }
+      cargarPanel(false);
+    });
+  }
+
+  /* ================= EQUIPO · CAMBIAR ROL (lo usa el bloque 15 al pintar cada fila) ================= */
+  window.rolSel46 = function (p, miId) {
+    return '<select class="eq-rl" data-old="' + esc(p.rol) + '" title="Cambiar el rol de ' + esc(p.nombre) + '" aria-label="Rol de ' + esc(p.nombre) + '"' + (p.id === miId ? ' disabled' : '') + '>' +
+      ROLES46.map(function (r) { return '<option value="' + r[0] + '"' + (r[0] === p.rol ? ' selected' : '') + '>' + r[1] + '</option>'; }).join('') + '</select>';
+  };
+  window.cambiaRol46 = async function (sel) {
+    var fila = sel.closest('.d15-row2'), id = fila && fila.getAttribute('data-id'), viejo = sel.getAttribute('data-old'), nuevo = sel.value;
+    var nom = fila && fila.querySelector('b') ? fila.querySelector('b').textContent : 'este usuario';
+    if (!id || nuevo === viejo) return;
+    if (!confirm('¿Cambiar el rol de ' + nom + ' de «' + viejo + '» a «' + nuevo + '»?\n\nTendrá que cerrar sesión y volver a entrar para ver su pantalla nueva.')) { sel.value = viejo; return; }
+    sel.disabled = true;
+    var r = await sb.rpc('admin_cambiar_rol', { p_id: id, p_rol: nuevo });
+    sel.disabled = false;
+    if (r.error) { sel.value = viejo; return toast(msg(r.error), true); }
+    toast('Rol actualizado. ' + ((r.data && r.data.aviso) || ''));
+    sel.setAttribute('data-old', nuevo);
+    var tab = document.querySelector('#tabs15 [data-k="equ"]'); if (tab) tab.click();   // vuelve a pintar la lista agrupada por rol
+  };
+
+  var oA = window.adminView;
+  if (typeof oA === 'function') window.adminView = function () { var r = oA.apply(this, arguments); try { montarAdmin(); } catch (e) { console.error(e); } return r; };
+  var oL = window.loginView;
+  if (typeof oL === 'function') window.loginView = function () { clearInterval(tmr); return oL.apply(this, arguments); };
 })();
 
  </script>
