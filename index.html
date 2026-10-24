@@ -5823,7 +5823,7 @@ function ventaForm(l) {
     var lead = b.getAttribute('data-lead'), venta = b.getAttribute('data-venta'), bar = $('tabs15'); if (!bar) return;
     if (venta) {
       var t = bar.querySelector('[data-k="pa"]'); if (t) t.click();
-      setTimeout(function () { var q = $('p36-q'); if (q) { q.value = venta; q.dispatchEvent(new Event('input', { bubbles: true })); } }, 80);
+      setTimeout(function () { var q = $('p37-q'); if (q) { q.value = venta; q.dispatchEvent(new Event('input', { bubbles: true })); } }, 80);
     } else if (lead) { var c = bar.querySelector('[data-k="col"]') || bar.querySelector('[data-k="tab"]'); if (c) c.click(); }
   }
   function montarBack() {
