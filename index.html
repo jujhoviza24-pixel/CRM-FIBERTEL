@@ -6764,7 +6764,7 @@ function ventaForm(l) {
     KP = { dias: 7, d: null, busy: false, tabla: false, orden: 'vol', host: null, esAdmin: false, hora: null, err: null };
     SG = { q: '', alertas: false, agente: '', pag: 0, d: null, busy: false, abierto: {}, tq: null, err: null };
     TZ = { dias: 7, d: null, busy: false, err: null };
-    main.innerHTML = '<div class="s46" id="s46"><div class="s46-hero"><small style="opacity:.85;text-transform:capitalize">' + esc(hoy) + '</small><h2>Hola, ' + esc(nombre) + '</h2><p>Supervisor · ves cómo va el grupo, sigues los clientes y repartes las tareas del back. No editas estados ni ves dinero.</p></div>' +
+    main.innerHTML = '<div class="s46" id="s46"><div class="s46-hero"><small style="opacity:.85;text-transform:capitalize">' + esc(hoy) + '</small><h2>Hola, ' + esc(nombre) + '</h2><p>Supervisor · ves cómo va el grupo, sigues los clientes y repartes las tareas del back. No editas estados.</p></div>' +
       '<div class="s46-tabs" id="s46-tabs" role="tablist">' + TABS.map(function (t) { return '<button type="button" class="s46-t" role="tab" data-k="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div>' +
       '<section id="s46-p-pan"></section><section id="s46-p-tar" hidden><div id="s46-tz"></div></section><section id="s46-p-seg" hidden><div class="s46-sec"><div class="s46-sh"><h3>Seguimiento de clientes</h3><span class="meta">Clientes con algún servicio sin OK</span></div><div id="s46-seg"></div></div></section></div>';
     KP.host = $('s46-p-pan'); ganchosPanel(KP.host); ganchosTz($('s46-p-tar')); ganchosSeg($('s46-p-seg'));
