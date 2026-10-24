@@ -4795,6 +4795,478 @@ function ventaForm(l) {
     };
   });
 })();
+  /* 38 · Back: «Seguimiento» v2 — ficha lateral del cliente, leyenda, DESHACER y «Movidos hoy»
+   PEGAR al final de index.html, DESPUÉS del bloque 36 (NO borres el 36: este bloque reemplaza solo la pestaña «Seguimiento»
+   y deja funcionando «Permisos del back» del 36). Antes ejecuta 37 y 38 (.sql) en Supabase.
+   Cambios frente al 36:
+   - Al tocar un cliente se abre una FICHA a la derecha: datos del cliente, sus líneas, comentarios con fecha y sus cambios (quién y cuándo).
+   - Leyenda «¿Qué significan los íconos?» siempre a mano. El ✎ ahora dice «a mano» y explica qué es.
+   - Cada corrección manual y cada «TODO OK» muestra un aviso «↩ Deshacer» durante 12 segundos.
+   - Vista nueva «↩ Movidos hoy»: lo que hiciste en las últimas 48 h, con botón para deshacer o revertir.
+   - Marcar OK a mano pide confirmación y avisa que no cambia el estado de las líneas. */
+(function () {
+  var PAG = 40, ROL = '', MANUAL = ['OK', 'PENDIENTE', 'PLANIFICADO', 'INCIDENCIA'];
+  var ST = { vista: 'PENDIENTES', estados: [], agente: '', q: '', alertas: false, panel: false, pag: 0, d: null, seq: 0, perm: null, pend: {}, sel: {}, info: {}, dr: null, cache: {}, drTok: 0 };
+  var tEst = null, tU = null;
+  var NOMG = { INTERNET: 'Internet', MOVILES: 'Móviles', TV: 'TV' };
+
+  function $(i) { return document.getElementById(i); }
+  function falta(e) { return /PGRST202|PGRST205|42883|42P01|back_seguimiento|back_editar|back_campos|back_estados|back_seg|back_config|back_confirmar|back_set_manual|back_deshacer|back_movidos|back_revertir|matriz_cambios/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 36, 37 y 38 (.sql) en Supabase' : limpio(e.message || ''); }
+  function hoyLima() { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }); }
+  function fd(s) { var m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + '/' + m[2] + '/' + m[1] : '—'; }
+  function fh(s) { var x = new Date(s); return isNaN(x) ? '' : x.toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+  function puede(c) { return ROL === 'admin' || !ST.perm || ST.perm[c] === true; }
+  function buscar(id) { return ((ST.d && ST.d.ventas) || []).filter(function (v) { return v.id_venta === id; })[0]; }
+  function getV(id) { return buscar(id) || ST.cache[id]; }
+  function entradas(t) { return String(t || '').split(/\s*\/\/\s*/).filter(function (x) { return x.trim(); }); }
+
+  /* ---------- colores de estado ---------- */
+  var ALIAS = { OK: 'ACTIVO', CERRADO: 'FRAUDE', PENDIENTE: 'PENDIENTE TV' };
+  function color(e) { e = String(e || '').toUpperCase(); var i = ST.info[e] || ST.info[ALIAS[e]]; return i && i.color ? i.color : ''; }
+  function chip(e) {
+    var c = color(e), st = c ? ' style="background:' + c + ';color:#111;border-color:transparent"' : '';
+    return '<span class="badge p36-st"' + st + '>' + esc(e || 'SIN ESTADO') + '</span>';
+  }
+  function celda(v, k) {
+    var g = v[k]; if (!g || !g.st) return '<span class="meta">—</span>';
+    var c = color(g.st), ops = MANUAL.slice(); if (ops.indexOf(g.st) < 0) ops.unshift(g.st);
+    return '<select class="p36-sel" style="' + (c ? 'background:' + c + ';color:#111;' : '') + '" data-a="man" data-id="' + esc(v.id_venta) + '" data-g="' + k.toUpperCase() + '" title="Se calcula solo según las líneas. Si lo cambias aquí, queda «a mano» y puedes deshacerlo.">' +
+      ops.map(function (o) { return '<option' + (o === g.st ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '<option value="">↺ Volver a automático</option></select>' +
+      (g.n > 1 ? ' <small>' + (g.done || 0) + '/' + g.n + '</small>' : '') +
+      (g.man ? ' <span class="p38-man" title="Esta celda la corrigió una persona. Elige «Volver a automático» para que se calcule sola otra vez.">a mano</span>' : '');
+  }
+
+  /* ---------- estilos ---------- */
+  function estilos() {
+    if ($('st36')) { /* los estilos base vienen del bloque 36 */ } else {
+      var b = document.createElement('style'); b.id = 'st36';
+      b.textContent = '.p36-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}.p36-bar input:not([type]),.p36-bar select{flex:1 1 150px;min-width:0;margin:0}.p36-bar button{flex:none}.p36-estp{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:10px;border:1px solid rgba(128,128,128,.35);border-radius:10px;margin:0 0 10px}.p36-estp[hidden]{display:none}.p36-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}.p36-chip{padding:6px 12px;font-size:.85em;flex:none}.p36-chip.on{outline:2px solid currentColor}.p36-aviso{font-size:.9em;opacity:.8;margin:0 0 10px}.p36-bulk{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;margin:0 0 10px;border-radius:10px;border:1px solid rgba(128,128,128,.45);background:Canvas}.p36-bulk[hidden]{display:none}.p36-sc{overflow-x:auto}.p36-sc table{min-width:760px;width:100%}.p36-r{cursor:pointer}.p36-r td{vertical-align:middle}.p36-st{white-space:nowrap}.p36-sel{margin:0;width:auto;min-width:112px;padding:4px 6px;border-radius:6px;font-size:.9em}.p36-mini{padding:4px 10px;font-size:.8em}.p36-pg{display:flex;gap:8px;justify-content:center;align-items:center;margin:12px 0}.p36-ck{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:.92em}.p36-ck input[type=checkbox]{width:18px;height:18px;padding:0;flex:none;margin:0}';
+      document.head.appendChild(b);
+    }
+    if ($('st38')) return;
+    var s = document.createElement('style'); s.id = 'st38';
+    s.textContent =
+      '.p38-man{font-size:.7em;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--warn-bg);color:var(--warn);white-space:nowrap}' +
+      '.p38-ley{margin:0 0 10px;font-size:.88em}.p38-ley summary{cursor:pointer;color:var(--acc);font-weight:600}' +
+      '.p38-ley div{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:6px 18px;margin-top:8px;color:var(--mut)}' +
+      '.p38-bk{position:fixed;inset:0;z-index:8999;background:rgba(8,16,22,.45)}.p38-bk[hidden],.p38-dr[hidden]{display:none}' +
+      '.p38-dr{position:fixed;top:0;right:0;bottom:0;width:min(580px,100vw);z-index:9000;background:var(--card);color:var(--ink);border-left:1px solid var(--line2);box-shadow:var(--sh-lg);overflow-y:auto;-webkit-overflow-scrolling:touch}' +
+      '.p38-dh{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding:14px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--acc2),var(--card))}' +
+      '.p38-dh h3{margin:0;font-size:1.15em}.p38-db{padding:14px 18px 40px}' +
+      '.p38-db h4{margin:18px 0 8px;font-size:.72em;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}' +
+      '.p38-svc{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.p38-svc>div{border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg)}.p38-svc small{display:block;color:var(--mut);font-size:.72em;margin-bottom:4px}' +
+      '.p38-lin{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;background:var(--bg)}' +
+      '.p38-lin .t{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.p38-lin b{font-size:.92em}.p38-lin .meta{margin-top:3px}' +
+      '.p38-cm{border-left:3px solid var(--acc);padding:6px 10px;margin:0 0 6px;background:var(--bg);border-radius:0 8px 8px 0;font-size:.88em}.p38-cm small{display:inline-block;margin-right:6px;padding:1px 7px;border-radius:99px;background:var(--acc2);color:var(--acc);font-weight:700}' +
+      '.p38-hi{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:.84em}.p38-hi:last-child{border-bottom:0}' +
+      '.p38-u{position:fixed;left:50%;bottom:78px;transform:translateX(-50%);z-index:99998;display:flex;gap:12px;align-items:center;padding:10px 14px;border-radius:12px;background:var(--ink);color:var(--bg);box-shadow:var(--sh-lg);max-width:92%;font-size:.9em}' +
+      '.p38-u button{padding:5px 12px;background:var(--bg);color:var(--ink);box-shadow:none}' +
+      '.p38-mv{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 4px;border-bottom:1px solid var(--line)}.p38-mv:last-child{border-bottom:0}' +
+      '.p38-mv .i{min-width:0;flex:1 1 260px}.p38-mv .i small{color:var(--mut)}' +
+      '@media(max-width:560px){.p38-svc{grid-template-columns:1fr}}';
+    document.head.appendChild(s);
+  }
+
+  /* ---------- aviso con «Deshacer» ---------- */
+  function undo(txt, fn) {
+    var o = $('u38'); if (o) o.remove();
+    clearTimeout(tU);
+    var e = document.createElement('div'); e.id = 'u38'; e.className = 'p38-u';
+    e.innerHTML = '<span>' + esc(txt) + '</span><button type="button">↩ Deshacer</button>';
+    document.body.appendChild(e);
+    tU = setTimeout(function () { e.remove(); }, 12000);
+    e.querySelector('button').onclick = async function () { this.disabled = true; clearTimeout(tU); await fn(); e.remove(); };
+  }
+  async function deshacerLogs(ids) {
+    var r = await sb.rpc('back_deshacer', { p_ids: ids });
+    if (r.error) return toast(msg(r.error), true);
+    toast('Listo, se deshizo'); cargar();
+  }
+
+  /* ---------- datos ---------- */
+  async function cargarPerm() {
+    if (ROL === 'admin') { ST.perm = null; return; }
+    var r = await sb.from('back_campos_editables').select('campo,activo');
+    if (r.error) { ST.perm = null; return; }
+    ST.perm = {}; (r.data || []).forEach(function (x) { ST.perm[x.campo] = !!x.activo; });
+  }
+  async function pendientes(ids) {
+    ST.pend = {}; if (!ids.length) return;
+    var desde = new Date(Date.now() - 7 * 864e5).toISOString();
+    var r = await sb.from('matriz_cambios').select('id_venta,campo,estado,error,destinos').in('id_venta', ids).in('estado', ['PENDIENTE', 'ERROR']).gte('created_at', desde);
+    (r.data || []).forEach(function (x) { (ST.pend[x.id_venta] = ST.pend[x.id_venta] || []).push(x); });
+  }
+  async function cargar() {
+    var out = $('p38-out'); if (!out) return;
+    if (ST.vista === 'MOVIDOS') return cargarMov();
+    var n = ++ST.seq;
+    out.innerHTML = '<div class="d15-vacio">Cargando…</div>';
+    var r;
+    try {
+      r = await sb.rpc('back_seguimiento', { p_vista: ST.vista, p_texto: ST.q || null, p_estados: ST.estados.length ? ST.estados : null, p_agente: ST.agente || null, p_solo_alertas: ST.alertas, p_limit: PAG, p_offset: ST.pag * PAG });
+    } catch (e) { if (n === ST.seq) out.innerHTML = '<div class="d15-vacio">No se pudo cargar.</div>'; return; }
+    if (n !== ST.seq) return;
+    if (r.error) { out.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
+    ST.d = r.data || {}; ST.info = ST.d.estados_info || {};
+    (ST.d.ventas || []).forEach(function (v) { ST.cache[v.id_venta] = v; });
+    await pendientes((ST.d.ventas || []).map(function (v) { return v.id_venta; }));
+    if (n !== ST.seq) return;
+    pinta();
+  }
+
+  /* ---------- lista ---------- */
+  function opts(lista, sel, vacio) {
+    return '<option value="">' + vacio + '</option>' + lista.map(function (x) { return '<option' + (x === sel ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
+  }
+  function avisos(v) {
+    var a = [];
+    if (v.plan_venc > 0) a.push('<span title="Planificado con fecha ya vencida">📅</span>');
+    if (!v.listo && v.dias_sin > (ST.d.dias || 5) && v.dias_sin < 3000) a.push('<span title="Días sin movimiento">🕒' + v.dias_sin + 'd</span>');
+    if ((v.lineas || []).some(function (l) { return l.espera_fibra; })) a.push('<span title="Hay móviles esperando a que se active la fibra">⛓</span>');
+    if (v.reabierto) a.push('<span title="Estaba en TODO OK y ahora tiene algo pendiente">↩</span>');
+    return a.join(' ');
+  }
+  function pinta() {
+    var d = ST.d || {}, c = d.cont || {}, tot = d.total || 0;
+    var ch = function (k, t, n) { return '<button type="button" class="sec p36-chip' + (ST.vista === k ? ' on' : '') + '" data-a="vista" data-v="' + k + '">' + t + (n == null ? '' : ' (' + (n || 0) + ')') + '</button>'; };
+    $('p38-chips').innerHTML = ch('PENDIENTES', 'En seguimiento', c.pendientes) + ch('LISTOS', '✅ Listos para cerrar', c.listos) + ch('CERRADOS', 'Cerrados', c.cerrados) + ch('MOVIDOS', '↩ Movidos hoy', null);
+    $('p38-aviso').innerHTML = ST.vista === 'LISTOS' ? 'Todo está en OK. Marca los clientes y pulsa «Confirmar TODO OK» para sacarlos de la lista.' :
+      ST.vista === 'CERRADOS' ? 'Clientes ya cerrados. Abre uno para reabrirlo si fue un error.' : 'Toca un cliente para abrir su ficha. Marca varios para cambiarlos juntos.';
+    var todosEst = ['SIN ESTADO'].concat(d.estados_todos || []);
+    $('p38-estb').textContent = 'Estados' + (ST.estados.length ? ' (' + ST.estados.length + ')' : ' (todos)') + ' ▾';
+    $('p38-estp').hidden = !ST.panel;
+    $('p38-estp').innerHTML = todosEst.map(function (e) { return '<label class="p36-ck"><input type="checkbox" data-a="est" data-e="' + esc(e) + '"' + (ST.estados.indexOf(e) >= 0 ? ' checked' : '') + '>' + chip(e) + '</label>'; }).join('') +
+      '<button type="button" class="sec p36-mini" data-a="estlimpiar">Quitar filtro</button>';
+    $('p38-ag').innerHTML = opts(d.agentes || [], ST.agente, 'Todos los comerciales');
+    var v = d.ventas || [];
+    if (!v.length) $('p38-out').innerHTML = '<div class="d15-vacio">No hay clientes con estos filtros.</div>';
+    else {
+      var todos = v.every(function (x) { return ST.sel[x.id_venta]; });
+      $('p38-out').innerHTML = '<div class="p36-sc"><table class="d15-tbl"><thead><tr><th><input type="checkbox" data-a="selall"' + (todos ? ' checked' : '') + ' title="Marcar toda la página"></th><th>Comercial</th><th>Operador</th><th>Cliente</th><th>Estado</th><th>Internet</th><th>Móviles</th><th>TV</th><th></th></tr></thead><tbody>' + v.map(fila).join('') + '</tbody></table></div>';
+    }
+    var pg = Math.max(1, Math.ceil(tot / PAG));
+    $('p38-pg').innerHTML = tot > PAG ? '<button type="button" class="sec" data-a="pg" data-v="-1"' + (ST.pag <= 0 ? ' disabled' : '') + '>← Anterior</button><span class="meta">Página ' + (ST.pag + 1) + ' de ' + pg + ' · ' + tot + ' clientes</span><button type="button" class="sec" data-a="pg" data-v="1"' + (ST.pag + 1 >= pg ? ' disabled' : '') + '>Siguiente →</button>' : '';
+    barra();
+    if (ST.dr) dibujaDrawer();
+  }
+  function fila(v) {
+    return '<tr class="p36-r" data-a="abrir" data-id="' + esc(v.id_venta) + '" title="Abrir la ficha del cliente"><td><input type="checkbox" data-a="sel" data-id="' + esc(v.id_venta) + '"' + (ST.sel[v.id_venta] ? ' checked' : '') + '></td>' +
+      '<td>' + esc(v.agente || '') + '</td><td>' + esc(v.campana || '') + '</td><td><b>' + esc(v.cliente || '—') + '</b><br><small>' + esc(v.dni || '—') + '</small></td>' +
+      '<td>' + (v.estados || []).slice(0, 3).map(chip).join(' ') + '</td><td>' + celda(v, 'internet') + '</td><td>' + celda(v, 'moviles') + '</td><td>' + celda(v, 'tv') + '</td><td>' + avisos(v) + '</td></tr>';
+  }
+
+  /* ---------- ficha lateral del cliente ---------- */
+  function abrirDrawer(id) { ST.dr = id; $('p38-bk').hidden = false; $('p38-dr').hidden = false; dibujaDrawer(); }
+  function cerrarDrawer() { ST.dr = null; var a = $('p38-bk'), b = $('p38-dr'); if (a) a.hidden = true; if (b) { b.hidden = true; b.innerHTML = ''; } }
+  function dibujaDrawer() {
+    var dr = $('p38-dr'); if (!dr || !ST.dr) return;
+    var v = getV(ST.dr); if (!v) { cerrarDrawer(); return; }
+    var scroll = dr.scrollTop;
+    var pend = ST.pend[v.id_venta] || [], errs = pend.filter(function (p) { return p.estado === 'ERROR'; });
+    var svc = ['internet', 'moviles', 'tv'].map(function (k) {
+      var g = v[k]; return '<div><small>' + NOMG[k.toUpperCase()] + '</small>' + (g && g.st ? chip(g.st) + (g.n > 1 ? ' <small>' + (g.done || 0) + '/' + g.n + '</small>' : '') + (g.man ? ' <span class="p38-man" title="Corregido a mano">a mano</span>' : '') : '<span class="meta">—</span>') + '</div>';
+    }).join('');
+    var lin = (v.lineas || []).map(function (l) {
+      var mios = pend.filter(function (p) { return (p.destinos || []).some(function (x) { return x.fila === l.fila; }); });
+      var mk = mios.map(function (p) { return p.estado === 'ERROR' ? '<span class="badge b-bad" title="' + esc(p.error || '') + '">⚠ MATRIZ lo rechazó</span>' : '<span class="meta" title="Se pasa a MATRIZ en 1 minuto">⏳ enviando a MATRIZ</span>'; }).join(' ');
+      return '<div class="p38-lin"><div class="t"><div><b>' + esc(l.producto || l.tipo || 'Línea') + '</b><div class="meta">' + esc(l.numero || 'sin número') + ' · viene de ' + esc(l.operador || '—') + '</div></div>' +
+        '<button type="button" class="sec p36-mini" data-a="lin" data-id="' + esc(v.id_venta) + '" data-f="' + l.fila + '">✏ Editar</button></div>' +
+        '<div class="meta">' + chip(l.estado || 'SIN ESTADO') + ' desde ' + fd(l.fecha_estado) + ' ' + mk + (l.espera_fibra ? ' <span title="Espera a que se active la fibra">⛓ espera la fibra</span>' : '') + '</div></div>';
+    }).join('');
+    var curso = (v.lineas || []).filter(function (l) { return l.eg === 'EN_CURSO'; })[0] || (v.lineas || [])[0] || {};
+    var todo = (v.lineas || []).reduce(function (a, l) { return a.concat(entradas(l.comentario)); }, []);
+    var uniq = todo.filter(function (x, i) { return todo.indexOf(x) === i; });
+    var acc = '';
+    if (ST.vista === 'CERRADOS') acc = '<button type="button" class="sec" data-a="reabrir" data-id="' + esc(v.id_venta) + '">↩ Reabrir cliente</button> <span class="meta">Cerrado por ' + esc(v.confirmado_por || '—') + ' el ' + fd(v.confirmado_at) + '</span>';
+    else if (v.listo) acc = '<button type="button" data-a="todook" data-id="' + esc(v.id_venta) + '">✅ Confirmar TODO OK</button>';
+    dr.innerHTML = '<div class="p38-dh"><div><h3>' + esc(v.cliente || 'Cliente') + '</h3><div class="meta">DNI ' + esc(v.dni || '—') + ' · Tel. ' + esc(v.telefono || '—') + '</div>' +
+      '<div class="meta">' + esc([v.localidad, v.provincia].filter(Boolean).join(', ') || 'Sin zona') + ' · ' + esc(v.campana || '') + ' · comercial ' + esc(v.agente || '—') + '</div><div class="meta">' + esc(v.id_venta) + '</div></div>' +
+      '<button type="button" class="sec" data-a="cerrar" title="Cerrar la ficha">✕</button></div>' +
+      '<div class="p38-db">' + (errs.length ? '<div class="warn" style="margin:0 0 10px">Un cambio no pudo pasar a MATRIZ: ' + esc(errs[0].error || 'error') + '. Corrígelo y vuelve a guardar.</div>' : '') +
+      '<div class="p38-svc">' + svc + '</div>' +
+      '<p style="margin:12px 0 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="sec p36-mini" data-a="cli" data-id="' + esc(v.id_venta) + '" data-f="' + ((v.lineas && v.lineas[0] && v.lineas[0].fila) || 0) + '">✏ Datos del cliente</button> ' + acc + '</p>' +
+      '<h4>Líneas (' + (v.lineas || []).length + ')</h4>' + lin +
+      '<h4>Comentarios</h4>' + (puede('comentario') && curso.fila ? '<textarea id="p38-nc" rows="2" data-minus placeholder="Escribe un comentario. Se guarda con la fecha, la hora y tu nombre."></textarea>' +
+        '<p style="margin:6px 0 10px"><button type="button" class="p36-mini" data-a="coment" data-id="' + esc(v.id_venta) + '" data-f="' + curso.fila + '">Agregar comentario</button></p>' : '') +
+      '<div id="p38-cm">' + (uniq.length ? uniq.slice(0, 30).map(function (x) { return comentarioHtml(x, []); }).join('') : '<div class="meta">Aún no hay comentarios.</div>') + '</div>' +
+      '<h4>Cambios hechos en este cliente</h4><div id="p38-h"><div class="meta">Cargando…</div></div></div>';
+    dr.scrollTop = scroll;
+    var tok = ++ST.drTok, id = v.id_venta;
+    sb.from('matriz_cambios').select('*').eq('id_venta', id).order('created_at', { ascending: false }).limit(30).then(function (r) {
+      if (tok !== ST.drTok || ST.dr !== id) return;
+      var h = $('p38-h'); if (!h) return;
+      var cs = r.data || [], nombres = [];
+      cs.forEach(function (c) { var n = String(c.autor_nombre || '').toUpperCase(); if (n && nombres.indexOf(n) < 0) nombres.push(n); });
+      var cm = $('p38-cm');
+      if (cm && uniq.length) cm.innerHTML = uniq.slice(0, 30).map(function (x) { return comentarioHtml(x, nombres); }).join('');
+      h.innerHTML = cs.length ? cs.map(function (c) {
+        var com = c.campo === 'comentario_add', etq = com ? 'comentario' : c.campo;
+        return '<div class="p38-hi"><span><b>' + esc(c.autor_nombre || '—') + '</b> · ' + esc(etq) + (com ? '' : ': ' + esc(c.valor_anterior || '—') + ' → ' + esc(c.valor_nuevo || '—')) + '</span>' +
+          '<span class="meta">' + esc(fh(c.created_at)) + ' <span class="badge ' + (c.estado === 'APLICADO' ? 'b-ok' : c.estado === 'ERROR' ? 'b-bad' : '') + '" title="' + esc(c.error || '') + '">' + esc(c.estado) + '</span></span></div>';
+      }).join('') : '<div class="meta">Todavía no se hizo ningún cambio desde el CRM.</div>';
+    });
+  }
+  function comentarioHtml(x, nombres) {
+    var m = String(x).match(/^(\d{1,2}\/\d{1,2}-\d{1,2}:\d{2})\s+(.*)$/), fecha = m ? m[1] : '', cuerpo = m ? m[2] : x, autor = '';
+    nombres.forEach(function (n) { if (!autor && cuerpo.toUpperCase().indexOf(n + ' ') === 0) { autor = cuerpo.slice(0, n.length); cuerpo = cuerpo.slice(n.length + 1); } });
+    return '<div class="p38-cm">' + (fecha ? '<small>' + esc(fecha) + '</small>' : '') + (autor ? '<b>' + esc(autor) + '</b> ' : '') + esc(cuerpo) + '</div>';
+  }
+
+  /* ---------- ventanas de edición ---------- */
+  function campoHtml(c, etq, tipo, val, estados, ph) {
+    var ok = puede(c), dis = ok ? '' : ' disabled title="El administrador no habilitó este campo"';
+    var h = '<label>' + esc(etq) + (ok ? '' : ' 🔒') + '</label>';
+    if (tipo === 'sel') {
+      var l = estados.slice(); if (val && l.indexOf(val) < 0) l.push(val);
+      h += '<select id="p36-f-' + c + '"' + dis + '>' + (val ? '' : '<option value="">(sin cambio)</option>') + l.map(function (x) { return '<option' + (x === val ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>';
+    } else if (tipo === 'date') h += '<input type="date" id="p36-f-' + c + '" value="' + esc(val || '') + '"' + dis + '>';
+    else if (tipo === 'area') h += '<textarea id="p36-f-' + c + '" rows="3" data-minus placeholder="' + esc(ph || '') + '"' + dis + '>' + esc(val || '') + '</textarea>';
+    else if (tipo === 'op') h += '<input id="p36-f-' + c + '" list="p36-ops" value="' + esc(val || '') + '"' + dis + '><datalist id="p36-ops">' + ((ST.d && ST.d.operadores) || []).map(function (o) { return '<option value="' + esc(o) + '">'; }).join('') + '</datalist>';
+    else h += '<input id="p36-f-' + c + '" value="' + esc(val || '') + '"' + dis + '>';
+    return h;
+  }
+  function modal(titulo, sub, cuerpo, onSave, etiqueta) {
+    var ov = document.createElement('div'); ov.className = 'k-ov'; ov.id = 'm36'; ov.style.zIndex = 9300;
+    ov.innerHTML = '<div class="k-bus" style="max-height:90vh;overflow:auto"><h3 style="margin:0 0 4px">' + titulo + '</h3><div class="meta" style="margin:0 0 6px">' + sub + '</div>' + cuerpo +
+      '<div class="row" style="margin-top:14px"><button type="button" class="sec" id="m36-x">Cancelar</button><button type="button" id="m36-ok">' + (etiqueta || 'Guardar') + '</button></div></div>';
+    document.body.appendChild(ov);
+    ov.querySelector('#m36-x').onclick = function () { ov.remove(); };
+    ov.querySelector('#m36-ok').onclick = function () { onSave(ov, this); };
+    return ov;
+  }
+  async function enviar(ov, btn, id, fila, cambios, todas) {
+    if (!Object.keys(cambios).length) { btn.disabled = false; return toast('No cambiaste nada', true); }
+    btn.disabled = true;
+    var r = await sb.rpc('back_editar_venta', { p_id_venta: id, p_fila: fila, p_cambios: cambios, p_todas: !!todas });
+    btn.disabled = false;
+    if (r.error) return toast(msg(r.error), true);
+    if (ov) ov.remove();
+    toast(cambios.comentario && Object.keys(cambios).length === 1 ? 'Comentario agregado. Se pasa a MATRIZ en 1 minuto.' : 'Guardado. Se pasa a MATRIZ en 1 minuto. Si fue un error, revierte desde «↩ Movidos hoy».');
+    cargar();
+  }
+  function armar(g, orig) {
+    var c = {}, est = g('estado'), fe = g('fecha_estado'), co = g('comentario');
+    if (est && est !== String(orig.estado || '').trim()) c.estado = est.toUpperCase();
+    if (fe && fe !== String(orig.fecha_estado || '')) c.fecha_estado = fe;
+    if (co) c.comentario = co;
+    var finalE = c.estado || String(orig.estado || '').toUpperCase();
+    if (c.estado === 'PLANIFICADO' && !c.fecha_estado && puede('fecha_estado')) return { error: 'Elige la fecha planificada (puede ser futura)' };
+    if (c.estado && c.estado !== 'PLANIFICADO' && !c.fecha_estado && puede('fecha_estado')) c.fecha_estado = hoyLima();
+    if (orig.estado !== undefined && finalE !== 'PLANIFICADO' && c.fecha_estado && c.fecha_estado > hoyLima() && !c.estado) return { error: 'Solo el estado PLANIFICADO admite una fecha futura' };
+    return { c: c };
+  }
+  function editarLinea(id, fila) {
+    var v = getV(id); if (!v) return;
+    var l = (v.lineas || []).filter(function (x) { return x.fila === fila; })[0]; if (!l) return;
+    var algo = ['estado', 'fecha_estado', 'comentario', 'operador', 'producto', 'numero'].some(puede);
+    var cuerpo = campoHtml('estado', 'Estado', 'sel', l.estado || '', ST.d.estados_todos || []) + campoHtml('fecha_estado', 'Fecha del estado', 'date', l.fecha_estado, []) +
+      campoHtml('operador', 'Operador de origen (de dónde viene la línea)', 'op', l.operador, []) +
+      campoHtml('comentario', 'Comentario nuevo (se agrega arriba)', 'area', '', [], 'Opcional') +
+      '<details style="margin:6px 0"><summary class="meta">Más datos: producto y número</summary>' + campoHtml('producto', 'Producto', 'txt', l.producto, []) + campoHtml('numero', 'Número a portar', 'txt', l.numero, []) + '</details>' +
+      ((v.lineas || []).filter(function (x) { return x.eg === 'EN_CURSO'; }).length > 1 ? '<label class="p36-ck"><input type="checkbox" id="p36-todas"> Aplicar estado, fecha y comentario a todas las líneas en curso de este cliente</label>' : '') +
+      (algo ? '' : '<div class="warn">El administrador no habilitó ningún campo de esta ventana.</div>');
+    modal('Editar línea', esc(v.cliente || '') + ' · ' + esc(l.producto || ''), cuerpo, function (ov, btn) {
+      var g = function (c) { var e = ov.querySelector('#p36-f-' + c); return e && !e.disabled ? e.value.trim() : ''; };
+      var a = armar(g, l); if (a.error) return toast(a.error, true);
+      var c = a.c;
+      ['operador', 'producto', 'numero'].forEach(function (k) {
+        var e = ov.querySelector('#p36-f-' + k); if (!e || e.disabled) return;
+        var x = e.value.trim().toUpperCase(); if (x !== String(l[k] || '').trim().toUpperCase()) c[k] = x;
+      });
+      var t = ov.querySelector('#p36-todas');
+      enviar(ov, btn, id, fila, c, t && t.checked);
+    });
+  }
+  function editarCliente(id, fila) {
+    var v = getV(id); if (!v) return;
+    var cuerpo = campoHtml('cliente', 'Nombre y apellido', 'txt', v.cliente, []) + campoHtml('dni', 'DNI', 'txt', v.dni, []) + campoHtml('telefono', 'Teléfono de contacto', 'txt', v.telefono, []) +
+      campoHtml('provincia', 'Provincia', 'txt', v.provincia, []) + campoHtml('localidad', 'Localidad', 'txt', v.localidad, []) +
+      '<div class="meta">Se corrige en todas las líneas del cliente.</div>';
+    modal('Datos del cliente', esc(v.id_venta), cuerpo, function (ov, btn) {
+      var c = {};
+      ['cliente', 'dni', 'telefono', 'provincia', 'localidad'].forEach(function (k) {
+        var e = ov.querySelector('#p36-f-' + k); if (!e || e.disabled) return;
+        var x = e.value.trim().toUpperCase(); if (x !== String(v[k] || '').trim().toUpperCase()) c[k] = x;
+      });
+      enviar(ov, btn, id, fila, c, false);
+    });
+  }
+
+  /* ---------- varios clientes a la vez ---------- */
+  function ids() { return Object.keys(ST.sel).filter(function (k) { return ST.sel[k]; }); }
+  function barra() {
+    var b = $('p38-bulk'); if (!b) return;
+    var n = ids().length;
+    if (!n) { b.hidden = true; b.innerHTML = ''; return; }
+    b.hidden = false;
+    b.innerHTML = '<b>' + n + ' marcado' + (n > 1 ? 's' : '') + '</b><button type="button" data-a="masivo">✏ Cambiar estado / fecha / comentario</button>' +
+      (ST.vista !== 'CERRADOS' ? '<button type="button" class="sec" data-a="todook-sel">✅ Confirmar TODO OK</button>' : '') + '<button type="button" class="sec" data-a="limpiar">Desmarcar</button>';
+  }
+  function masivo() {
+    var sel = ids(); if (!sel.length) return;
+    var cuerpo = '<label>Aplicar a</label><select id="p36-g"><option value="TODAS">Todas las líneas en curso</option><option value="INTERNET">Solo Internet</option><option value="MOVIL">Solo Móviles</option><option value="TV">Solo TV</option></select>' +
+      campoHtml('estado', 'Estado nuevo', 'sel', '', ST.d.estados_todos || []) + campoHtml('fecha_estado', 'Fecha (vacía = hoy)', 'date', '', []) +
+      campoHtml('comentario', 'Comentario (se agrega arriba en cada línea)', 'area', '', [], 'Opcional');
+    modal('Cambiar ' + sel.length + ' cliente' + (sel.length > 1 ? 's' : ''), 'Solo se tocan las líneas en curso.', cuerpo, async function (ov, btn) {
+      var g = function (c) { var e = ov.querySelector('#p36-f-' + c); return e && !e.disabled ? e.value.trim() : ''; };
+      var a = armar(g, {}); if (a.error) return toast(a.error, true);
+      if (!Object.keys(a.c).length) return toast('No elegiste nada para cambiar', true);
+      btn.disabled = true;
+      var r = await sb.rpc('back_editar_masivo', { p_ids: sel, p_grupo: ov.querySelector('#p36-g').value, p_cambios: a.c });
+      btn.disabled = false;
+      if (r.error) return toast(msg(r.error), true);
+      var d = r.data || {}, er = d.errores || [];
+      ov.remove(); ST.sel = {};
+      toast(d.ok + ' cliente' + (d.ok === 1 ? '' : 's') + ' actualizado' + (d.ok === 1 ? '' : 's') + '. Se pasa a MATRIZ en 1 minuto.' + (er.length ? ' ' + er.length + ' con problema.' : ''), !!er.length && !d.ok);
+      if (er.length) modal(er.length + ' sin cambiar', 'El resto sí se guardó.', '<ul>' + er.map(function (x) { return '<li><b>' + esc(x.id_venta) + '</b>: ' + esc(limpio(x.error || '')) + '</li>'; }).join('') + '</ul>', function (o) { o.remove(); }, 'Entendido');
+      cargar();
+    }, 'Aplicar');
+  }
+  function confirmarTodoOk(lista) {
+    if (!lista.length) return;
+    var nombres = lista.map(function (id) { var v = getV(id); return v ? (v.cliente || id) : id; });
+    var sinListo = lista.filter(function (id) { var v = getV(id); return v && !v.listo; });
+    modal('Confirmar TODO OK', lista.length + ' cliente' + (lista.length > 1 ? 's' : ''),
+      '<p>Saldrán de «En seguimiento» y los encontrarás en «Cerrados»:</p><ul style="max-height:200px;overflow:auto">' + nombres.slice(0, 12).map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + (nombres.length > 12 ? '<li>…y ' + (nombres.length - 12) + ' más</li>' : '') + '</ul>' +
+      (sinListo.length ? '<div class="warn">⚠ ' + sinListo.length + ' todavía tiene algún servicio sin OK. Si confirmas igual, saldrá de la lista.</div>' : '<div class="meta">Todos tienen Internet, Móviles y TV en OK. Podrás deshacerlo al instante o reabrirlo desde «Cerrados».</div>'),
+      async function (ov, btn) {
+        btn.disabled = true;
+        var r = await sb.rpc('back_confirmar_todo_ok', { p_ids: lista });
+        btn.disabled = false;
+        if (r.error) return toast(msg(r.error), true);
+        ov.remove(); lista.forEach(function (id) { delete ST.sel[id]; });
+        var logs = (r.data && r.data.logs) || [], n = (r.data && r.data.confirmados) || lista.length;
+        if (ST.dr && lista.indexOf(ST.dr) >= 0) cerrarDrawer();
+        if (logs.length) undo(n + ' cliente(s) confirmados en TODO OK', function () { return deshacerLogs(logs); });
+        else toast('Listo: ' + n + ' cliente(s) en TODO OK');
+        cargar();
+      }, 'Sí, confirmar');
+  }
+
+  /* ---------- «Movidos hoy» ---------- */
+  async function cargarMov() {
+    var out = $('p38-out'); if (!out) return;
+    out.innerHTML = '<div class="d15-vacio">Cargando…</div>';
+    var r = await sb.rpc('back_movidos', { p_horas: 48 });
+    if (r.error) { out.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
+    var logs = (r.data && r.data.logs) || [], cam = (r.data && r.data.cambios) || [], adm = ROL === 'admin';
+    $('p38-aviso').textContent = 'Lo que hiciste en las últimas 48 horas' + (adm ? ' (todo el equipo)' : '') + '. Aquí puedes deshacer un error.';
+    $('p38-chips').querySelectorAll('.p36-chip').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === 'MOVIDOS'); });
+    var txtLog = function (l) {
+      var g = NOMG[l.grupo] || '';
+      return l.accion === 'TODO_OK' ? 'Confirmó TODO OK' : l.accion === 'REABRIR' ? 'Reabrió el cliente' : 'Corrigió ' + g + ' a mano: ' + (l.antes || 'automático') + ' → ' + (l.despues || 'automático');
+    };
+    var h = '<h4 style="margin:0 0 6px;font-size:.78em;text-transform:uppercase;letter-spacing:.08em;color:var(--acc)">Confirmaciones y correcciones a mano</h4>' +
+      (logs.length ? logs.map(function (l) {
+        return '<div class="p38-mv"><div class="i"><b>' + esc(l.cliente || l.id_venta) + '</b><br><small>' + esc(txtLog(l)) + ' · ' + esc(fh(l.at)) + (adm ? ' · ' + esc(l.autor || '') : '') + '</small></div>' +
+          (l.revertido ? '<span class="badge">ya deshecho</span>' : '<button type="button" class="sec p36-mini" data-a="undolog" data-lid="' + l.id + '">↩ Deshacer</button>') + '</div>';
+      }).join('') : '<div class="meta">Nada en este periodo.</div>') +
+      '<h4 style="margin:18px 0 6px;font-size:.78em;text-transform:uppercase;letter-spacing:.08em;color:var(--acc)">Cambios en las líneas</h4>' +
+      (cam.length ? cam.map(function (c) {
+        var com = c.campo === 'comentario_add';
+        return '<div class="p38-mv"><div class="i"><b>' + esc(c.cliente || c.id_venta) + '</b><br><small>' + (com ? 'Comentario agregado' : esc(c.campo) + ': ' + esc(c.antes || '—') + ' → ' + esc(c.despues || '—')) + ' · ' + esc(fh(c.at)) + (adm ? ' · ' + esc(c.autor || '') : '') +
+          ' · <span class="badge ' + (c.estado === 'APLICADO' ? 'b-ok' : c.estado === 'ERROR' ? 'b-bad' : '') + '" title="' + esc(c.error || '') + '">' + esc(c.estado) + '</span></small></div>' +
+          (c.revertible ? '<button type="button" class="sec p36-mini" data-a="revertir" data-cid="' + esc(c.id) + '" title="Devuelve este dato a como estaba (solo esa línea)">↩ Revertir</button>' : '') + '</div>';
+      }).join('') : '<div class="meta">Nada en este periodo.</div>');
+    out.innerHTML = '<div class="d15-sec" style="margin:0">' + h + '</div>';
+    $('p38-pg').innerHTML = ''; var bb = $('p38-bulk'); if (bb) bb.hidden = true;
+  }
+
+  /* ---------- montaje: pestaña del back ---------- */
+  function montarBack(rol) {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p38-out')) return;
+    ROL = rol; estilos();
+    var viejo = $('p15-pa'); if (viejo) viejo.remove();                              // quita la pestaña del bloque 36
+    var vb = bar.querySelector('[data-k="pa"]'); if (vb) vb.remove();
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-pa'; s.hidden = true;
+    s.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>Seguimiento de clientes</h3></div>' +
+      '<div class="p36-bar"><input id="p38-q" data-minus placeholder="Buscar cliente, DNI, teléfono o número"><button type="button" class="sec" id="p38-estb" data-a="estp">Estados (todos) ▾</button><select id="p38-ag"></select>' +
+      '<label class="p36-ck" style="margin:0;flex:none"><input type="checkbox" id="p38-al"> Solo con alertas</label><button type="button" class="sec" data-a="ref" title="Actualizar">↻</button></div>' +
+      '<details class="p38-ley"><summary>¿Qué significan los íconos y colores?</summary><div>' +
+      '<span><span class="p38-man">a mano</span> la celda la corrigió una persona; elige «Volver a automático» para que se calcule sola</span>' +
+      '<span>📅 tiene un estado PLANIFICADO con fecha ya vencida</span><span>🕒 días sin movimiento (se configura en Admin)</span>' +
+      '<span>⛓ hay móviles esperando a que se active la fibra</span><span>↩ estaba en TODO OK y volvió a tener algo pendiente</span>' +
+      '<span>⏳ el cambio se está enviando a MATRIZ (hasta 1 minuto)</span><span>⚠ MATRIZ rechazó el cambio; abre la ficha para ver el motivo</span>' +
+      '<span>Internet, Móviles y TV: OK = todo terminado · PENDIENTE = falta · PLANIFICADO = con fecha · INCIDENCIA = hay problema</span></div></details>' +
+      '<div class="p36-estp" id="p38-estp" hidden></div><div class="p36-chips" id="p38-chips"></div><div class="p36-aviso" id="p38-aviso"></div><div class="p36-bulk" id="p38-bulk" hidden></div><div id="p38-out"></div><div class="p36-pg" id="p38-pg"></div></div>' +
+      '<div class="p38-bk" id="p38-bk" hidden data-a="cerrar"></div><aside class="p38-dr" id="p38-dr" hidden></aside>';
+    panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'pa'); bt.innerHTML = '<span>📋</span>Seguimiento';
+    var m = $('btnManual17'); if (m) bar.insertBefore(bt, m); else bar.appendChild(bt);
+    var tq = null;
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'pa') cargarPerm().then(function () { ST.pag = 0; cargar(); }); else cerrarDrawer(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && ST.dr && !$('m36')) cerrarDrawer(); });
+    s.addEventListener('input', function (e) { if (e.target.id !== 'p38-q') return; clearTimeout(tq); tq = setTimeout(function () { ST.q = e.target.value.trim(); ST.pag = 0; cargar(); }, 350); });
+    s.addEventListener('change', async function (e) {
+      var i = e.target.id, a = e.target.getAttribute('data-a');
+      if (a === 'man') {
+        var el = e.target, id = el.getAttribute('data-id'), g = el.getAttribute('data-g'), val = el.value, v = getV(id);
+        if (val === 'OK' && !confirm('¿Marcar ' + (NOMG[g] || g) + ' como OK a mano?\n\nEsto NO cambia el estado de las líneas: solo reemplaza el cálculo automático, y el cliente puede pasar a «Listos para cerrar».\nPodrás deshacerlo al instante.')) return cargar();
+        var r = await sb.rpc('back_set_manual', { p_id: id, p_grupo: g, p_valor: val });
+        if (r.error) { toast(msg(r.error), true); return cargar(); }
+        var lid = r.data && r.data.log_id;
+        if (lid) undo((NOMG[g] || g) + ' de ' + ((v && v.cliente) || id) + ': ' + (val || 'automático'), function () { return deshacerLogs([lid]); }); else toast('Guardado');
+        return cargar();
+      }
+      if (i === 'p38-ag') ST.agente = e.target.value; else if (i === 'p38-al') ST.alertas = e.target.checked; else return;
+      ST.pag = 0; cargar();
+    });
+    s.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-a]'); if (!b) return;
+      var a = b.getAttribute('data-a'), id = b.getAttribute('data-id');
+      if (a === 'sel') { ST.sel[id] = b.checked; barra(); return; }
+      if (a === 'selall') { (ST.d.ventas || []).forEach(function (v) { ST.sel[v.id_venta] = b.checked; }); pinta(); return; }
+      if (a === 'est') {
+        var es = b.getAttribute('data-e'), k = ST.estados.indexOf(es);
+        if (b.checked && k < 0) ST.estados.push(es); else if (!b.checked && k >= 0) ST.estados.splice(k, 1);
+        clearTimeout(tEst); tEst = setTimeout(function () { ST.pag = 0; cargar(); }, 450); return;
+      }
+      if (a === 'man') return;
+      e.preventDefault();
+      if (a === 'abrir') abrirDrawer(id);
+      else if (a === 'cerrar') cerrarDrawer();
+      else if (a === 'estp') { ST.panel = !ST.panel; $('p38-estp').hidden = !ST.panel; }
+      else if (a === 'estlimpiar') { ST.estados = []; ST.pag = 0; cargar(); }
+      else if (a === 'vista') { ST.vista = b.getAttribute('data-v'); ST.pag = 0; ST.sel = {}; cerrarDrawer(); cargar(); }
+      else if (a === 'pg') { ST.pag = Math.max(0, ST.pag + parseInt(b.getAttribute('data-v'), 10)); cargar(); }
+      else if (a === 'ref') cargar();
+      else if (a === 'limpiar') { ST.sel = {}; pinta(); }
+      else if (a === 'masivo') masivo();
+      else if (a === 'todook-sel') confirmarTodoOk(ids());
+      else if (a === 'todook') confirmarTodoOk([id]);
+      else if (a === 'lin') editarLinea(id, parseInt(b.getAttribute('data-f'), 10));
+      else if (a === 'cli') editarCliente(id, parseInt(b.getAttribute('data-f'), 10));
+      else if (a === 'coment') {
+        var t = $('p38-nc'), x = t ? t.value.trim() : ''; if (!x) return toast('Escribe el comentario', true);
+        b.disabled = true; enviar(null, b, id, parseInt(b.getAttribute('data-f'), 10), { comentario: x }, true);
+      }
+      else if (a === 'reabrir') sb.rpc('back_reabrir', { p_id: id }).then(function (r) {
+        if (r.error) return toast(msg(r.error), true);
+        var lid = r.data && r.data.log_id; cerrarDrawer(); cargar();
+        if (lid) undo('Cliente reabierto', function () { return deshacerLogs([lid]); }); else toast('Cliente reabierto');
+      });
+      else if (a === 'undolog') deshacerLogs([parseInt(b.getAttribute('data-lid'), 10)]).then(cargarMov);
+      else if (a === 'revertir') {
+        if (!confirm('¿Devolver este dato a como estaba antes?\nSolo se revierte esa línea y se pasa a MATRIZ en 1 minuto.')) return;
+        b.disabled = true;
+        sb.rpc('back_revertir_cambio', { p_cambio: b.getAttribute('data-cid') }).then(function (r) {
+          if (r.error) { b.disabled = false; return toast(msg(r.error), true); }
+          toast('Revertido. Se pasa a MATRIZ en 1 minuto.'); cargarMov();
+        });
+      }
+    });
+  }
+
+  [['backView', 'back'], ['adminView', 'admin']].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () {
+      var r = o.apply(this, arguments);
+      try { montarBack(p[1]); } catch (e) { console.error(e); }
+      return r;
+    };
+  });
+})();
  </script>
 </body>
 </html>
