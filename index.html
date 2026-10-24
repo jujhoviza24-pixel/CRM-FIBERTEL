@@ -5701,6 +5701,248 @@ function ventaForm(l) {
     };
   }
 })();
+  /* 38 · Tareas del back: «Mis tareas» (back) y «Tareas del equipo» (admin)
+   PEGAR al final de index.html, DESPUÉS del bloque 37 y antes del cierre del script. Antes ejecuta 38_back_tareas.sql.
+   Back: contadores (pendientes · vencidas · por vencer · hechas hoy), lista con plazo, «Tomar», «Gestionar» y tareas manuales.
+   Las tareas automáticas se cierran solas cuando el back gestiona el lead o la venta.
+   Admin: cuadro por back, por tipo de tarea, lo que necesita atención (con asignación) y plazos configurables.
+   Los backs no ven puntos ni incentivos: aquí no hay nada de eso. */
+(function () {
+  var ST = { d: null, f: 'TODAS', busy: false, backs: null, hechas: false }, AD = { d: null, dias: 7, busy: false };
+  function $(i) { return document.getElementById(i); }
+  function falta(e) { return /PGRST202|PGRST205|42883|42P01|back_tarea|back_mis_tareas|admin_tareas|back_lista_backs/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 38_back_tareas.sql en Supabase' : limpio(e.message || ''); }
+  function dur(ms) {
+    var m = Math.max(1, Math.round(Math.abs(ms) / 60000));
+    if (m < 60) return m + ' min';
+    if (m < 1440) { var h = Math.floor(m / 60), r = m % 60; return h + ' h' + (r ? ' ' + r + ' min' : ''); }
+    var d = Math.floor(m / 1440); return d + (d === 1 ? ' día' : ' días');
+  }
+  function cuando(iso) { return new Date(iso).toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+  function hora(iso) { return new Date(iso).toLocaleTimeString('es-PE', { timeZone: 'America/Lima', hour: '2-digit', minute: '2-digit' }); }
+  function venc(iso, pvh) {
+    var ms = new Date(iso) - Date.now();
+    if (ms < 0) return { k: 'V', c: 'b-bad', t: 'Vencida hace ' + dur(ms) };
+    if (ms <= (pvh || 3) * 3600000) return { k: 'P', c: 'b-warn', t: 'Vence en ' + dur(ms) };
+    return { k: 'N', c: 'b-info', t: 'Vence en ' + dur(ms) };
+  }
+
+  var css = document.createElement('style');
+  css.textContent = [
+    '.p38-t{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap;padding:12px 14px;margin-bottom:8px;border:1px solid var(--line);border-left:4px solid var(--line2);border-radius:12px;background:var(--card)}',
+    '.p38-t.rojo{border-left-color:var(--bad)}.p38-t.amar{border-left-color:var(--warn)}',
+    '.p38-i{min-width:0;flex:1 1 260px}.p38-a{display:flex;gap:6px;flex-wrap:wrap;align-items:center}',
+    '.p38-auto{font-size:.74em;color:var(--mut)}',
+    '.p38-pills{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}',
+    '.p38-pill{background:var(--bg);color:var(--ink);border:1px solid var(--line);box-shadow:none;border-radius:99px;padding:6px 13px;font-size:.82em;font-weight:700}',
+    '.p38-pill.on{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}.p38-pill b{margin-left:6px;opacity:.85}',
+    '.p38-n{display:inline-block;min-width:18px;padding:0 6px;border-radius:99px;background:var(--bad);color:#fff;font-size:.78em;text-align:center}',
+    '.p38-sc{overflow-x:auto}.p38-sc table{min-width:640px;width:100%}',
+    '.p38-sla{max-width:90px;padding:4px 8px}'
+  ].join('');
+  document.head.appendChild(css);
+
+  function kpi(i, v, l, s, c) {
+    return '<div class="d15-k ' + (c || '') + '"><div class="d15-ki">' + i + '</div><div><div class="d15-kv">' + v + '</div><div class="d15-kl">' + l + '</div>' + (s ? '<div class="d15-ks">' + s + '</div>' : '') + '</div></div>';
+  }
+
+  /* ================= BACK · MIS TAREAS ================= */
+  function badge() {
+    var b = document.querySelector('#tabs15 [data-k="ta"] .p38-n'), n = ST.d && ST.d.cont ? ST.d.cont.vencidas : 0;
+    if (b) { b.textContent = n; b.style.display = n ? '' : 'none'; }
+  }
+  function tarjeta(t) {
+    var v = venc(t.vence_at, ST.d.por_vencer_horas), mia = t.asignado_a === me.id, libre = !t.asignado_a, man = t.origen === 'MANUAL';
+    var ir = (t.lead_id || t.id_venta) ? '<button type="button" class="p36-mini" data-a="ir" data-lead="' + esc(t.lead_id || '') + '" data-venta="' + esc(t.id_venta || '') + '">Gestionar →</button>' : '';
+    return '<div class="p38-t ' + (v.k === 'V' ? 'rojo' : v.k === 'P' ? 'amar' : '') + '"><div class="p38-i"><b>' + esc(t.titulo) + '</b> <span class="badge ' + v.c + '">' + v.t + '</span>' +
+      (t.grupo === 'CONTRAOFERTA' ? ' <span class="badge b-info">Contraoferta</span>' : '') +
+      '<div class="meta">' + esc(t.cliente || '—') + (t.detalle ? ' · ' + esc(t.detalle) : '') + '</div>' +
+      '<div class="meta">Plazo: ' + cuando(t.vence_at) + ' · ' + (libre ? 'Sin asignar' : (mia ? 'Asignada a ti' : 'De otro back')) + '</div></div>' +
+      '<div class="p38-a">' + (libre ? '<button type="button" class="sec p36-mini" data-a="tomar" data-id="' + esc(t.id) + '">Tomar</button>' : '') + ir +
+      (man ? '<button type="button" class="p36-mini" data-a="hecha" data-id="' + esc(t.id) + '">✔ Hecha</button>' : '<span class="p38-auto">Se marca sola al gestionarla</span>') + '</div></div>';
+  }
+  function pinta() {
+    var out = $('p38-out'); if (!out || !ST.d) return;
+    var d = ST.d, c = d.cont, L = d.pendientes || [], pvh = d.por_vencer_horas;
+    var f = { TODAS: L, VENCIDAS: L.filter(function (t) { return venc(t.vence_at, pvh).k === 'V'; }), POR: L.filter(function (t) { return venc(t.vence_at, pvh).k === 'P'; }),
+      LIBRES: L.filter(function (t) { return !t.asignado_a; }), MIAS: L.filter(function (t) { return t.asignado_a === me.id; }) };
+    var pct = (c.hechas_hoy ? Math.round(c.a_tiempo * 100 / c.hechas_hoy) + '% a tiempo' : 'aún sin tareas hechas');
+    var pills = [['TODAS', 'Todas'], ['VENCIDAS', 'Vencidas'], ['POR', 'Por vencer'], ['LIBRES', 'Sin asignar'], ['MIAS', 'Mías']].map(function (p) {
+      return '<button type="button" class="p38-pill' + (ST.f === p[0] ? ' on' : '') + '" data-a="f" data-v="' + p[0] + '">' + p[1] + '<b>' + f[p[0]].length + '</b></button>';
+    }).join('');
+    var lista = f[ST.f];
+    out.innerHTML = '<div class="d15-kpis" style="margin:0 0 14px">' +
+      kpi('📋', c.pendientes, 'Pendientes', '', 'info') + kpi('🔴', c.vencidas, 'Vencidas', c.vencidas ? 'Empieza por estas' : 'Todo al día', c.vencidas ? 'bad' : 'ok') +
+      kpi('⏰', c.por_vencer, 'Por vencer', 'en las próximas ' + pvh + ' h', c.por_vencer ? 'warn' : '') + kpi('✅', c.hechas_hoy, 'Hechas hoy', pct, 'ok') +
+      kpi('🛠️', c.gestiones_hoy, 'Cambios en MATRIZ hoy', '', '') + '</div>' +
+      '<div class="p38-pills">' + pills + '</div>' +
+      (lista.length ? lista.map(tarjeta).join('') : '<div class="d15-vacio">' + (L.length ? 'No hay tareas con este filtro.' : 'No tienes tareas pendientes. 🎉') + '</div>') +
+      '<p style="margin:14px 0 0"><button type="button" class="sec" data-a="hh">' + (ST.hechas ? 'Ocultar' : 'Ver') + ' hechas hoy (' + (d.hechas || []).length + ')</button></p>' +
+      (ST.hechas ? ((d.hechas || []).length ? (d.hechas || []).map(function (t) {
+        var tarde = new Date(t.hecha_at) > new Date(t.vence_at);
+        return '<div class="p38-t"><div class="p38-i"><b>' + esc(t.titulo) + '</b> <span class="badge ' + (tarde ? 'b-warn' : 'b-ok') + '">' + (tarde ? 'Fuera de plazo' : 'A tiempo') + '</span><div class="meta">' + esc(t.cliente || '—') + ' · hecha a las ' + hora(t.hecha_at) + '</div></div></div>';
+      }).join('') : '<div class="d15-vacio">Todavía no has cerrado tareas hoy.</div>') : '');
+    badge();
+  }
+  async function cargar(silencioso) {
+    var out = $('p38-out'); if (!out || ST.busy) return; ST.busy = true;
+    if (!silencioso && !ST.d) out.innerHTML = '<div class="d15-vacio">Preparando tus tareas…</div>';
+    var r = await sb.rpc('back_mis_tareas');
+    ST.busy = false;
+    if (r.error) { if (!ST.d) out.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
+    ST.d = r.data; pinta();
+  }
+  function modalNueva() {
+    if ($('m38')) return;
+    var pre = function (rows) {
+      var ov = document.createElement('div'); ov.className = 'k-ov'; ov.id = 'm38'; ov.style.zIndex = 9100;
+      var man = new Date(); man.setDate(man.getDate() + 1); man.setHours(10, 0, 0, 0);
+      var p = function (n) { return (n < 10 ? '0' : '') + n; }, val = man.getFullYear() + '-' + p(man.getMonth() + 1) + '-' + p(man.getDate()) + 'T10:00';
+      ov.innerHTML = '<div class="k-bus"><h3 style="margin:0 0 4px">Nueva tarea</h3><div class="meta" style="margin:0 0 6px">Para algo que no sale solo, como llamar a un cliente a una hora o pedir un dato.</div>' +
+        '<label>Título</label><input id="m38-t" maxlength="120"><label>Cliente (opcional)</label><input id="m38-c">' +
+        '<label>Detalle (opcional)</label><textarea id="m38-d" rows="2" data-minus></textarea>' +
+        '<div class="row"><div><label>Fecha límite</label><input id="m38-f" type="datetime-local" value="' + val + '"></div>' +
+        '<div><label>Asignar a</label><select id="m38-a"><option value="">Sin asignar (la toma cualquiera)</option>' + rows.map(function (b) { return '<option value="' + esc(b.id) + '"' + (b.id === me.id ? ' selected' : '') + '>' + esc(b.nombre) + '</option>'; }).join('') + '</select></div></div>' +
+        '<div class="row" style="margin-top:14px"><button type="button" class="sec" id="m38-x">Cancelar</button><button type="button" id="m38-ok">Crear tarea</button></div></div>';
+      document.body.appendChild(ov);
+      var q = function (s) { return ov.querySelector(s); };
+      q('#m38-x').onclick = function () { ov.remove(); }; q('#m38-t').focus();
+      q('#m38-ok').onclick = async function () {
+        var t = q('#m38-t').value.trim(), f = q('#m38-f').value; if (!t) return toast('Escribe el título', true); if (!f) return toast('Elige la fecha límite', true);
+        this.disabled = true;
+        var r = await sb.rpc('back_tarea_crear', { p_titulo: t, p_detalle: q('#m38-d').value.trim(), p_vence: new Date(f).toISOString(), p_asignado: q('#m38-a').value || null, p_cliente: q('#m38-c').value.trim() || null });
+        this.disabled = false;
+        if (r.error) return toast(msg(r.error), true);
+        ov.remove(); toast('Tarea creada'); cargar(true);
+      };
+    };
+    if (ST.backs) return pre(ST.backs);
+    sb.rpc('back_lista_backs').then(function (r) { if (r.error) return toast(msg(r.error), true); ST.backs = r.data || []; pre(ST.backs); });
+  }
+  function ir(b) {
+    var lead = b.getAttribute('data-lead'), venta = b.getAttribute('data-venta'), bar = $('tabs15'); if (!bar) return;
+    if (venta) {
+      var t = bar.querySelector('[data-k="pa"]'); if (t) t.click();
+      setTimeout(function () { var q = $('p36-q'); if (q) { q.value = venta; q.dispatchEvent(new Event('input', { bubbles: true })); } }, 80);
+    } else if (lead) { var c = bar.querySelector('[data-k="col"]') || bar.querySelector('[data-k="tab"]'); if (c) c.click(); }
+  }
+  function montarBack() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-ta')) return;
+    ST = { d: null, f: 'TODAS', busy: false, backs: null, hechas: false };
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-ta'; s.hidden = true;
+    s.innerHTML = '<div class="d15-sec"><div class="d15-sh"><h3>Mis tareas</h3><span><button type="button" class="sec p36-mini" data-a="ref">↻ Actualizar</button> <button type="button" class="p36-mini" data-a="nueva">+ Nueva tarea</button></span></div><div id="p38-out"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div></div>';
+    panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'ta'); bt.innerHTML = '<span>✅</span>Mis tareas <span class="p38-n" style="display:none">0</span>';
+    var ref = bar.querySelector('[data-k="res"]'); if (ref) ref.insertAdjacentElement('afterend', bt); else bar.insertBefore(bt, bar.firstChild);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'ta') cargar(false); });
+    s.addEventListener('click', async function (e) {
+      var b = e.target.closest('[data-a]'); if (!b) return; var a = b.getAttribute('data-a'), r;
+      if (a === 'f') { ST.f = b.getAttribute('data-v'); pinta(); }
+      else if (a === 'hh') { ST.hechas = !ST.hechas; pinta(); }
+      else if (a === 'ref') cargar(false);
+      else if (a === 'nueva') modalNueva();
+      else if (a === 'ir') ir(b);
+      else if (a === 'tomar') { b.disabled = true; r = await sb.rpc('back_tarea_tomar', { p_id: b.getAttribute('data-id') }); if (r.error) toast(msg(r.error), true); else toast('Tarea tomada'); cargar(true); }
+      else if (a === 'hecha') { b.disabled = true; r = await sb.rpc('back_tarea_completar', { p_id: b.getAttribute('data-id') }); if (r.error) toast(msg(r.error), true); else toast('Tarea completada'); cargar(true); }
+    });
+    // se actualiza sola: cada minuto con la pestaña abierta, cada 3 minutos para el aviso rojo
+    var n = 0;
+    setInterval(function () {
+      if (!$('p15-ta')) return; n++;
+      var abierta = !$('p15-ta').hidden;
+      if (abierta || n % 3 === 0 || !ST.d) cargar(true);
+    }, 60000);
+    setTimeout(function () { cargar(true); }, 2500);
+  }
+
+  /* ================= ADMIN · TAREAS DEL EQUIPO ================= */
+  function pintaAd() {
+    var host = $('s38'), d = AD.d; if (!host || !d) return;
+    var pv = d.por_vencer_horas, ds = d.dias;
+    var tot = d.backs.reduce(function (a, b) { a.p += b.pendientes; a.v += b.vencidas; return a; }, { p: 0, v: 0 });
+    var h = '<div class="d15-kpis" style="margin:0 0 14px">' +
+      kpi('📋', tot.p + d.pool.pendientes, 'Pendientes en total', d.pool.pendientes + ' sin asignar', 'info') +
+      kpi('🔴', tot.v + d.pool.vencidas, 'Vencidas', d.pool.vencidas + ' sin asignar', (tot.v + d.pool.vencidas) ? 'bad' : 'ok') +
+      kpi('✅', d.hechas_hoy, 'Hechas hoy (todo el equipo)', '', 'ok') + '</div>';
+    h += '<div class="d15-sec"><div class="d15-sh"><h3>Rendimiento por back</h3><span><label style="display:inline;margin-right:6px">Periodo</label><select data-t="dias" style="width:auto;display:inline-block">' +
+      [[1, 'Hoy'], [7, 'Últimos 7 días'], [30, 'Últimos 30 días']].map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === ds ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select> <button type="button" class="sec p36-mini" data-t="ref">↻</button></span></div>' +
+      (d.backs.length ? '<div class="p38-sc"><table class="d15-tbl"><thead><tr><th>Back</th><th>Pendientes</th><th>Vencidas</th><th>Por vencer</th><th>Hechas hoy</th><th>Hechas en el periodo</th><th>% a tiempo</th><th>Cambios MATRIZ (periodo)</th></tr></thead><tbody>' +
+        d.backs.map(function (b) {
+          return '<tr><td><b>' + esc(b.nombre) + '</b></td><td>' + b.pendientes + '</td><td>' + (b.vencidas ? '<span class="badge b-bad">' + b.vencidas + '</span>' : '0') + '</td><td>' + (b.por_vencer ? '<span class="badge b-warn">' + b.por_vencer + '</span>' : '0') + '</td><td>' + b.hechas_hoy +
+            '</td><td>' + b.hechas_periodo + '</td><td>' + (b.hechas_periodo ? Math.round(b.a_tiempo * 100 / b.hechas_periodo) + '%' : '—') + '</td><td>' + b.gestiones_periodo + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '<div class="d15-vacio">No hay backs activos.</div>') + '</div>';
+    h += '<div class="d15-sec"><div class="d15-sh"><h3>Necesitan atención</h3><span class="meta">Sin asignar o vencidas. Asígnalas a un back</span></div>' +
+      (d.atencion.length ? d.atencion.map(function (t) {
+        var v = venc(t.vence_at, pv);
+        return '<div class="p38-t ' + (v.k === 'V' ? 'rojo' : '') + '"><div class="p38-i"><b>' + esc(t.titulo) + '</b> <span class="badge ' + v.c + '">' + v.t + '</span><div class="meta">' + esc(t.cliente || '—') + ' · ' + (t.asignado_nombre ? 'Con ' + esc(t.asignado_nombre) : 'Sin asignar') + '</div></div>' +
+          '<div class="p38-a"><select data-t="asig" data-id="' + esc(t.id) + '" style="width:auto"><option value="">Asignar a…</option>' + d.backs.map(function (b) { return '<option value="' + esc(b.id) + '"' + (b.id === t.asignado_a ? ' selected' : '') + '>' + esc(b.nombre) + '</option>'; }).join('') + '<option value="NONE">Dejar sin asignar</option></select></div></div>';
+      }).join('') : '<div class="d15-vacio">Nada pendiente de atención. 🎉</div>') + '</div>';
+    h += '<div class="d15-sec"><div class="d15-sh"><h3>Tipos de tarea y plazos</h3><span class="meta">El plazo cuenta desde que ocurre el hecho (ej. el lead entra). 0 = vence al final del día planificado</span></div>' +
+      '<div class="p38-sc"><table class="d15-tbl"><thead><tr><th>Tarea</th><th>Plazo (horas)</th><th>Pendientes</th><th>Vencidas</th><th>Hechas (periodo)</th><th>Activa</th></tr></thead><tbody>' +
+      d.tipos.map(function (t) {
+        return '<tr><td><b>' + esc(t.nombre) + '</b><br><small class="meta">' + (t.auto ? 'Se crea sola' : 'La crea una persona') + ' · ' + (t.grupo === 'CONTRAOFERTA' ? 'Contraoferta' : 'Seguimiento') + '</small></td>' +
+          '<td><input class="p38-sla" type="number" min="0" step="0.5" value="' + esc(t.sla_horas) + '" data-t="sla" data-id="' + esc(t.codigo) + '"></td><td>' + t.pendientes + '</td><td>' + t.vencidas + '</td><td>' + t.hechas +
+          '</td><td><input type="checkbox" data-t="act" data-id="' + esc(t.codigo) + '"' + (t.activo ? ' checked' : '') + ' style="width:18px;height:18px;padding:0"></td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<div class="d15-form" style="margin-top:12px"><div><label>«Por vencer» = faltan menos de (horas)</label><input id="p38-pv" type="number" min="1" max="48" value="' + esc(pv) + '"></div>' +
+      '<div><label>Crear tareas desde esta fecha</label><input id="p38-dd" type="date" value="' + esc(AD.desde || '') + '"></div><div><button type="button" data-t="cfg" style="width:100%">Guardar ajustes</button></div></div>' +
+      '<p class="meta" style="margin-top:8px">«Tareas desde» evita que aparezcan miles de ventas antiguas como vencidas. Un tipo desactivado deja de crear tareas nuevas.</p></div>';
+    host.innerHTML = h;
+  }
+  async function cargarAd() {
+    var host = $('s38'); if (!host || AD.busy) return; AD.busy = true;
+    if (!AD.d) host.innerHTML = '<div class="d15-vacio">Calculando…</div>';
+    var R = await Promise.all([sb.rpc('admin_tareas_resumen', { p_dias: AD.dias }), sb.from('back_config').select('valor').eq('clave', 'tareas_desde').maybeSingle()]);
+    AD.busy = false;
+    if (R[0].error) { host.innerHTML = '<div class="d15-vacio">' + esc(msg(R[0].error)) + '</div>'; return; }
+    AD.d = R[0].data; AD.desde = R[1].data && R[1].data.valor; pintaAd();
+  }
+  function montarAdmin() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-tz')) return;
+    AD = { d: null, dias: 7, busy: false };
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-tz'; s.hidden = true; s.innerHTML = '<div id="s38"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'tz'); bt.innerHTML = '<span>✅</span>Tareas del equipo';
+    var ref = bar.querySelector('[data-k="ate"]'); if (ref) ref.insertAdjacentElement('afterend', bt); else bar.appendChild(bt);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'tz') cargarAd(); });
+    s.addEventListener('change', async function (e) {
+      var t = e.target, k = t.getAttribute('data-t'), r; if (!k) return;
+      if (k === 'dias') { AD.dias = parseInt(t.value, 10); return cargarAd(); }
+      if (k === 'asig') {
+        if (!t.value) return;
+        r = await sb.rpc('back_tarea_asignar', { p_id: t.getAttribute('data-id'), p_back: t.value === 'NONE' ? null : t.value });
+        if (r.error) return toast(msg(r.error), true); toast('Tarea asignada'); return cargarAd();
+      }
+      if (k === 'sla') {
+        var h = parseFloat(t.value); if (isNaN(h) || h < 0) return toast('Escribe un plazo válido', true);
+        r = await sb.from('back_tarea_tipos').update({ sla_horas: h }).eq('codigo', t.getAttribute('data-id'));
+        if (r.error) return toast(msg(r.error), true); return toast('Plazo guardado. Vale para las tareas nuevas.');
+      }
+      if (k === 'act') {
+        r = await sb.from('back_tarea_tipos').update({ activo: t.checked }).eq('codigo', t.getAttribute('data-id'));
+        if (r.error) { t.checked = !t.checked; return toast(msg(r.error), true); } return toast(t.checked ? 'Tipo activado' : 'Tipo desactivado');
+      }
+    });
+    s.addEventListener('click', async function (e) {
+      var b = e.target.closest('[data-t]'); if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT') return; var k = b.getAttribute('data-t');
+      if (k === 'ref') cargarAd();
+      else if (k === 'cfg') {
+        var pv = parseInt($('p38-pv').value, 10), dd = $('p38-dd').value;
+        if (!(pv >= 1 && pv <= 48)) return toast('«Por vencer» va de 1 a 48 horas', true); if (!dd) return toast('Elige la fecha', true);
+        var r = await sb.from('back_config').upsert([{ clave: 'por_vencer_horas', valor: String(pv) }, { clave: 'tareas_desde', valor: dd }], { onConflict: 'clave' });
+        if (r.error) return toast(msg(r.error), true); toast('Ajustes guardados'); cargarAd();
+      }
+    });
+  }
+
+  [['backView', montarBack], ['adminView', montarAdmin]].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () {
+      var r = o.apply(this, arguments);
+      try { p[1](); } catch (e) { console.error(e); }
+      return r;
+    };
+  });
+})();
  </script>
 </body>
 </html>
