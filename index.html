@@ -9481,21 +9481,30 @@ function ofcCalcular(cat, sel) {
   };
 })();
 
-  /* 57 · FIBERTEL MESSENGER (v3)   Sustituye al chat antiguo del bloque 23. No necesita SQL nuevo: usa las mismas tablas y funciones de siempre.
+  /* 57 · FIBERTEL MESSENGER (v3.1 · Fase 3A: mensajería fiable)
+   REQUIERE haber ejecutado ANTES 57_chat_mensajeria.sql en Supabase (SQL Editor). Sin él, el chat avisa «Falta ejecutar 57_chat_mensajeria.sql» y no abre.
    PEGAR al final del script de index.html, DESPUÉS del bloque 56 y antes del cierre del script (y borrar el bloque 23 viejo).
-   Qué es: el chat interno rediseñado. Ventana de tres zonas (lista · conversación · información), burbujas, tema claro/oscuro del CRM,
-   estados de conexión, «escribiendo…», zumbido, sonidos y efectos que se activan o desactivan uno a uno (engranaje de la ventana).
+   Qué es: el chat interno. Ventana de tres zonas (lista · conversación · información), tema claro/oscuro del CRM, estados de trabajo,
+   «escribiendo…», zumbido, sonidos y efectos que se activan o desactivan uno a uno (engranaje de la ventana).
    Quién lo usa: concertador, cerrador, back, supervisor y administrador.
-   Qué NO hay todavía (necesita cambios en la base y llega en fases siguientes): reacciones, responder/editar/borrar, grupos y canales,
-   favoritos, archivos y notas de voz, avatares con foto, temas de conversación, «entregado», historial más antiguo de 80 mensajes.
-   Se conserva el compromiso con el chat viejo: misma tabla chat_mensajes, mismo canal de presencia y los mismos estados (en línea, ocupado, ausente),
-   así que quien aún tenga abierta la versión anterior sigue hablando con quien ya tiene esta.
+   Qué hace la Fase 3A (todo lo decide la base de datos, no el navegador):
+     · una sola conversación por pareja (aunque se escriban a la vez) y la sala general;
+     · cada mensaje lleva un identificador: si se corta la red y se reintenta, NO se duplica; lo que no se pudo enviar se guarda y se reenvía solo al volver la conexión;
+     · los «sin leer» se cuentan en la base (iguales en todos tus equipos); «Entregado» y «Leído» solo aparecen cuando la base los confirma;
+     · tras una caída o con el equipo dormido recupera lo perdido (resumen cada minuto, historial paginado, «Cargar mensajes anteriores»);
+     · búsqueda de mensajes en toda tu historia; estados Disponible / Ocupado / En llamada / No molestar / Ausente guardados en la base;
+     · límites en el servidor: un zumbido cada 15 s, ninguno a quien tiene «No molestar», máximo 20 mensajes cada 10 s.
+   Qué NO hay todavía (llega en las fases siguientes): grupos y canales, favoritos / fijados / silenciar, reacciones, responder / editar / borrar,
+   archivos y notas de voz, avatares con foto, mensaje de estado, temas de conversación, clientes compartidos.
    El botón flotante sigue llamándose #chat23-btn porque el bloque 48 (notificaciones) lo pulsa al tocar un aviso de chat. */
 (function () {
   if (window.mz57) return;
   var GEN = 'GEN';                                   // la «Sala general» se guarda con para = null; aquí la llamamos GEN
-  var MAXLEN = 2000, ESPERA_ZUMBIDO = 15000, MAX_CONV = 80, MAX_REC = 300;
-  var ESTADOS = { on: 'En línea', busy: 'Ocupado', away: 'Ausente' };
+  var MAXLEN = 2000, ESPERA_ZUMBIDO = 15000, MAX_CONV = 80, T_ESPERA = 20000, CADA = 60000;
+  var ESTADOS = { on: 'Disponible', busy: 'Ocupado', call: 'En llamada', dnd: 'No molestar', away: 'Ausente' };
+  var A_SRV = { on: 'DISPONIBLE', busy: 'OCUPADO', call: 'EN_LLAMADA', dnd: 'NO_MOLESTAR', away: 'AUSENTE' };     // así se guardan en la base
+  var DE_SRV = { DISPONIBLE: 'on', OCUPADO: 'busy', EN_LLAMADA: 'call', NO_MOLESTAR: 'dnd', AUSENTE: 'away' };
+  var SILENCIO = { busy: 1, call: 1, dnd: 1 };                                                                   // con estos estados no suenan ni avisan los mensajes nuevos
   var DEPTO = { concertador: 'Ventas · Concertación', cerrador: 'Ventas · Cierre', back: 'Back office', admin: 'Administración', supervisor: 'Supervisión' };
   var PREF0 = { sonMsg: true, sonZumbido: true, conexion: true, animRecibir: true, animEnviar: true, animPaneles: true, sacudir: true, avisoTexto: true };
   var EMOJIS = [
@@ -9532,10 +9541,22 @@ function ofcCalcular(cat, sel) {
   function ini(s) { return String(s || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || '?'; }
   function hash(s) { s = String(s); var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
   var HUES = [172, 188, 204, 226, 258, 150, 28, 336];
+  var ERR_CHAT = {
+    sin_permiso: 'No tienes permiso para esa conversación', consigo_mismo: 'No puedes escribirte a ti mismo',
+    destinatario_inactivo: 'Esa persona ya no está activa en el CRM', zumbido_espera: 'Espera unos segundos para enviar otro zumbido',
+    no_molestar: 'Esa persona tiene «No molestar»: no se le pueden enviar zumbidos', zumbido_solo_privado: 'Los zumbidos solo se envían a una persona',
+    demasiados_mensajes: 'Estás enviando demasiado rápido. Espera unos segundos', texto_invalido: 'El mensaje está vacío o pasa de 2000 caracteres',
+    tipo_invalido: 'No se pudo enviar ese tipo de mensaje', estado_invalido: 'Estado no válido', conversacion_no_soportada: 'Esa conversación todavía no admite envíos',
+    par_invalido: 'No se pudo abrir la conversación'
+  };
+  /* Un corte de red / servidor caído se puede reintentar solo; un rechazo del servidor («chat:…») no. */
+  function esRed(e) { var m = String((e && e.message) || e || ''); return !/chat:/.test(m) && /Failed to fetch|NetworkError|Load failed|network|tiempo agotado|timeout|timed out|50[234]|Bad Gateway|Service Unavailable|Gateway Time/i.test(m); }
   function msgE(e) {
     var m = String((e && e.message) || e || ''), c = String((e && e.code) || '');
-    if (/PGRST202|PGRST205|42883|42P01/.test(c + ' ' + m)) return 'Falta ejecutar 23_chat.sql en Supabase';
-    if (/Failed to fetch|NetworkError|Load failed|network/i.test(m)) return 'No hay conexión con el servidor';
+    var k = /chat:([a-z_]+)/.exec(m); if (k && ERR_CHAT[k[1]]) return ERR_CHAT[k[1]];
+    if (/PGRST202|PGRST205|42883|42P01/.test(c + ' ' + m)) return 'Falta ejecutar 57_chat_mensajeria.sql en Supabase';
+    if (esRed(e)) return 'No hay conexión con el servidor';
+    if (/JWT|expired|not authenticated/i.test(c + ' ' + m)) return 'Tu sesión venció. Recarga la página e inicia sesión de nuevo';
     return (typeof limpio === 'function' ? limpio(m) : m) || 'Error inesperado';
   }
   function aviso(m, err) { if (typeof toast === 'function') toast(m, err); }
@@ -9567,10 +9588,12 @@ function ofcCalcular(cat, sel) {
   /* ================= PREFERENCIAS Y ESTADO ================= */
   var C = nuevoEstado();
   function nuevoEstado() {
-    return { open: false, peer: null, cont: [], on: {}, nl: {}, msgs: {}, rec: {}, todos: [], q: '', filtro: 'todos', st: 'on', chM: null, chP: null, buzz: 0, typ: {}, tsent: 0,
+    return { open: false, peer: null, cont: [], on: {}, nl: {}, msgs: {}, rec: {}, q: '', filtro: 'todos', st: 'on', chM: null, chP: null, buzz: 0, typ: {}, tsent: 0,
       err: null, cargaCont: true, cargaConv: false, errConv: null, pref: {}, info: false, borr: {}, busq: { on: false, q: '', i: 0, n: 0 }, nuevos: 0, divisor: {}, fresh: {},
       caido: false, conectado: false, cerrando: false, ctx: null, gesto: false, mark: null, tmpN: 0, resaltar: null, emo: false, aj: false, menu: false, vista: 'lista',
-      primeraPres: true, ultConex: 0, col: {}, ultimaVez: Date.now(), resyncT: null, buzzT: null, enviando: false, globales: false };
+      primeraPres: true, ultConex: 0, col: {}, ultimaVez: Date.now(), resyncT: null, buzzT: null, enviando: false, globales: false,
+      convId: {}, cargado: {}, mas: {}, ws: {}, ex: {}, cola: [], ultLeido: {}, markT: {}, busqRes: [], busqQ: '', busqErr: null, busqTok: 0, busqT: null, busqCarga: false,
+      cargadoEn: 0, general: null, latido: null, entregaT: null, refrescaT: null, colaT: null, colaOn: false, cargandoMas: false };
   }
   function cargaPrefs() {
     var p = {}; try { p = JSON.parse(lsGet('crm_chat_prefs_' + me.id) || '{}') || {}; } catch (e) { p = {}; }
@@ -9581,12 +9604,7 @@ function ofcCalcular(cat, sel) {
   function guardaPrefs() { lsSet('crm_chat_prefs_' + me.id, JSON.stringify(C.pref)); }
   function reducido() { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } }
   function anim(k) { return !!C.pref[k] && !reducido(); }
-  function pasivo() { return C.st === 'busy'; }
-  function vistaGen(v) {
-    try { if (v) localStorage.setItem('crm_chat_gen_' + me.id, v); else return localStorage.getItem('crm_chat_gen_' + me.id); } catch (e) { }
-    return null;
-  }
-
+  function pasivo() { return !!SILENCIO[C.st]; }
   /* ================= SONIDO ================= */
   function ctxAudio() {
     var AC = window.AudioContext || window.webkitAudioContext; if (!AC || !C.gesto) return null;
@@ -9694,7 +9712,11 @@ function ofcCalcular(cat, sel) {
     '.mz-av .mz-dot{position:absolute;right:-3px;bottom:-3px}',
     '.mz-dot{display:inline-block;width:14px;height:14px;border-radius:50%;box-sizing:border-box;border:2px solid var(--card);background:var(--ok);vertical-align:middle;position:relative;flex:none}',
     '.mz-dot[data-st=busy]{background:var(--bad)}',
-    '.mz-dot[data-st=busy]::after{content:"";position:absolute;left:1px;right:1px;top:50%;height:2px;margin-top:-1px;background:var(--card);border-radius:1px}',
+    '.mz-dot[data-st=busy]::after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;background:var(--card);border-radius:50%}',
+    '.mz-dot[data-st=dnd]{background:var(--bad)}',
+    '.mz-dot[data-st=dnd]::after{content:"";position:absolute;left:1px;right:1px;top:50%;height:2px;margin-top:-1px;background:var(--card);border-radius:1px}',
+    '.mz-dot[data-st=call]{background:var(--info)}',
+    '.mz-dot[data-st=call]::after{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border:2px solid var(--card);border-radius:50%;box-sizing:border-box}',
     '.mz-dot[data-st=away]{background:var(--warn)}',
     '.mz-dot[data-st=away]::after{content:"";position:absolute;left:50%;top:1px;width:2px;height:4px;margin-left:-1px;background:var(--card);border-radius:1px}',
     '.mz-dot[data-st=off]{background:var(--card);border-color:var(--mut)}',
@@ -9803,6 +9825,9 @@ function ofcCalcular(cat, sel) {
     '.mz-g.yo .mz-mt{color:var(--on-acc)}',
     '.mz-g.yo.fallo .mz-b{background:var(--bad-bg);color:var(--ink);border:1px solid color-mix(in srgb,var(--bad) 50%,transparent);box-shadow:none}',
     '.mz-g.yo.fallo .mz-mt{color:var(--bad)}',
+    '.mz-mas{display:flex;justify-content:center;padding:10px 0 4px}',
+    '.mz-buscando{padding:12px 14px;font-size:13px;color:var(--mz-meta)}',
+    '.mz-rc{display:inline-flex;opacity:.8}.mz-rc.leido{opacity:1}.mz-rc.leido .mz-ic{stroke-width:2.8}.mz-rc.entre .mz-ic{stroke-width:1.5}',
     '.mz-err{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px 10px;margin-top:4px;font-size:12px;font-weight:600;color:var(--bad)}',
     '.mz-err button{color:var(--acc);font-weight:700;text-decoration:underline;text-underline-offset:2px}',
     '.mz-z{display:flex;align-items:center;justify-content:center;gap:8px;margin:12px auto;width:max-content;max-width:100%;padding:6px 14px;border-radius:99px;font-size:12.5px;font-weight:600;color:color-mix(in srgb,var(--warn) 80%,var(--ink));background:var(--warn-bg);border:1px solid color-mix(in srgb,var(--warn) 30%,transparent)}',
@@ -9904,74 +9929,150 @@ function ofcCalcular(cat, sel) {
   document.head.appendChild(estilo);
 
   /* ================= DATOS ================= */
-  function contacto(id) { for (var i = 0; i < C.cont.length; i++) if (C.cont[i].id === id) return C.cont[i]; return null; }
+  function contacto(id) { for (var i = 0; i < C.cont.length; i++) if (C.cont[i].id === id) return C.cont[i]; return C.ex[id] || null; }
   function nombreDe(id) { if (id === me.id) return 'Tú'; var c = contacto(id); return c ? bonito(c.nombre) : 'Compañero'; }
   function rolDe(id) { var c = contacto(id); return c ? c.rol : ''; }
   function deptoDe(id) { var r = rolDe(id); return DEPTO[r] || r || ''; }
-  function estadoDe(id) { return C.on[id] || 'off'; }
+  function inactivo(id) { return !!(C.ex[id] && C.ex[id].activo === false); }
+  function estadoDe(id) { return C.on[id] || 'off'; }                       // ¿está conectado ahora? (presencia en vivo) y con qué estado
+  function trabajoDe(id) { return C.on[id] || C.ws[id] || 'on'; }          // estado de trabajo: el de la presencia si está conectado; si no, el último guardado en la base
   function textoEstado(id) { var s = estadoDe(id); return s === 'off' ? 'Desconectado' : ESTADOS[s]; }
   function peerDe(m) { return m.para == null ? GEN : (m.de === me.id ? m.para : m.de); }
   function total() { var n = 0; Object.keys(C.nl).forEach(function (k) { n += C.nl[k] || 0; }); return n; }
   function enLinea() { return Object.keys(C.on).filter(function (k) { return k !== me.id; }).length; }
-
-  async function cargaContactos() {
-    var r; try { r = await sb.rpc('chat_contactos'); } catch (e) { r = { error: e }; }
-    if (r.error) { C.err = msgE(r.error); return false; }
-    C.err = null; C.cont = r.data || []; return true;
+  function idConv(k) { return k === GEN ? (C.convId[GEN] || C.general) : C.convId[k]; }
+  function uuid() {
+    try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) { }
+    var b = new Uint8Array(16); try { crypto.getRandomValues(b); } catch (e) { for (var i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256); }
+    b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128;
+    var h = Array.prototype.map.call(b, function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+    return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
   }
-  async function cargaRecientes() {
-    var r; try { r = await sb.from('chat_mensajes').select('*').or('de.eq.' + me.id + ',para.eq.' + me.id + ',para.is.null').order('created_at', { ascending: false }).limit(MAX_REC); } catch (e) { return false; }
-    if (!r || r.error) return false;
-    C.todos = r.data || []; C.rec = {};
-    C.todos.forEach(function (m) { var p = peerDe(m); if (!C.rec[p]) C.rec[p] = m; });
+
+  /* Toda comunicación con la base pasa por aquí: nunca lanza error y nunca se queda esperando para siempre (T_ESPERA). */
+  function conTiempo(p, ms) {
+    return new Promise(function (ok, ko) {
+      var t = setTimeout(function () { ko(new Error('Failed to fetch (tiempo agotado)')); }, ms || T_ESPERA);
+      Promise.resolve(p).then(function (v) { clearTimeout(t); ok(v); }, function (e) { clearTimeout(t); ko(e); });
+    });
+  }
+  async function llama(nombre, args, ms) {
+    try { var r = await conTiempo(sb.rpc(nombre, args || {}), ms); return r || { error: new Error('Failed to fetch (sin respuesta)') }; }
+    catch (e) { return { error: e }; }
+  }
+
+  /* Carga lo que la lista necesita: personas (con su estado de trabajo) y el resumen de conversaciones con los «sin leer» calculados en la base.
+     Devuelve true si salió bien. Si falla después de haber cargado una vez, se conserva lo que ya hay. */
+  async function cargaTodo() {
+    var res = await Promise.all([llama('chat_directorio'), llama('chat_resumen')]), d = res[0], s = res[1];
+    if (d.error || s.error) { if (!C.cargadoEn) C.err = msgE(d.error || s.error); return false; }
+    C.err = null;
+    var dir = d.data || [], R = s.data || {}, lista = R.conversaciones || [];
+    C.cont = dir.map(function (x) { return { id: x.id, nombre: x.nombre, rol: x.rol }; });
+    C.ws = {}; dir.forEach(function (x) { C.ws[x.id] = DE_SRV[x.estado_trabajo] || 'on'; });
+    C.general = R.general || C.general;
+    var nl = {};
+    lista.forEach(function (c) {
+      var k = c.tipo === 'GENERAL' ? GEN : c.peer; if (!k) return;
+      C.convId[k] = c.id; nl[k] = c.no_leidos || 0;
+      if (c.ultimo && (!C.rec[k] || Date.parse(c.ultimo.created_at) >= Date.parse(C.rec[k].created_at))) C.rec[k] = c.ultimo;
+      if (k === GEN) C.ultLeido[GEN] = c.ultimo_leido_at;
+      else C.ex[k] = { id: k, nombre: c.peer_nombre, rol: c.peer_rol, activo: c.peer_activo !== false };
+    });
+    if (C.peer && C.open && !document.hidden) nl[C.peer] = 0;
+    C.nl = nl;
+    Object.keys(C.msgs).forEach(function (k) { (C.msgs[k] || []).forEach(function (m) { if (m._est) anotaReciente(m); }); });
+    var yo = R.yo && DE_SRV[R.yo.estado];
+    if (yo && yo !== C.st) { C.st = yo; lsSet('crm_chat_estado_' + me.id, yo); if (C.chP) { try { C.chP.track({ nombre: perfil.nombre, st: yo, t: Date.now() }); } catch (e) { } } }
+    C.cargadoEn = Date.now(); boton();
     return true;
   }
-  async function cargaNoLeidos() {
-    var r; try { r = await sb.from('chat_mensajes').select('de').eq('para', me.id).is('leido_at', null).limit(1000); } catch (e) { return; }
-    var nl = {}; ((r && r.data) || []).forEach(function (m) { nl[m.de] = (nl[m.de] || 0) + 1; });
-    var v = vistaGen(), q = sb.from('chat_mensajes').select('id', { count: 'exact', head: true }).is('para', null).neq('de', me.id);
-    q = q.gt('created_at', v || new Date(Date.now() - 86400000).toISOString());
-    var g; try { g = await q; } catch (e) { g = {}; }
-    nl[GEN] = (g && g.count) || 0;
-    if (C.peer && C.open && !document.hidden) nl[C.peer] = 0;
-    C.nl = nl; boton();
-  }
+  function refrescaSoon() { clearTimeout(C.refrescaT); C.refrescaT = setTimeout(function () { cargaTodo().then(function () { if (C.open) pintaLista(); }); }, 800); }
+  /* Avisa a la base de que lo recibido ya llegó a este aparato (así quien lo envió ve «Entregado»). */
+  function entregaSoon() { clearTimeout(C.entregaT); C.entregaT = setTimeout(function () { llama('chat_entregar', {}); }, 400); }
+
   /* Devuelve null si todo fue bien, o el texto del error. Los mensajes «enviando» o «fallidos» propios se conservan. */
-  async function cargaConv(peer) {
-    var q = sb.from('chat_mensajes').select('*').order('created_at', { ascending: false }).limit(MAX_CONV);
-    q = peer === GEN ? q.is('para', null) : q.or('and(de.eq.' + me.id + ',para.eq.' + peer + '),and(de.eq.' + peer + ',para.eq.' + me.id + ')');
-    var r; try { r = await q; } catch (e) { r = { error: e }; }
-    if (!r || r.error) return msgE(r && r.error);
-    var filas = (r.data || []).slice().reverse();
-    var pend = (C.msgs[peer] || []).filter(function (m) { return m._est && !filas.some(function (x) { return x.id === m.id; }); });
-    C.msgs[peer] = filas.concat(pend);
+  async function cargaConv(key) {
+    var cid = idConv(key);
+    var pend = function (filas) { return (C.msgs[key] || []).filter(function (m) { return m._est && !filas.some(function (x) { return x.id === m.id || (x.client_id && x.client_id === m.client_id); }); }); };
+    if (!cid) { C.msgs[key] = pend([]); C.mas[key] = false; C.cargado[key] = true; return null; }
+    var r = await llama('chat_historial', { p_conversacion: cid, p_limite: MAX_CONV });
+    if (r.error) return msgE(r.error);
+    var d = r.data || {}, filas = d.mensajes || [];
+    C.msgs[key] = filas.concat(pend(filas)); C.mas[key] = !!d.hay_mas; C.cargado[key] = true;
+    var u = filas[filas.length - 1]; if (u) anotaReciente(u);
     return null;
   }
-  function marca(peer) {
-    if (peer === GEN) { vistaGen(new Date().toISOString()); C.nl[GEN] = 0; boton(); return; }
-    C.nl[peer] = 0;
-    (C.msgs[peer] || []).forEach(function (m) { if (m.de !== me.id && !m.leido_at && !m._est) m.leido_at = new Date().toISOString(); });
+  /* «Cargar mensajes anteriores»: pide la página previa a la que ya se tiene. Devuelve el texto del error o null. */
+  async function cargaAnteriores(key, silencio) {
+    var cid = idConv(key), primero = (C.msgs[key] || []).filter(function (x) { return !x._est; })[0];
+    if (!cid || !primero || C.cargandoMas) return null;
+    C.cargandoMas = true; if (!silencio && C.peer === key) pintaMsgs();
+    var r = await llama('chat_historial', { p_conversacion: cid, p_antes: primero.created_at, p_limite: MAX_CONV });
+    C.cargandoMas = false;
+    if (r.error) { var te = msgE(r.error); if (!silencio) { aviso(te, true); if (C.peer === key) pintaMsgs(); } return te; }
+    var d = r.data || {}, ids = {};
+    (C.msgs[key] || []).forEach(function (x) { ids[x.id] = 1; });
+    C.msgs[key] = (d.mensajes || []).filter(function (x) { return !ids[x.id]; }).concat(C.msgs[key] || []); C.mas[key] = !!d.hay_mas;
+    if (!silencio && C.peer === key) {
+      var b = $('mz-ms'), h0 = b ? b.scrollHeight : 0, t0 = b ? b.scrollTop : 0;
+      pintaMsgs(); b = $('mz-ms'); if (b) b.scrollTop = t0 + (b.scrollHeight - h0);
+    }
+    return null;
+  }
+  /* Si el mensaje que se quiere ver (resultado de una búsqueda) es más antiguo que lo cargado, va trayendo páginas hasta encontrarlo (máx. 6). */
+  async function buscaAtras(key, id) {
+    for (var n = 0; n < 6; n++) {
+      if ((C.msgs[key] || []).some(function (x) { return x.id === id; }) || !C.mas[key]) break;
+      if (await cargaAnteriores(key, true)) break;
+    }
+    C.resaltar = id;
+  }
+  function marca(key) {
+    C.nl[key] = 0;
+    if (key === GEN) { var lg = C.msgs[GEN] || [], u = lg[lg.length - 1]; if (u && !u._est) C.ultLeido[GEN] = u.created_at; }
+    else (C.msgs[key] || []).forEach(function (m) { if (m.de !== me.id && !m.leido_at && !m._est) m.leido_at = new Date().toISOString(); });
     boton();
-    clearTimeout(C.mark);
-    C.mark = setTimeout(function () { try { Promise.resolve(sb.rpc('chat_marcar_leidos', { p_con: peer })).catch(function () { }); } catch (e) { } }, 300);
+    var cid = idConv(key); if (!cid) return;
+    clearTimeout(C.markT[key]);
+    C.markT[key] = setTimeout(function () { llama('chat_leer', { p_conversacion: cid }).then(function (r) { if (r.error) refrescaSoon(); }); }, 300);
   }
   function calculaDivisor(peer) {
-    var l = C.msgs[peer] || [], d = null, v = vistaGen(), lim = Date.parse(v || '') || (Date.now() - 86400000);
+    var l = C.msgs[peer] || [], d = null, lim = Date.parse(C.ultLeido[GEN] || '') || (Date.now() - 86400000);
     for (var i = 0; i < l.length; i++) {
       var m = l[i]; if (m.de === me.id || m._est || m.tipo === 'ZUMBIDO') continue;
       if (peer === GEN ? Date.parse(m.created_at) > lim : !m.leido_at) { d = m.id; break; }
     }
     if (d) C.divisor[peer] = d; else delete C.divisor[peer];
   }
+  /* Orden único para todas las pantallas: primero lo ya guardado en la base, por fecha del servidor (y por id si coincide); al final, lo que aún se está enviando.
+     Así, si dos personas escriben a la vez, las dos pantallas muestran los mensajes en el mismo orden. */
+  function ordena(l) {
+    var conf = [], pend = [];
+    for (var i = 0; i < l.length; i++) (l[i]._est ? pend : conf).push(l[i]);
+    conf.sort(function (a, b) { var d = Date.parse(a.created_at) - Date.parse(b.created_at); return d || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0); });
+    l.length = 0; for (var j = 0; j < conf.length; j++) l.push(conf[j]); for (var k = 0; k < pend.length; k++) l.push(pend[k]);
+  }
   function agrega(peer, m) {
     var l = C.msgs[peer] = C.msgs[peer] || [];
     for (var i = 0; i < l.length; i++) if (l[i].id === m.id) return false;
-    l.push(m); return true;
+    l.push(m); ordena(l); return true;
   }
   function anotaReciente(m) {
     if (!m || !m.id) return;
     var p = peerDe(m); if (!C.rec[p] || Date.parse(m.created_at) >= Date.parse(C.rec[p].created_at)) C.rec[p] = m;
-    if (!C.todos.some(function (x) { return x.id === m.id; })) { C.todos.unshift(m); if (C.todos.length > MAX_REC) C.todos.pop(); }
+  }
+  /* Búsqueda de mensajes: la hace la base sobre TODA tu historia (sin distinguir tildes ni mayúsculas); aquí solo se espera un instante a que termines de escribir. */
+  function buscaMsgs() {
+    clearTimeout(C.busqT); var q = C.q.trim();
+    if (q.length < 2) { C.busqTok++; C.busqRes = []; C.busqQ = ''; C.busqErr = null; C.busqCarga = false; return; }
+    C.busqCarga = true;
+    C.busqT = setTimeout(async function () {
+      var tok = ++C.busqTok, r = await llama('chat_buscar', { p_q: q, p_limite: 30 });
+      if (tok !== C.busqTok) return;
+      C.busqCarga = false; C.busqRes = r.error ? [] : (r.data || []); C.busqQ = q; C.busqErr = r.error ? msgE(r.error) : null;
+      if (C.open && C.q.trim() === q) pintaLista();
+    }, 300);
   }
 
   /* ================= PINTADO: piezas pequeñas ================= */
@@ -10020,7 +10121,7 @@ function ofcCalcular(cat, sel) {
     b.innerHTML = h;
   }
   function filaConv(id) {
-    var gen = id === GEN, c = gen ? null : contacto(id), r = C.rec[id], n = C.nl[id] || 0, nombre = gen ? 'Sala general' : (c ? bonito(c.nombre) : 'Compañero');
+    var gen = id === GEN, c = gen ? null : contacto(id), r = C.rec[id], n = C.nl[id] || 0, nombre = gen ? 'Sala general' : ((c ? bonito(c.nombre) : 'Compañero') + (inactivo(id) ? ' (inactivo)' : ''));
     var escribiendo = !gen && C.typ[id] && Date.now() - C.typ[id] < 4000;
     var prev;
     if (escribiendo) prev = '<em>escribiendo…</em>';
@@ -10067,7 +10168,7 @@ function ofcCalcular(cat, sel) {
   function htmlBusqueda() {
     var q = C.q.trim(), h = '';
     var pers = C.cont.filter(function (c) { return plano(c.nombre + ' ' + c.rol + ' ' + (DEPTO[c.rol] || '')).indexOf(plano(q)) >= 0; });
-    var msgs = C.todos.filter(function (m) { return m.tipo !== 'ZUMBIDO' && plano(m.cuerpo).indexOf(plano(q)) >= 0; }).slice(0, 20);
+    var msgs = C.busqQ === q ? C.busqRes : [], cargando = C.busqCarga && q.length >= 2 && C.busqQ !== q;
     var gen = plano('sala general').indexOf(plano(q)) >= 0;
     if (gen) h += '<div class="mz-tit" role="presentation">Sala</div>' + filaConv(GEN);
     if (pers.length) h += '<div class="mz-tit" role="presentation">Personas (' + pers.length + ')</div>' + pers.map(function (c) { return C.rec[c.id] ? filaConv(c.id) : filaContacto(c); }).join('');
@@ -10078,6 +10179,8 @@ function ofcCalcular(cat, sel) {
           '<div class="mz-rt"><div class="mz-rn"><b>' + esc(nom) + '</b><time>' + esc(tiempoCorto(m.created_at)) + '</time></div><div class="mz-rp"><span>' + (m.de === me.id ? '<em>Tú:</em> ' : '') + resaltar(m.cuerpo, q) + '</span></div></div></button>';
       }).join('');
     }
+    if (cargando) h += '<div class="mz-buscando" role="status">Buscando en tus mensajes…</div>';
+    else if (C.busqErr && q.length >= 2) h += '<div class="mz-buscando" role="status">No se pudo buscar en los mensajes: ' + esc(C.busqErr) + '</div>';
     if (!h) h = vacio(IC.lupa, 'Sin resultados', 'No encontré a nadie ni mensajes con «' + q + '».', '<button type="button" class="mz-btn sec chico" data-a="limpiabusq">Borrar búsqueda</button>');
     return h;
   }
@@ -10134,31 +10237,33 @@ function ofcCalcular(cat, sel) {
       '<button type="button" class="mz-ib" data-a="busqconv" aria-label="Cerrar búsqueda" title="Cerrar">' + ic(IC.x) + '</button></div>';
   }
   function compositor() {
-    var gen = C.peer === GEN;
+    var gen = C.peer === GEN, off = !gen && inactivo(C.peer);
     return '<div class="mz-comp" id="mz-comp"><span class="mz-cuenta" id="mz-cuenta" hidden></span>' +
       '<div class="mz-emo" id="mz-emo" role="group" aria-label="Emojis" hidden>' + EMOJIS.map(function (g) {
         return '<h4>' + g[0] + '</h4><div class="g">' + g[1].split(' ').map(function (e) { return '<button type="button" data-a="cara" data-e="' + e + '" aria-label="' + e + '">' + e + '</button>'; }).join('') + '</div>';
       }).join('') + '</div>' +
       '<div class="mz-caja"><button type="button" class="mz-ib" id="mz-emob" data-a="emo" aria-label="Insertar emoji" title="Emojis" aria-expanded="false" aria-haspopup="true">' + ic(IC.cara) + '</button>' +
-      (gen ? '' : '<button type="button" class="mz-ib mz-bz" id="mz-bz" data-a="zumbido" aria-label="Enviar zumbido" title="Enviar zumbido (llama la atención de ' + esc(nombreDe(C.peer)) + ')">' + ic(IC.campana) + '<span class="cd" id="mz-cd" hidden></span></button>') +
-      '<label class="mz-sr" for="mz-in">Escribe un mensaje</label><textarea id="mz-in" rows="1" maxlength="' + MAXLEN + '" data-minus autocomplete="off" placeholder="' + (gen ? 'Escribe a todo el equipo…' : 'Escribe un mensaje…') + '"></textarea>' +
+      (gen || off ? '' : '<button type="button" class="mz-ib mz-bz" id="mz-bz" data-a="zumbido" aria-label="Enviar zumbido" title="Enviar zumbido (llama la atención de ' + esc(nombreDe(C.peer)) + ')">' + ic(IC.campana) + '<span class="cd" id="mz-cd" hidden></span></button>') +
+      '<label class="mz-sr" for="mz-in">Escribe un mensaje</label><textarea id="mz-in" rows="1" maxlength="' + MAXLEN + '"' + (off ? ' disabled' : '') + ' data-minus autocomplete="off" placeholder="' + (off ? 'Esta persona ya no está activa' : gen ? 'Escribe a todo el equipo…' : 'Escribe un mensaje…') + '"></textarea>' +
       '<button type="button" class="mz-send" id="mz-send" data-a="enviar" aria-label="Enviar mensaje" title="Enviar (Enter)" disabled>' + ic(IC.envia) + '</button></div></div>';
   }
   function vacioMain() {
     return '<div class="mz-vacio grande"><div class="mz-ilu">' + ic(IC.chat, 42) + '</div><b>Fibertel Messenger</b><div>Elige una conversación de la lista o busca a un compañero.</div>' +
       '<div><span class="mz-kb">Ctrl</span> + <span class="mz-kb">K</span> para buscar desde cualquier lugar</div></div>';
   }
-  function marcasEstado(m) {
+  /* Un ✓ = enviado (la base lo guardó) · ✓✓ finos = entregado (llegó al aparato de la otra persona) · ✓✓ gruesos = leído. Solo en conversaciones privadas. */
+  function marcasEstado(m, gen) {
     if (m._est === 'enviando') return '<span title="Enviando">' + ic(IC.reloj, 14) + '</span><span class="mz-sr">Enviando</span>';
     if (m._est === 'error') return '<span title="No enviado">' + ic(IC.alerta, 14) + '</span><span class="mz-sr">No enviado</span>';
-    if (m.leido_at) return '<span title="Leído">' + ic(IC.ok2, 15) + '</span><span class="mz-sr">Leído</span>';
-    return '<span title="Enviado">' + ic(IC.ok, 14) + '</span><span class="mz-sr">Enviado</span>';
+    if (!gen && m.leido_at) return '<span class="mz-rc leido" title="Leído">' + ic(IC.ok2, 15) + '</span><span class="mz-sr">Leído</span>';
+    if (!gen && m.entregado_at) return '<span class="mz-rc entre" title="Entregado">' + ic(IC.ok2, 15) + '</span><span class="mz-sr">Entregado</span>';
+    return '<span class="mz-rc" title="Enviado">' + ic(IC.ok, 14) + '</span><span class="mz-sr">Enviado</span>';
   }
   function htmlMsgs() {
     var l = C.msgs[C.peer] || [], gen = C.peer === GEN, q = C.busq.on ? C.busq.q.trim() : '', h = '', ult = null, ultT = 0, ultD = null;
-    if (l.length >= MAX_CONV) h += '<div class="mz-nota">Se muestran los últimos ' + MAX_CONV + ' mensajes de esta conversación.</div>';
     if (!l.length) return '<div class="mz-vacio">' + '<div class="mz-ilu">' + ic(IC.chat, 30) + '</div><b>' + (gen ? 'La sala está en silencio' : 'Empieza la conversación con ' + esc(nombreDe(C.peer))) + '</b><div>' + (gen ? 'Lo que escribas aquí lo ve todo el equipo.' : 'Aún no hay mensajes.') + '</div>' +
       '<button type="button" class="mz-btn sec chico" data-a="saludar">👋 Escribir un saludo</button></div>';
+    if (C.mas[C.peer]) h += '<div class="mz-mas"><button type="button" class="mz-btn sec chico" data-a="mas"' + (C.cargandoMas ? ' disabled' : '') + '>' + (C.cargandoMas ? 'Cargando…' : 'Cargar mensajes anteriores') + '</button></div>';
     for (var i = 0; i < l.length; i++) {
       var m = l[i], yo = m.de === me.id, t = Date.parse(m.created_at), sig = l[i + 1];
       if (!ultD || !mismoDia(ultD, m.created_at)) { h += '<div class="mz-dia"><span>' + esc(etiquetaDia(m.created_at)) + '</span></div>'; ult = null; }
@@ -10172,8 +10277,8 @@ function ofcCalcular(cat, sel) {
       h += '<div class="mz-g ' + (yo ? 'yo' : 'el') + (prim ? ' prim' : '') + (fin ? ' ult' : '') + (m._est === 'error' ? ' fallo' : '') + (C.fresh[m.id] ? ' mz-pop' : '') + '" id="mz-m-' + esc(m.id) + '">';
       if (!yo) h += fin ? av(m.de, nombreDe(m.de), 30, false) : '<span class="mz-sp"></span>';
       h += '<div class="mz-b">' + (!yo && gen && prim ? '<span class="mz-nm">' + esc(nombreDe(m.de)) + '</span>' : '') + '<div class="mz-t">' + textoHtml(m.cuerpo, q) + '</div>' +
-        '<div class="mz-mt"><time datetime="' + esc(m.created_at) + '">' + esc(hhmm(m.created_at)) + '</time>' + (yo ? marcasEstado(m) : '') + '</div>';
-      if (m._est === 'error') h += '<div class="mz-err"><span>No se envió.</span><button type="button" data-a="reintentar-msg" data-id="' + esc(m.id) + '">Reintentar</button><button type="button" data-a="descartar" data-id="' + esc(m.id) + '">Descartar</button></div>';
+        '<div class="mz-mt"><time datetime="' + esc(m.created_at) + '">' + esc(hhmm(m.created_at)) + '</time>' + (yo ? marcasEstado(m, gen) : '') + '</div>';
+      if (m._est === 'error') h += '<div class="mz-err"><span>' + esc(m._red ? 'Sin conexión: no se envió. Se reintentará sola.' : (m._msg || 'No se envió.')) + '</span><button type="button" data-a="reintentar-msg" data-id="' + esc(m.id) + '">Reintentar</button><button type="button" data-a="descartar" data-id="' + esc(m.id) + '">Descartar</button></div>';
       h += '</div></div>';
       ult = m.de; ultT = t;
     }
@@ -10245,13 +10350,17 @@ function ofcCalcular(cat, sel) {
   }
   function actualizaZumbidoBtn() {
     var b = $('mz-bz'), cd = $('mz-cd'); if (!b) return;
-    var r = ESPERA_ZUMBIDO - (Date.now() - C.buzz), esp = r > 0;
-    b.setAttribute('aria-disabled', String(esp));
+    var r = ESPERA_ZUMBIDO - (Date.now() - C.buzz), esp = r > 0, dnd = !!C.peer && C.peer !== GEN && trabajoDe(C.peer) === 'dnd';
+    b.setAttribute('aria-disabled', String(esp || dnd));
     if (cd) { cd.hidden = !esp; cd.textContent = esp ? Math.ceil(r / 1000) : ''; }
-    var info = $('mz-izb'); if (info) info.setAttribute('aria-disabled', String(esp));
+    var info = $('mz-izb'); if (info) info.setAttribute('aria-disabled', String(esp || dnd));
     if (esp && !C.buzzT) C.buzzT = setInterval(function () { actualizaZumbidoBtn(); }, 500);
     if (!esp && C.buzzT) { clearInterval(C.buzzT); C.buzzT = null; }
-    if (C.peer && C.peer !== GEN && estadoDe(C.peer) === 'busy') b.title = nombreDe(C.peer) + ' está ocupado: recibirá el zumbido sin sonido';
+    if (C.peer && C.peer !== GEN) {
+      if (dnd) b.title = nombreDe(C.peer) + ' tiene «No molestar»: no se le pueden enviar zumbidos';
+      else if (estadoDe(C.peer) === 'busy' || estadoDe(C.peer) === 'call') b.title = nombreDe(C.peer) + ' está ' + (estadoDe(C.peer) === 'busy' ? 'ocupado' : 'en llamada') + ': recibirá el zumbido sin sonido';
+      else b.title = 'Enviar zumbido (llama la atención de ' + nombreDe(C.peer) + ')';
+    }
   }
 
   /* ================= PINTADO: ajustes ================= */
@@ -10283,7 +10392,7 @@ function ofcCalcular(cat, sel) {
     op = op || {};
     if (!C.open) abrirVentana(true, true);
     guardaBorrador();
-    var cambia = C.peer !== peer, cache = C.msgs[peer];
+    var cambia = C.peer !== peer, cache = C.cargado[peer] ? C.msgs[peer] : null;
     C.peer = peer; C.vista = 'conv'; C.emo = false; C.busq = { on: false, q: '', i: 0, n: 0 }; C.nuevos = 0; C.resaltar = op.resaltar || null; C.errConv = null; C.cargaConv = !cache;
     if (cambia) delete C.divisor[peer];
     pintaMain(); aplicaVista(); pintaLista(); pintaInfo();
@@ -10292,24 +10401,59 @@ function ofcCalcular(cat, sel) {
     if (C.peer !== peer) return;
     C.cargaConv = false;
     if (err) { if (!cache) { C.errConv = err; pintaMsgs(); return; } aviso(err, true); }
+    if (op.resaltar) { await buscaAtras(peer, op.resaltar); if (C.peer !== peer) return; }
     if (!cache || cambia) calculaDivisor(peer);
-    if (!document.hidden) marca(peer);
+    if (!document.hidden) { marca(peer); entregaSoon(); }
     pintaMsgs({ inicio: true }); pintaInfo(); pintaLista();
     var i = $('mz-in'); if (i && window.innerWidth > 700 && !C.resaltar) i.focus();
   }
   function cerrarConv() { guardaBorrador(); C.peer = null; C.vista = 'lista'; C.busq = { on: false, q: '', i: 0, n: 0 }; pintaMain(); aplicaVista(); pintaLista(); }
 
+  /* ----- Cola de envío: lo que no se pudo enviar por falta de red se guarda en este navegador y se reintenta solo.
+     Es seguro reintentar: cada mensaje lleva su client_id y la base no crea dos con el mismo. ----- */
+  function colaGuarda() { lsSet('crm_chat_cola_' + me.id, JSON.stringify(C.cola.slice(-50))); }
+  function colaAgrega(tmp, key) { C.cola.push({ client_id: tmp.client_id, key: key, cuerpo: tmp.cuerpo, created_at: tmp.created_at }); colaGuarda(); }
+  function colaQuita(cid) { if (!cid) return; var n = C.cola.length; C.cola = C.cola.filter(function (x) { return x.client_id !== cid; }); if (C.cola.length !== n) colaGuarda(); }
+  function colaCarga() {
+    var arr = []; try { arr = JSON.parse(lsGet('crm_chat_cola_' + me.id) || '[]') || []; } catch (e) { arr = []; }
+    C.cola = arr.filter(function (x) { return x && typeof x.client_id === 'string' && typeof x.key === 'string' && typeof x.cuerpo === 'string'; }).slice(-50);
+    C.cola.forEach(function (x) {
+      var tmp = { id: 'tmp-q-' + x.client_id, client_id: x.client_id, de: me.id, para: x.key === GEN ? null : x.key, tipo: 'TEXTO', cuerpo: x.cuerpo, leido_at: null, entregado_at: null, created_at: x.created_at, _est: 'error', _red: true, _viejo: true };
+      agrega(x.key, tmp); anotaReciente(tmp);
+    });
+  }
+  function programaCola(ms) { if (C.cerrando) return; clearTimeout(C.colaT); C.colaT = setTimeout(reintentaCola, ms || 5000); }
+  async function reintentaCola() {
+    if (C.colaOn || !C.cola.length || C.cerrando) return;
+    C.colaOn = true;
+    try {
+      var items = C.cola.slice();
+      for (var i = 0; i < items.length; i++) {
+        var x = items[i], l = C.msgs[x.key] || [], tmp = null;
+        for (var k = 0; k < l.length; k++) if (l[k].client_id === x.client_id) { tmp = l[k]; break; }
+        if (!tmp || !tmp._est) { colaQuita(x.client_id); continue; }      // ya no está (lo descartó la persona) o ya es un mensaje real
+        if (tmp._est === 'enviando' || !tmp._red) continue;               // en camino, o rechazado por el servidor (solo se repite a mano)
+        if (tmp._viejo && Date.now() - Date.parse(x.created_at) > 600000) continue;   // quedó de una sesión anterior hace más de 10 min: que decida la persona
+        await enviaFila(x.key, tmp);
+        if (tmp._est === 'error' && tmp._red) break;                      // sigue sin red: no insiste con el resto
+      }
+    } finally { C.colaOn = false; }
+  }
+
   async function enviar(tipo) {
     var peer = C.peer; if (!peer) return;
     var inp = $('mz-in');
     if (tipo === 'ZUMBIDO') {
-      if (peer === GEN) return;
+      if (peer === GEN || inactivo(peer)) return;
+      if (trabajoDe(peer) === 'dnd') { aviso(nombreDe(peer) + ' tiene «No molestar»: no se le pueden enviar zumbidos', true); return; }
       var r0 = ESPERA_ZUMBIDO - (Date.now() - C.buzz);
       if (r0 > 0) { aviso('Espera ' + Math.ceil(r0 / 1000) + ' s para enviar otro zumbido'); return; }
       C.buzz = Date.now(); actualizaZumbidoBtn();
-      var rz; try { rz = await sb.from('chat_mensajes').insert({ de: me.id, para: peer, tipo: 'ZUMBIDO', cuerpo: 'zumbido' }).select().single(); } catch (e) { rz = { error: e }; }
-      if (rz.error || !rz.data) { C.buzz = 0; actualizaZumbidoBtn(); aviso(msgE(rz.error), true); return; }
-      agrega(peer, rz.data); anotaReciente(rz.data);
+      var rz = await llama('chat_enviar', { p_conversacion: C.convId[peer] || null, p_para: peer, p_cuerpo: 'zumbido', p_client_id: uuid(), p_tipo: 'ZUMBIDO' });
+      var dz = rz.data && rz.data.mensaje;
+      if (rz.error || !dz) { C.buzz = /zumbido_espera/.test(String(rz.error && rz.error.message)) ? Date.now() : 0; actualizaZumbidoBtn(); aviso(msgE(rz.error), true); return; }
+      if (dz.conversacion_id) C.convId[peer] = dz.conversacion_id;
+      agrega(peer, dz); anotaReciente(dz);
       if (C.peer === peer) pintaMsgs({ fuerza: true });
       sonidoZumbido(); if (C.pref.sacudir && anim('sacudir')) sacude($('mz'));
       pintaLista(); return;
@@ -10317,26 +10461,34 @@ function ofcCalcular(cat, sel) {
     var txt = ((inp && inp.value) || '').trim(); if (!txt) return;
     if (txt.length > MAXLEN) { aviso('El mensaje supera los ' + MAXLEN + ' caracteres', true); return; }
     inp.value = ''; delete C.borr[peer]; autoTam(); actualizaEnvio();
-    var tmp = { id: 'tmp-' + (++C.tmpN) + '-' + Date.now(), de: me.id, para: peer === GEN ? null : peer, tipo: 'TEXTO', cuerpo: txt, leido_at: null, created_at: new Date().toISOString(), _est: 'enviando' };
+    var tmp = { id: 'tmp-' + (++C.tmpN) + '-' + Date.now(), client_id: uuid(), de: me.id, para: peer === GEN ? null : peer, tipo: 'TEXTO', cuerpo: txt, leido_at: null, entregado_at: null, created_at: new Date().toISOString(), _est: 'enviando' };
+    colaAgrega(tmp, peer);
     agrega(peer, tmp); C.fresh[tmp.id] = anim('animEnviar'); anotaReciente(tmp);
     pintaMsgs({ fuerza: true }); pintaLista();
     var sb2 = $('mz-send'); if (sb2 && anim('animEnviar')) { sb2.classList.remove('vuela'); void sb2.offsetWidth; sb2.classList.add('vuela'); }
     if (inp) inp.focus();
     await enviaFila(peer, tmp);
   }
-  async function enviaFila(peer, tmp) {
-    tmp._est = 'enviando';
-    var r; try { r = await sb.from('chat_mensajes').insert({ de: me.id, para: peer === GEN ? null : peer, tipo: 'TEXTO', cuerpo: tmp.cuerpo }).select().single(); } catch (e) { r = { error: e }; }
-    var l = C.msgs[peer] || [], i = -1; for (var k = 0; k < l.length; k++) if (l[k].id === tmp.id) { i = k; break; }
-    if (!r || r.error || !r.data) {
-      if (i >= 0) l[i]._est = 'error';
-      if (C.peer === peer) pintaMsgs({ fuerza: true }); aviso(msgE(r && r.error), true); pintaLista(); return;
+  async function enviaFila(key, tmp) {
+    tmp._est = 'enviando'; tmp._red = false; tmp._msg = '';
+    var r = await llama('chat_enviar', { p_conversacion: C.convId[key] || null, p_para: key === GEN ? null : key, p_cuerpo: tmp.cuerpo, p_client_id: tmp.client_id, p_tipo: 'TEXTO' });
+    var l = C.msgs[key] || [], i = -1; for (var k = 0; k < l.length; k++) if (l[k].client_id === tmp.client_id) { i = k; break; }
+    var d = r.data && r.data.mensaje;
+    if (r.error || !d) {
+      if (i >= 0 && !l[i]._est) { colaQuita(tmp.client_id); return; }   // mientras tanto llegó por tiempo real: ya está guardado
+      var red = !r.error || esRed(r.error);                              // sin error ni dato = respuesta rara: se trata como corte de red
+      tmp._est = 'error'; tmp._red = red; tmp._msg = red ? '' : msgE(r.error); tmp._n = (tmp._n || 0) + 1;
+      if (red) programaCola(Math.min(5000 * Math.pow(2, tmp._n - 1), 60000)); else colaQuita(tmp.client_id);
+      if (C.peer === key) pintaMsgs({ fuerza: true });
+      if (!tmp._viejo || !red) aviso(msgE(r.error), true);
+      pintaLista(); return;
     }
-    var ya = l.some(function (x) { return x.id === r.data.id; });
-    if (i >= 0) { if (ya) l.splice(i, 1); else l[i] = r.data; }
-    else if (!ya) l.push(r.data);
-    anotaReciente(r.data);
-    if (C.peer === peer) pintaMsgs(); pintaLista();
+    if (d.conversacion_id) C.convId[key] = d.conversacion_id;
+    colaQuita(tmp.client_id);
+    if (i >= 0) { if (l[i].id !== d.id) { if (l.some(function (x) { return x.id === d.id; })) l.splice(i, 1); else l[i] = d; } }
+    else if (!l.some(function (x) { return x.id === d.id; })) l.push(d);
+    ordena(l); anotaReciente(d);
+    if (C.peer === key) pintaMsgs(); pintaLista();
   }
   function sacude(el) { if (!el || reducido()) return; el.classList.remove('sacude'); void el.offsetWidth; el.classList.add('sacude'); }
   function anuncia(t) { var v = $('mz-live'); if (v) { v.textContent = ''; setTimeout(function () { v.textContent = t; }, 40); } }
@@ -10344,22 +10496,24 @@ function ofcCalcular(cat, sel) {
   function llego(m) {
     if (!m || !m.id) return;
     var yo = m.de === me.id, peer = peerDe(m);
+    if (m.conversacion_id) C.convId[peer] = m.conversacion_id;
     if (yo) {   // eco de mi propio mensaje (otra pestaña, o el mío antes de que termine la respuesta del servidor)
       var l = C.msgs[peer] = C.msgs[peer] || [];
       if (l.some(function (x) { return x.id === m.id; })) return;
-      var j = -1; for (var k = 0; k < l.length; k++) if (l[k]._est === 'enviando' && l[k].cuerpo === m.cuerpo && l[k].tipo === m.tipo) { j = k; break; }
+      var j = -1; if (m.client_id) for (var k = 0; k < l.length; k++) if (l[k].client_id === m.client_id) { j = k; break; }
       if (j >= 0) l[j] = m; else l.push(m);
-      anotaReciente(m); if (C.open && C.peer === peer) pintaMsgs(); pintaLista(); return;
+      ordena(l); colaQuita(m.client_id); anotaReciente(m); if (C.open && C.peer === peer) pintaMsgs(); pintaLista(); return;
     }
     var nuevoM = agrega(peer, m); anotaReciente(m);
-    if (m.para) C.typ[m.de] = 0;
+    if (!nuevoM) return;                                                // ya lo teníamos (tiempo real repetido o llegó por el resumen)
+    if (m.para) { C.typ[m.de] = 0; entregaSoon(); }                    // en privado: confirma a la base que llegó a este aparato
     var viendo = C.open && C.peer === peer && !document.hidden;
     if (viendo) {
-      if (nuevoM) C.fresh[m.id] = anim('animRecibir');
+      C.fresh[m.id] = anim('animRecibir');
       var b = $('mz-ms'), lejos = b && (b.scrollHeight - b.scrollTop - b.clientHeight > 160);
       if (lejos && m.tipo !== 'ZUMBIDO') C.nuevos++;
       pintaMsgs(); marca(peer); pintaTyping(); pintaLista();
-    } else { C.nl[peer] = (C.nl[peer] || 0) + 1; boton(); pintaLista(); }
+    } else { if (m.tipo !== 'ZUMBIDO') C.nl[peer] = (C.nl[peer] || 0) + 1; boton(); pintaLista(); }
     var quien = nombreDe(m.de) + (peer === GEN ? ' (sala general)' : '');
     if (m.tipo === 'ZUMBIDO') {
       if (pasivo()) return;
@@ -10377,14 +10531,13 @@ function ofcCalcular(cat, sel) {
       anuncia('Mensaje nuevo de ' + quien + (C.pref.avisoTexto ? ': ' + String(m.cuerpo).slice(0, 120) : ''));
     }
   }
-  function actualizado(m) {   // alguien leyó mis mensajes (o los míos en otra pestaña): se refleja el «Leído»
+  function actualizado(m) {   // la base registró «entregado» o «leído» en un mensaje mío (o leí algo en otra pestaña): se refleja la marca
     if (!m || !m.id) return;
     var peer = peerDe(m), l = C.msgs[peer] || [];
-    for (var i = 0; i < l.length; i++) if (l[i].id === m.id) { l[i].leido_at = m.leido_at; }
-    C.todos.forEach(function (x) { if (x.id === m.id) x.leido_at = m.leido_at; });
-    if (C.rec[peer] && C.rec[peer].id === m.id) C.rec[peer].leido_at = m.leido_at;
+    for (var i = 0; i < l.length; i++) if (l[i].id === m.id) { l[i].leido_at = m.leido_at; l[i].entregado_at = m.entregado_at; }
+    if (C.rec[peer] && C.rec[peer].id === m.id) { C.rec[peer].leido_at = m.leido_at; C.rec[peer].entregado_at = m.entregado_at; }
     if (C.open && C.peer === peer) pintaMsgs();
-    if (m.para === me.id && m.leido_at) cargaNoLeidos();
+    if (m.para === me.id && m.leido_at) refrescaSoon();
   }
   function avisaEscribiendo() {
     if (!C.peer || C.peer === GEN || !C.chP || Date.now() - C.tsent < 2500) return;
@@ -10418,7 +10571,7 @@ function ofcCalcular(cat, sel) {
       if (anim('animPaneles')) { w.classList.remove('mz-entra'); void w.offsetWidth; w.classList.add('mz-entra'); }
       document.body.classList.add('mz-abierto');
       C.vista = C.peer ? 'conv' : 'lista'; aplicaVista(); pintaMe(); pintaLista(); pintaInfo();
-      if (C.peer) { if (!C.msgs[C.peer]) abrirConv(C.peer); else { pintaMain(); pintaMsgs({ inicio: true }); if (!document.hidden) marca(C.peer); } }
+      if (C.peer) { if (!C.cargado[C.peer]) abrirConv(C.peer); else { pintaMain(); pintaMsgs({ inicio: true }); if (!document.hidden) marca(C.peer); } }
       else pintaMain();
       if (!sinFoco && window.innerWidth > 700) setTimeout(function () { var q = $('mz-q'), i = $('mz-in'); (C.peer && i ? i : q) && (C.peer && i ? i : q).focus(); }, 60);
       if (Date.now() - C.ultimaVez > 60000) resync();
@@ -10440,9 +10593,12 @@ function ofcCalcular(cat, sel) {
   function menuEstado(v) { C.menu = v; var m = $('mz-menu'), b = $('mz-st'); if (m) m.hidden = !v; if (b) b.setAttribute('aria-expanded', String(v)); if (v && m) { var p = m.querySelector('[aria-checked=true]') || m.querySelector('button'); if (p) p.focus(); } }
   function cambiaEstado(v) {
     if (!ESTADOS[v]) return;
-    C.st = v; lsSet('crm_chat_estado_' + me.id, v);
-    if (C.chP) { try { C.chP.track({ nombre: perfil.nombre, st: v, t: Date.now() }); } catch (e) { } }
-    C.menu = false; pintaMe(); pintaLista(); aviso('Estado: ' + ESTADOS[v]);
+    var antes = C.st;
+    var pon = function (x) { C.st = x; lsSet('crm_chat_estado_' + me.id, x); if (C.chP) { try { C.chP.track({ nombre: perfil.nombre, st: x, t: Date.now() }); } catch (e) { } } };
+    pon(v); C.menu = false; pintaMe(); pintaLista(); aviso('Estado: ' + ESTADOS[v]);
+    llama('chat_estado_set', { p_estado: A_SRV[v] }).then(function (r) {
+      if (r.error && C.st === v) { pon(antes); pintaMe(); pintaLista(); aviso('No se pudo guardar tu estado: ' + msgE(r.error), true); }
+    });
     var b = $('mz-st'); if (b) b.focus();
   }
   function conectado(id) {
@@ -10461,24 +10617,40 @@ function ofcCalcular(cat, sel) {
     if (C.cerrando) return;
     if (s === 'SUBSCRIBED') {
       var estabaCaido = C.caido; C.conectado = true; C.caido = false; banner(false);
-      if (estabaCaido) resync();
+      if (estabaCaido || C.cargadoEn) resync();      // puede haber un hueco entre la carga inicial y la suscripción, o durante la caída
     } else if (s === 'CLOSED' || s === 'CHANNEL_ERROR' || s === 'TIMED_OUT') {
       if (C.conectado && !C.caido) { C.caido = true; banner(true); }
     }
   }
-  /* Tras una caída de conexión o de sueño del equipo: vuelve a pedir lo que pudo perderse (contactos, recientes, no leídos y la conversación abierta). */
+  /* Tras una caída de conexión o de sueño del equipo: vuelve a pedir lo que pudo perderse (personas, resumen con «sin leer», la conversación abierta)
+     y reenvía lo que había quedado sin enviar. */
   function resync() {
     clearTimeout(C.resyncT);
     C.resyncT = setTimeout(async function () {
       C.ultimaVez = Date.now();
-      await Promise.all([cargaContactos(), cargaRecientes()]);
-      await cargaNoLeidos();
+      await cargaTodo();
+      llama('chat_entregar', {});
+      reintentaCola();
       if (C.peer && C.open) {
         var e = await cargaConv(C.peer);
         if (!e) { calculaDivisor(C.peer); if (!document.hidden) marca(C.peer); pintaMsgs(); pintaInfo(); }
       }
       pintaLista();
     }, 800);
+  }
+  /* «Latido»: una vez por minuto, con la pantalla visible, compara con la base. Si el tiempo real se cayó sin avisar, aquí se recupera lo perdido. */
+  async function latir() {
+    if (document.hidden || C.cerrando || !C.cargadoEn) return;
+    C.ultimaVez = Date.now();
+    if (!(await cargaTodo())) return;
+    llama('chat_entregar', {}); reintentaCola();
+    var k = C.peer; if (!(C.open && k)) { if (C.open) pintaLista(); return; }
+    var u = C.rec[k], reales = (C.msgs[k] || []).filter(function (x) { return !x._est; }), ult = reales[reales.length - 1];
+    if (u && !u._est && (!ult || (u.id !== ult.id && Date.parse(u.created_at) > Date.parse(ult.created_at)))) {
+      var e = await cargaConv(k);
+      if (!e && C.peer === k) { if (!document.hidden) marca(k); pintaMsgs(); pintaInfo(); }
+    }
+    pintaLista();
   }
   function suscribir() {
     C.chM = sb.channel('chat-msgs-' + me.id)
@@ -10489,10 +10661,10 @@ function ofcCalcular(cat, sel) {
     ch.on('presence', { event: 'sync' }, function () {
       var st = ch.presenceState(), antes = C.on, nuevo = {};
       Object.keys(st).forEach(function (k) { var m = st[k] && st[k][0]; nuevo[k] = (m && ESTADOS[m.st]) ? m.st : 'on'; });
-      C.on = nuevo;
+      C.on = nuevo; Object.keys(nuevo).forEach(function (k) { C.ws[k] = nuevo[k]; });
       if (!C.primeraPres) Object.keys(nuevo).forEach(function (k) { if (k !== me.id && !antes[k]) { try { conectado(k); } catch (e) { } } });
       C.primeraPres = false;
-      if (C.open) { pintaLista(); var e2 = $('mz-es'); if (e2) e2.innerHTML = lineaEstado(); if (C.peer === GEN || (C.peer && !$('mz-info').hidden)) pintaInfo(); }
+      if (C.open) { pintaLista(); actualizaZumbidoBtn(); var e2 = $('mz-es'); if (e2) e2.innerHTML = lineaEstado(); if (C.peer === GEN || (C.peer && !$('mz-info').hidden)) pintaInfo(); }
     }).on('broadcast', { event: 'typing' }, function (pl) {
       var d = pl && pl.payload; if (!d || d.para !== me.id) return;
       C.typ[d.de] = Date.now(); pintaTyping(); setTimeout(pintaTyping, 4200);
@@ -10512,11 +10684,12 @@ function ofcCalcular(cat, sel) {
       case 'atras': guardaBorrador(); C.vista = 'lista'; aplicaVista(); break;
       case 'grupo': var g = b.getAttribute('data-g'); C.col[g] = !C.col[g]; pintaLista(); break;
       case 'filtro': C.filtro = b.getAttribute('data-f'); pintaLista(); break;
-      case 'limpiabusq': C.q = ''; var qi = $('mz-q'); if (qi) { qi.value = ''; qi.focus(); } pintaLista(); break;
-      case 'reintentar': C.cargaCont = true; pintaLista(); Promise.all([cargaContactos(), cargaRecientes()]).then(function () { C.cargaCont = false; return cargaNoLeidos(); }).then(function () { pintaLista(); }); break;
+      case 'limpiabusq': C.q = ''; buscaMsgs(); var qi = $('mz-q'); if (qi) { qi.value = ''; qi.focus(); } pintaLista(); break;
+      case 'reintentar': C.cargaCont = true; C.err = null; pintaLista(); cargaTodo().then(function () { C.cargaCont = false; pintaLista(); }); break;
+      case 'mas': cargaAnteriores(C.peer, false); break;
       case 'reintentar-conv': C.errConv = null; C.cargaConv = true; pintaMsgs(); (function (p) { cargaConv(p).then(function (er) { if (C.peer !== p) return; C.cargaConv = false; if (er) C.errConv = er; else { calculaDivisor(p); marca(p); } pintaMsgs({ inicio: true }); pintaInfo(); }); })(C.peer); break;
       case 'enviar': enviar('TEXTO'); break;
-      case 'zumbido': if (b.getAttribute('aria-disabled') === 'true') { aviso('Espera unos segundos para enviar otro zumbido'); break; } enviar('ZUMBIDO'); break;
+      case 'zumbido': if (b.getAttribute('aria-disabled') === 'true') { aviso(C.peer && C.peer !== GEN && trabajoDe(C.peer) === 'dnd' ? nombreDe(C.peer) + ' tiene «No molestar»: no se le pueden enviar zumbidos' : 'Espera unos segundos para enviar otro zumbido'); break; } enviar('ZUMBIDO'); break;
       case 'emo': toggleEmo(); break;
       case 'cara': insertaCara(b.getAttribute('data-e')); break;
       case 'saludar': var ii = $('mz-in'); if (ii) { ii.value = '¡Hola! 👋'; autoTam(); actualizaEnvio(); ii.focus(); } break;
@@ -10530,8 +10703,8 @@ function ofcCalcular(cat, sel) {
       case 'aj': ajustes(true); break;
       case 'aj-cerrar': ajustes(false); break;
       case 'probar': var k = b.getAttribute('data-k'); C.gesto = true; if (k === 'msg') sonidoMsg(true); else if (k === 'zumbido') sonidoZumbido(true); else sonidoConexion(true); break;
-      case 'reintentar-msg': var tm = (C.msgs[C.peer] || []).filter(function (x) { return x.id === b.getAttribute('data-id'); })[0]; if (tm) { tm._est = 'enviando'; pintaMsgs(); enviaFila(C.peer, tm); } break;
-      case 'descartar': var lm = C.msgs[C.peer] || [], id2 = b.getAttribute('data-id'); for (var z = 0; z < lm.length; z++) if (lm[z].id === id2) { var inp = $('mz-in'); if (inp && !inp.value) { inp.value = lm[z].cuerpo; autoTam(); actualizaEnvio(); } lm.splice(z, 1); break; } pintaMsgs(); pintaLista(); break;
+      case 'reintentar-msg': var tm = (C.msgs[C.peer] || []).filter(function (x) { return x.id === b.getAttribute('data-id'); })[0]; if (tm) { tm._est = 'enviando'; tm._viejo = false; if (!C.cola.some(function (x) { return x.client_id === tm.client_id; })) colaAgrega(tm, C.peer); pintaMsgs(); enviaFila(C.peer, tm); } break;
+      case 'descartar': var lm = C.msgs[C.peer] || [], id2 = b.getAttribute('data-id'); for (var z = 0; z < lm.length; z++) if (lm[z].id === id2) { colaQuita(lm[z].client_id); var inp = $('mz-in'); if (inp && !inp.value) { inp.value = lm[z].cuerpo; autoTam(); actualizaEnvio(); } lm.splice(z, 1); break; } pintaMsgs(); pintaLista(); break;
     }
   }
   function toggleEmo() { C.emo = !C.emo; var e = $('mz-emo'), b = $('mz-emob'); if (e) e.hidden = !C.emo; if (b) b.setAttribute('aria-expanded', String(C.emo)); if (C.emo && e) { var p = e.querySelector('button'); if (p) p.focus(); } }
@@ -10546,7 +10719,7 @@ function ofcCalcular(cat, sel) {
   }
   function entrada(e) {
     var id = e.target.id;
-    if (id === 'mz-q') { C.q = e.target.value; pintaLista(); }
+    if (id === 'mz-q') { C.q = e.target.value; buscaMsgs(); pintaLista(); }
     else if (id === 'mz-in') { autoTam(); actualizaEnvio(); avisaEscribiendo(); guardaBorrador(); }
     else if (id === 'mz-bqi') { C.busq.q = e.target.value; pintaMsgs(); C.busq.i = 1e9; marcaBusqueda(true); }
   }
@@ -10602,7 +10775,7 @@ function ofcCalcular(cat, sel) {
     if ($('mz') || typeof me === 'undefined' || !me || typeof perfil === 'undefined' || !perfil || !$('app')) return;
     ['chat23', 'chat23c', 'chat23-btn'].forEach(function (i) { var o = $(i); if (o) o.remove(); });   // por si quedara algo del chat antiguo
     var guardado = lsGet('crm_chat_estado_' + me.id);
-    C = nuevoEstado(); C.pref = cargaPrefs(); C.st = ESTADOS[guardado] ? guardado : 'on';
+    C = nuevoEstado(); C.pref = cargaPrefs(); C.st = ESTADOS[guardado] ? guardado : 'on'; colaCarga();
     C.info = C.pref.info !== null ? C.pref.info : window.innerWidth >= 1360;
     var fab = document.createElement('button'); fab.id = 'chat23-btn'; fab.type = 'button'; fab.setAttribute('aria-controls', 'mz'); fab.setAttribute('aria-expanded', 'false'); fab.setAttribute('aria-haspopup', 'dialog');
     fab.innerHTML = ic(IC.chat, 26); fab.addEventListener('click', function () { C.gesto = true; abrirVentana(!C.open); });
@@ -10631,13 +10804,14 @@ function ofcCalcular(cat, sel) {
     document.addEventListener('pointerdown', gesto, true); document.addEventListener('keydown', gesto, true);
     window.addEventListener('online', enLineaNav); window.addEventListener('offline', sinRed);
     C.globales = true; aplicaPrefs(); boton(); pintaMe(); pintaLista(); pintaMain();
-    cargaContactos().then(function () { return cargaRecientes(); }).then(function () { C.cargaCont = false; return cargaNoLeidos(); }).then(function () { C.ultimaVez = Date.now(); pintaMe(); pintaLista(); });
-    suscribir();
+    cargaTodo().then(function () { C.cargaCont = false; C.ultimaVez = Date.now(); pintaMe(); pintaLista(); if (C.cargadoEn) { llama('chat_entregar', {}); reintentaCola(); } });
+    suscribir(); C.latido = setInterval(latir, CADA);
   }
   function quitar() {
     C.cerrando = true;
     try { if (C.chM) sb.removeChannel(C.chM); if (C.chP) sb.removeChannel(C.chP); } catch (e) { }
-    clearInterval(C.buzzT); clearTimeout(C.resyncT); clearTimeout(C.mark);
+    clearInterval(C.buzzT); clearInterval(C.latido); clearTimeout(C.resyncT); clearTimeout(C.colaT); clearTimeout(C.entregaT); clearTimeout(C.refrescaT); clearTimeout(C.busqT);
+    Object.keys(C.markT).forEach(function (k) { clearTimeout(C.markT[k]); });
     if (C.globales) {
       document.removeEventListener('keydown', teclaGlobal, true); document.removeEventListener('visibilitychange', visible);
       document.removeEventListener('pointerdown', gesto, true); document.removeEventListener('keydown', gesto, true);
@@ -10658,7 +10832,7 @@ function ofcCalcular(cat, sel) {
   });
   var oL = window.loginView;
   if (typeof oL === 'function') window.loginView = function () { quitar(); return oL.apply(this, arguments); };
-  window.mz57 = { montar: montar, quitar: quitar, abrir: function (v) { abrirVentana(v !== false); }, estado: function () { return C; } };
+  window.mz57 = { montar: montar, quitar: quitar, abrir: function (v) { abrirVentana(v !== false); }, estado: function () { return C; }, latir: latir };
 })();
 
  </script>
