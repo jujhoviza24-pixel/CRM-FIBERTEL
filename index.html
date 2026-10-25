@@ -9481,10 +9481,10 @@ function ofcCalcular(cat, sel) {
   };
 })();
 
-  /* 57 · FIBERTEL MESSENGER (v3.2 · Fase 3B: grupos, canales y funciones de mensaje)
-   REQUIERE haber ejecutado ANTES, en este orden, en Supabase (SQL Editor): 57_chat_mensajeria.sql y 57b_chat_funciones.sql.
+  /* 57 · FIBERTEL MESSENGER (v3.4 · Fase 4B: archivos, fotos y notas de voz en tu Google Drive · 4A: perfil, mensaje de estado, sonidos por tipo, emojis y stickers)
+   REQUIERE haber ejecutado ANTES, en este orden, en Supabase (SQL Editor): 57_chat_mensajeria.sql, 57b_chat_funciones.sql y 58_chat_social.sql.
    Sin la primera el chat avisa «Falta ejecutar 57_chat_mensajeria.sql» y no abre; sin la segunda funcionan las conversaciones de siempre, pero fallan grupos, responder, editar, borrar, reacciones, fijados y favoritos
-   (y avisa «Falta ejecutar 57b_chat_funciones.sql»).
+   (y avisa «Falta ejecutar 57b_chat_funciones.sql»). Sin la tercera todo lo anterior funciona igual; solo fallan perfil, mensaje de estado, stickers y las 16 reacciones nuevas (y avisa «Falta ejecutar 58_chat_social.sql»).
    PEGAR al final del script de index.html, DESPUÉS del bloque 56 y antes del cierre del script (y borrar el bloque 23 viejo).
    Qué es: el chat interno. Ventana de tres zonas (lista · conversación · información), tema claro/oscuro del CRM, estados de trabajo,
    «escribiendo…», zumbido, sonidos y efectos que se activan o desactivan uno a uno (engranaje de la ventana).
@@ -9501,7 +9501,13 @@ function ofcCalcular(cat, sel) {
        en un canal solo escriben los administradores del canal; quien no es miembro no ve ni el grupo ni sus mensajes (tampoco la administración);
      · responder (con cita), editar (hasta 15 min), eliminar (el autor hasta 24 h; los administradores del grupo, y en la Sala general administración y supervisión), reacciones con 8 emojis, hasta 5 mensajes fijados por conversación;
      · favoritos, hasta 5 conversaciones fijadas y silenciar (sin sonidos ni avisos, el contador sigue); cada persona tiene los suyos.
-   Qué NO hay todavía (llega en las fases siguientes): archivos y notas de voz, avatares con foto, mensaje de estado, clientes compartidos, borrar o archivar un grupo entero (pestaña de administración).
+   Fase 4A (también decidido por la base, nada sale de tu Supabase ni de tu Google):
+     · perfil: color de avatar (12) e icono opcional (emoji) en vez de las iniciales; mensaje de estado de hasta 80 caracteres con emoji y duración (30 min, 1 h, 4 h, hoy, 7 días o sin límite) que se borra solo;
+     · sonidos: un tono distinto para mensajes privados, grupos/canales/sala general, zumbido y compañero conectado (se pueden apagar uno a uno) y volumen propio; los tonos los fabrica el navegador;
+     · selector de emojis con buscador en español, recientes y categorías; 27 stickers que se dibujan en pantalla (no son imágenes); 24 reacciones (8 a un toque y «+» para el resto), hasta 12 distintas por mensaje.
+   Fase 4B (archivos): fotos (se reducen solas), PDF, Word, Excel, PowerPoint, texto, CSV, ZIP y notas de voz. Se guardan en TU Google Drive (carpeta «FIBERTEL Chat - archivos») a través del servicio de Apps Script de Ofertas;
+   Supabase solo guarda la ficha (nombre, tipo, tamaño, miniatura). Hasta 10 MB por archivo y 100 por persona cada 24 horas. Hace falta haber actualizado OfertasCRM.gs (ver instrucciones en ese archivo).
+   Qué NO hay todavía (llega en las fases siguientes): clientes compartidos, borrar o archivar un grupo entero (pestaña de administración), borrar de verdad del Drive los archivos de mensajes eliminados.
    El botón flotante sigue llamándose #chat23-btn porque el bloque 48 (notificaciones) lo pulsa al tocar un aviso de chat. */
 (function () {
   if (window.mz57) return;
@@ -9513,15 +9519,65 @@ function ofcCalcular(cat, sel) {
   var SILENCIO = { busy: 1, call: 1, dnd: 1 };                                                                   // con estos estados no suenan ni avisan los mensajes nuevos
   var DEPTO = { concertador: 'Ventas · Concertación', cerrador: 'Ventas · Cierre', back: 'Back office', admin: 'Administración', supervisor: 'Supervisión' };
   var PREF0 = { sonMsg: true, sonZumbido: true, conexion: true, animRecibir: true, animEnviar: true, animPaneles: true, sacudir: true, avisoTexto: true };
-  var REAC = ['👍', '❤', '😂', '😮', '😢', '🙏', '✅', '👀'];                      // reacciones permitidas (la base guarda ❤ sin el selector de variante)
+  var PREF_S = { tonoPriv: 'suave', tonoGrupo: 'gota', tonoZumbido: 'clasico', tonoConex: 'conex' };   // textos guardados: el tono elegido para cada tipo de aviso
+  var SLOT_DE = { tonoPriv: 'priv', tonoGrupo: 'grupo', tonoZumbido: 'zumbido', tonoConex: 'conex' };
+  var VOL0 = 60;                                                                                          // volumen por defecto (0–100): 60 = el de siempre
+  var REAC_RAP = ['👍', '❤', '😂', '😮', '😢', '🙏', '✅', '👀'];                      // las 8 de siempre, a un toque
+  var REAC = REAC_RAP.concat(['👎', '🎉', '🔥', '👏', '💯', '😍', '🤔', '😡', '🤝', '💪', '🙌', '😅', '☕', '🚀', '⭐', '⚠']);   // las 24 permitidas (la base guarda ❤ y ⚠ sin el selector de variante)
+  var MAX_REAC = 12;                                                                                      // reacciones distintas por mensaje
+  var CONTENIDO = { TEXTO: 1, STICKER: 1, IMAGEN: 1, AUDIO: 1, ARCHIVO: 1 };                              // tipos de mensaje «con contenido» (se pueden responder, reaccionar y borrar)
+  var HUES12 = [172, 188, 204, 226, 258, 286, 318, 344, 14, 30, 46, 140];                                 // los 12 colores del avatar
+  var NOM_COLOR = ['Turquesa', 'Cian', 'Azul', 'Índigo', 'Violeta', 'Magenta', 'Rosa', 'Rojo', 'Naranja', 'Ámbar', 'Dorado', 'Verde'];
+  var ICONOS_AV = ['😀', '😎', '🦊', '🐼', '🦁', '🐯', '🐱', '🐶', '🚀', '⚡', '🔥', '🌟', '🍀', '🎧', '☕', '💼'];
+  var EMO_ESTADO = ['💬', '📞', '☕', '🍽️', '🔕', '⏰', '🏠', '🎯', '🌴', '🚗'];
+  var SUGERENCIAS = [['📞', 'Atendiendo una llamada', '30'], ['🍽️', 'Almorzando', '60'], ['☕', 'Pausa de 10 minutos', '30'], ['🎯', 'Cerrando una venta', '60'], ['🔕', 'Concentrado: sin interrupciones', '240'], ['🏠', 'Trabajando desde casa', 'hoy'], ['🌴', 'De vacaciones', 'nunca']];
+  var DURACIONES = [['30', '30 minutos'], ['60', '1 hora'], ['240', '4 horas'], ['hoy', 'Hasta hoy a medianoche'], ['10080', '7 días'], ['nunca', 'No borrar']];
+  /* Tonos: cada nota es [frecuencia Hz, inicio s, duración s, volumen, forma de onda]. Se fabrican con el navegador: no hay archivos de sonido ni servicios externos. */
+  var TONOS = {
+    suave: { n: 'Suave', s: [[784, 0, .16, .06], [1046, .09, .24, .05]] },
+    gota: { n: 'Gota', s: [[1318, 0, .1, .055], [880, .07, .26, .05]] },
+    campana: { n: 'Campana', s: [[988, 0, .4, .05, 'triangle'], [1480, 0, .5, .022]] },
+    burbuja: { n: 'Burbuja', s: [[523, 0, .08, .06], [784, .07, .08, .06], [1046, .14, .18, .05]] },
+    pluma: { n: 'Pluma', s: [[660, 0, .34, .045, 'triangle'], [990, .05, .3, .02]] },
+    clasico: { n: 'Clásico', s: [[150, 0, .14, .12, 'sawtooth'], [190, .15, .14, .12, 'sawtooth'], [150, .30, .2, .12, 'sawtooth']] },
+    vibra: { n: 'Vibración', s: [[110, 0, .1, .1, 'square'], [110, .14, .1, .1, 'square'], [110, .28, .1, .1, 'square'], [110, .42, .16, .1, 'square']] },
+    alerta: { n: 'Alerta', s: [[880, 0, .12, .07, 'square'], [660, .15, .12, .07, 'square'], [880, .3, .18, .07, 'square']] },
+    conex: { n: 'Discreto', s: [[523, 0, .12, .035], [659, .08, .12, .035], [784, .16, .22, .035]] },
+    arpegio: { n: 'Arpegio', s: [[392, 0, .1, .04], [523, .07, .1, .04], [659, .14, .1, .04], [784, .21, .26, .04]] },
+    brillo: { n: 'Brillo', s: [[1568, 0, .14, .03], [2093, .08, .3, .025]] },
+    silencio: { n: 'Sin sonido', s: [] }
+  };
+  var SLOT_TONOS = {
+    tonoPriv: ['suave', 'gota', 'campana', 'burbuja', 'pluma', 'silencio'],
+    tonoGrupo: ['suave', 'gota', 'campana', 'burbuja', 'pluma', 'silencio'],
+    tonoZumbido: ['clasico', 'vibra', 'alerta', 'silencio'],
+    tonoConex: ['conex', 'arpegio', 'brillo', 'silencio']
+  };
+  /* Stickers: no son imágenes, se dibujan en pantalla (emoji grande + frase sobre un degradado). Lo que viaja y se guarda es solo su nombre corto. [nombre, emoji, frase, color, palabras para buscar] */
+  var STICKERS = [
+    ['aplauso', '👏', '¡Bravo!', 172, 'aplauso felicitar bien hecho'], ['gracias', '🙏', '¡Gracias!', 204, 'gracias agradecer favor'], ['ok', '👍', 'Ok, listo', 140, 'ok vale de acuerdo bien'],
+    ['fuego', '🔥', '¡Está que arde!', 14, 'fuego caliente genial'], ['venta', '💰', '¡Venta cerrada!', 150, 'venta cierre dinero cliente'], ['cafe', '☕', 'Hora del café', 24, 'cafe pausa descanso'],
+    ['buenosdias', '🌞', '¡Buenos días!', 24, 'buenos dias saludo mañana'], ['buenastardes', '🌅', 'Buenas tardes', 346, 'buenas tardes saludo'], ['buenasnoches', '🌙', 'Buenas noches', 258, 'buenas noches despedida'],
+    ['animo', '💪', '¡Ánimo, tú puedes!', 8, 'animo fuerza apoyo'], ['jefe', '😎', 'Como un jefe', 226, 'jefe genial cool'], ['pensando', '🤔', 'Pensando…', 290, 'pensando duda'],
+    ['risa', '😂', 'Me muero de risa', 320, 'risa gracioso jaja'], ['llamada', '📞', 'En llamada', 188, 'llamada telefono ocupado'], ['ocupado', '⏳', 'Un momentito…', 204, 'espera ocupado momento'],
+    ['hecho', '✅', '¡Hecho!', 150, 'hecho listo terminado'], ['perdon', '🙈', 'Perdón', 346, 'perdon disculpa error'], ['sorpresa', '😮', '¡No puede ser!', 290, 'sorpresa asombro wow'],
+    ['celebracion', '🎉', '¡A celebrar!', 320, 'celebrar fiesta'], ['objetivo', '🎯', 'Objetivo cumplido', 172, 'objetivo meta logro'], ['cohete', '🚀', '¡Despegamos!', 226, 'cohete lanzar empezar'],
+    ['corazon', '❤️', 'Con cariño', 346, 'corazon cariño amor'], ['dormido', '😴', 'Zzz…', 258, 'dormido sueño cansado'], ['enhorabuena', '🏆', '¡Enhorabuena!', 24, 'enhorabuena felicidades trofeo'],
+    ['almuerzo', '🍽️', 'A almorzar', 14, 'almuerzo comida hambre'], ['lunes', '🥱', 'Es lunes…', 204, 'lunes cansancio semana'], ['viernes', '🥳', '¡Por fin viernes!', 320, 'viernes fin de semana']
+  ].map(function (x) { return { id: x[0], e: x[1], t: x[2], h: x[3], k: x[4] }; });
+  /* Emojis para buscar en español: «emoji palabra palabra…» separados por «;». */
+  var EMO_CATS = [
+    ['Caras', '😀', '😀 sonrisa feliz alegre;😃 contento sonrisa;😄 risa feliz;😁 sonrisa dientes;😆 risa carcajada;😅 sudor nervios risa;🤣 carcajada reir suelo;😂 lagrimas risa gracioso;🙂 sonrisa suave;🙃 al reves ironia;😉 guiño;😊 sonrojo feliz;😇 angel bueno;🥰 enamorado cariño;😍 ojos corazon encanta;🤩 asombro estrellas wow;😘 beso;😋 rico delicioso;😛 lengua;😜 guiño lengua broma;🤪 loco;🤗 abrazo;🤭 risita;🤫 silencio secreto;🤔 pensando duda;🤨 sospecha ceja;😐 neutral;😑 sin expresion;😶 mudo callado;😏 picaro;😒 fastidio;🙄 ojos en blanco hartazgo;😬 mueca nervios;😌 alivio tranquilo;😔 triste pensativo;😪 sueño;😴 dormido zzz;😷 mascarilla;🥵 calor;🥶 frio;🥴 mareado;😵 aturdido;🤯 mente explotando;🤠 vaquero;🥳 fiesta celebrar;😎 gafas sol genial;🤓 nerd estudioso;🧐 monoculo;😕 confundido;😟 preocupado;😮 sorpresa boca abierta;😲 asombrado;😳 sonrojado verguenza;🥺 suplica ruego;😢 llorar triste;😭 llanto;😨 miedo;😰 ansiedad;😱 grito susto;😖 agobio;😞 decepcion;😓 sudor frio cansancio;😩 agotado;😫 cansado;🥱 bostezo aburrido;😤 resoplido enojo;😡 enojado furioso;😠 molesto;🤬 insultos rabia;😈 diablillo;💀 calavera;🤡 payaso;👻 fantasma;🤖 robot;🙈 mono no ver verguenza;🙊 mono callado;😺 gato feliz'],
+    ['Gestos', '👍', '👍 bien aprobado pulgar;👎 mal pulgar abajo;👏 aplauso;🙌 manos arriba celebrar;🙏 gracias por favor;🤝 acuerdo trato apreton;💪 fuerza animo biceps;👌 perfecto ok;✌️ paz victoria;🤞 suerte dedos cruzados;🤟 rock te quiero;🤘 rock;👋 hola saludo adios;🤚 mano alto;✋ detente espera;🖐️ mano abierta;👈 izquierda señalar;👉 derecha señalar;👆 arriba señalar;👇 abajo señalar;☝️ uno atencion;🫡 saludo respeto;🫶 manos corazon cariño;🤲 manos ofrecer;✍️ escribir firmar;🤳 selfie;👀 ojos mirar;🧠 cerebro inteligente;🙋 levantar mano pregunta;🙅 no prohibido;🙆 ok gesto;🤷 no se duda;🤦 error facepalm;💁 informar;🙇 reverencia perdon;🫂 abrazo apoyo'],
+    ['Símbolos', '❤️', '❤️ corazon amor;🧡 corazon naranja;💛 corazon amarillo;💚 corazon verde;💙 corazon azul;💜 corazon morado;🖤 corazon negro;🤍 corazon blanco;💔 corazon roto;💕 corazones;💯 cien perfecto;✨ brillos magia;⭐ estrella;🌟 estrella brillante;💥 explosion;💫 mareo estrellas;💢 enojo;💤 dormir;💬 mensaje chat;💭 pensamiento;🔥 fuego caliente;⚡ rayo energia;✅ hecho listo verificado;❌ error cancelar;⚠️ alerta cuidado;❓ pregunta;❗ importante;‼️ muy importante;➕ mas;➖ menos;🔔 campana aviso;🔕 sin sonido silencio;📌 fijar chincheta;📍 ubicacion;🔒 bloqueado candado;🔓 abierto;🔑 llave;🚫 prohibido;♻️ reciclar;✔️ check;➡️ derecha;⬅️ izquierda;⬆️ arriba;⬇️ abajo;🔁 repetir;🆗 ok;🆕 nuevo;🆘 sos ayuda;🔴 rojo;🟢 verde;🟡 amarillo;🔵 azul'],
+    ['Trabajo', '💼', '📞 llamada telefono;☎️ telefono fijo;📱 movil celular;📲 llamar;💻 computadora laptop;🖥️ pantalla escritorio;⌨️ teclado;🖱️ raton;🎧 auriculares;🎤 microfono;📧 correo email;✉️ sobre carta;📨 mensaje entrante;📝 nota apuntar;📋 portapapeles lista;📅 calendario fecha;📆 agenda;⏰ alarma hora;⏳ espera reloj arena;⌛ tiempo;🕒 hora;📈 subida ventas crecimiento;📉 bajada caida;📊 grafico estadistica;💰 dinero venta;💵 billete efectivo;💳 tarjeta pago;🧾 recibo factura;📦 paquete envio;🗂️ carpetas archivo;📁 carpeta;📎 adjunto clip;🔗 enlace;🔍 buscar lupa;🧮 calculo;🏢 oficina empresa;🏠 casa;📡 antena señal fibra;🌐 internet red;📶 cobertura señal;🔌 enchufe conexion;🔋 bateria;🛠️ herramientas arreglo;⚙️ configuracion;🧰 caja herramientas;🏆 trofeo campeon;🥇 oro primero;🎯 objetivo meta;🚀 cohete lanzamiento'],
+    ['Fiesta y ánimo', '🎉', '🎉 fiesta celebrar;🎊 confeti;🥂 brindis;🍾 champan;🎂 cumpleaños pastel;🎁 regalo;🎈 globo;🏅 medalla;🌈 arcoiris;🍀 trebol suerte;🎶 musica;🎵 nota musical;💐 flores;🌹 rosa;🎬 cine accion;🎮 videojuego;⚽ futbol;🏀 baloncesto;🏐 voleibol;🎸 guitarra;🎲 dado suerte;🧩 pieza rompecabezas'],
+    ['Naturaleza', '🌿', '🐶 perro;🐱 gato;🐭 raton;🦊 zorro;🐻 oso;🐼 panda;🦁 leon;🐯 tigre;🐵 mono;🐔 gallina;🐧 pinguino;🦅 aguila;🦋 mariposa;🐢 tortuga;🐙 pulpo;🐬 delfin;🦄 unicornio;🌞 sol buenos dias;🌙 luna noche;☁️ nube;🌧️ lluvia;⛈️ tormenta;❄️ nieve frio;🌊 ola mar;🌴 palmera playa;🌵 cactus;🌻 girasol;🌳 arbol;🍂 hojas otoño'],
+    ['Comida y bebida', '🍕', '☕ cafe;🍵 te;🥤 refresco;🍺 cerveza;🍷 vino;🥛 leche;🍕 pizza;🍔 hamburguesa;🌭 hot dog;🌮 taco;🌯 burrito;🥪 sandwich;🍟 papas fritas;🍗 pollo;🥩 carne;🍣 sushi;🍝 pasta;🍚 arroz;🥗 ensalada;🍎 manzana;🍌 platano banana;🍇 uvas;🍓 fresa;🥑 palta aguacate;🍰 pastel;🍫 chocolate;🍩 dona;🍪 galleta;🍿 palomitas;🍽️ almuerzo cubiertos'],
+    ['Viajes y lugares', '✈️', '🚗 auto coche;🚕 taxi;🚌 bus;🚆 tren;✈️ avion viaje;🚲 bicicleta;🏖️ playa vacaciones;⛰️ montaña;🏥 hospital;🏦 banco;🏪 tienda;🛒 compras carrito;🗺️ mapa;🧳 maleta equipaje;⛽ gasolina;🚦 semaforo;🕶️ gafas de sol']
+  ];
   var T_EDITAR = 15 * 60000, T_BORRAR = 24 * 3600000, MAX_FIJ_MSG = 5, MAX_FIJ_CONV = 5;   // mismos plazos y topes que impone la base (57b)
   var CAMPOS_MSG = ['cuerpo', 'leido_at', 'entregado_at', 'editado_at', 'borrado_at', 'borrado_por', 'fijado_at', 'fijado_por', 'reacciones', 'responde_cuerpo'];   // lo que puede cambiar en un mensaje ya enviado
-  var EMOJIS = [
-    ['Caras', '😀 😄 😁 😂 🤣 😊 😇 🙂 😉 😍 🥰 😘 😎 🤩 🤔 😐 😴 😅 😬 🙄 😢 😭 😡 🥳'],
-    ['Gestos', '👍 👎 👏 🙌 🙏 💪 👌 ✌️ 🤝 👋 🤞 ☝️ 👀 🫡 🤷 🙋 💁 🤦 🧠 ❤️ 💙 🧡 💚 🔥'],
-    ['Trabajo', '📞 ☎️ 📱 💻 📧 📝 📋 📅 ⏰ ✅ ❌ ⚠️ ❓ ❗ 📌 🔔 💬 📈 📉 💰 🏆 🎯 🚀 ⭐'],
-    ['Ánimo', '🎉 🎊 🍀 ☕ 🍕 🎂 🌞 🌙 ⚡ 💡 🔑 🎧 🎁 🏖️ 🚗 🌈 🌟 💯 😺 🐶 🐱 🌹 🍎 🥇']
-  ];
 
   /* ================= UTILIDADES ================= */
   function $(i) { return document.getElementById(i); }
@@ -9566,13 +9622,17 @@ function ofcCalcular(cat, sel) {
     no_editable: 'Ese mensaje no se puede editar', mensaje_borrado: 'Ese mensaje ya fue eliminado', no_se_puede_borrar: 'Ese mensaje no se puede eliminar',
     no_se_puede_reaccionar: 'No se puede reaccionar a ese mensaje', no_se_puede_fijar: 'Ese mensaje no se puede fijar', emoji_invalido: 'Esa reacción no está permitida',
     demasiadas_reacciones: 'Ese mensaje ya tiene el máximo de reacciones distintas', demasiados_fijados: 'Ya tienes 5 conversaciones fijadas. Quita una primero',
-    demasiados_fijados_msg: 'Ya hay 5 mensajes fijados aquí. Quita uno primero', respuesta_invalida: 'No se puede responder a ese mensaje', conversacion_invalida: 'Esa conversación no existe'
+    demasiados_fijados_msg: 'Ya hay 5 mensajes fijados aquí. Quita uno primero', respuesta_invalida: 'No se puede responder a ese mensaje', conversacion_invalida: 'Esa conversación no existe',
+    sticker_invalido: 'Ese sticker no existe', color_invalido: 'Ese color no es válido', duracion_invalida: 'Esa duración no es válida',
+    adjunto_invalido: 'No se pudo adjuntar el archivo', archivo_no_permitido: 'Ese tipo de archivo no se puede enviar', archivo_grande: 'El archivo pasa de 10 MB',
+    demasiados_archivos: 'Llegaste al máximo de archivos de hoy (100). Mañana puedes enviar más'
   };
   /* Un corte de red / servidor caído se puede reintentar solo; un rechazo del servidor («chat:…») no. */
   function esRed(e) { var m = String((e && e.message) || e || ''); return !/chat:/.test(m) && /Failed to fetch|NetworkError|Load failed|network|tiempo agotado|timeout|timed out|50[234]|Bad Gateway|Service Unavailable|Gateway Time/i.test(m); }
   function msgE(e) {
     var m = String((e && e.message) || e || ''), c = String((e && e.code) || '');
     var k = /chat:([a-z_]+)/.exec(m); if (k && ERR_CHAT[k[1]]) return ERR_CHAT[k[1]];
+    if (/PGRST202|PGRST205|42883|42P01|42703/.test(c + ' ' + m) && /chat_perfiles|chat_avatar_set|chat_mensaje_estado_set|chat_adjuntos_cfg|chat_puede_adjuntar|chat_adjunto_ok|chat_archivos|avatar_color|avatar_emoji|mensaje_hasta|mensaje_estado|p_adjunto|adjunto/.test(m)) return 'Falta ejecutar 58_chat_social.sql en Supabase';
     if (/PGRST202|PGRST205|42883|42P01/.test(c + ' ' + m)) return /chat_grupo|chat_miembros|chat_editar|chat_borrar|chat_reaccionar|chat_fijar|chat_conv_ajustes|p_responde_a|responde_a|reacciones|editado_at|borrado_at/.test(m) ? 'Falta ejecutar 57b_chat_funciones.sql en Supabase' : 'Falta ejecutar 57_chat_mensajeria.sql en Supabase';
     if (esRed(e)) return 'No hay conexión con el servidor';
     if (/JWT|expired|not authenticated/i.test(c + ' ' + m)) return 'Tu sesión venció. Recarga la página e inicia sesión de nuevo';
@@ -9628,13 +9688,27 @@ function ofcCalcular(cat, sel) {
       primeraPres: true, ultConex: 0, col: {}, ultimaVez: Date.now(), resyncT: null, buzzT: null, enviando: false, globales: false,
       convId: {}, cargado: {}, mas: {}, ws: {}, ex: {}, cola: [], ultLeido: {}, markT: {}, busqRes: [], busqQ: '', busqErr: null, busqTok: 0, busqT: null, busqCarga: false,
       cargadoEn: 0, general: null, latido: null, entregaT: null, refrescaT: null, colaT: null, colaOn: false, cargandoMas: false,
-      grupos: {}, cfg: {}, fij: {}, fijIdx: {}, miembros: {}, miembrosCarga: {}, miembrosErr: {}, resp: null, edit: null, pop: null, modal: null, salida: null };
+      grupos: {}, cfg: {}, fij: {}, fijIdx: {}, miembros: {}, miembrosCarga: {}, miembrosErr: {}, resp: null, edit: null, pop: null, modal: null, salida: null,
+      perf: {}, sinSocial: false, perfT: null, perfUlt: 0, emoQ: '', emoTab: 'emo', emoRec: [], stkRec: [],
+      adj: null, adjP: null, adjN: 0, band: {}, arch: {}, bl: {}, bajando: {}, xhr: {}, lb: null, aud: null, rec2: null, vel: 1, subQ: null, dragN: 0, grabPidiendo: false };
   }
   function cargaPrefs() {
     var p = {}; try { p = JSON.parse(lsGet('crm_chat_prefs_' + me.id) || '{}') || {}; } catch (e) { p = {}; }
     var o = {}; Object.keys(PREF0).forEach(function (k) { o[k] = typeof p[k] === 'boolean' ? p[k] : PREF0[k]; });
+    Object.keys(PREF_S).forEach(function (k) { o[k] = (typeof p[k] === 'string' && SLOT_TONOS[k].indexOf(p[k]) >= 0) ? p[k] : PREF_S[k]; });
+    o.vol = (typeof p.vol === 'number' && p.vol >= 0 && p.vol <= 100) ? Math.round(p.vol) : VOL0;
     o.info = typeof p.info === 'boolean' ? p.info : null;
     return o;
+  }
+  /* Emojis y stickers usados hace poco (solo en este navegador). */
+  function cargaRecientes() {
+    var r = function (k) { var a = []; try { a = JSON.parse(lsGet(k + me.id) || '[]') || []; } catch (e) { a = []; } return Array.isArray(a) ? a.filter(function (x) { return typeof x === 'string' && x.length <= 16; }).slice(0, 24) : []; };
+    C.emoRec = r('crm_chat_emo_'); C.stkRec = r('crm_chat_stk_');
+  }
+  function usaReciente(tipo, v) {
+    var lista = tipo === 'stk' ? C.stkRec : C.emoRec; var i = lista.indexOf(v); if (i >= 0) lista.splice(i, 1);
+    lista.unshift(v); if (lista.length > 24) lista.length = 24;
+    lsSet((tipo === 'stk' ? 'crm_chat_stk_' : 'crm_chat_emo_') + me.id, JSON.stringify(lista));
   }
   function guardaPrefs() { lsSet('crm_chat_prefs_' + me.id, JSON.stringify(C.pref)); }
   function reducido() { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } }
@@ -9649,16 +9723,25 @@ function ofcCalcular(cat, sel) {
   }
   function nota(f, t0, dur, vol, tipo) {
     var a = ctxAudio(); if (!a) return;
+    var v = Math.min(.3, vol * (C.pref.vol / VOL0)); if (!(v > 0.0001)) return;      // el volumen de la persona escala todos los tonos; 0 = mudo
     try {
       var o = a.createOscillator(), g = a.createGain(), t = a.currentTime + t0;
       o.type = tipo || 'sine'; o.frequency.setValueAtTime(f, t);
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + dur + 0.03);
     } catch (e) { }
   }
-  function sonidoMsg(fuerza) { if (!fuerza && (!C.pref.sonMsg || pasivo())) return; nota(784, 0, .16, .06); nota(1046, .09, .24, .05); }
-  function sonidoZumbido(fuerza) { if (!fuerza && !C.pref.sonZumbido) return; nota(150, 0, .14, .12, 'sawtooth'); nota(190, .15, .14, .12, 'sawtooth'); nota(150, .30, .2, .12, 'sawtooth'); }
-  function sonidoConexion(fuerza) { if (!fuerza && (!C.pref.conexion || pasivo())) return; nota(523, 0, .12, .035); nota(659, .08, .12, .035); nota(784, .16, .22, .035); }
+  /* slot: 'priv' (mensaje privado) · 'grupo' (grupo, canal o sala general) · 'zumbido' · 'conex'. fuerza = sonar aunque esté apagado (botón «Probar»). tono = probar uno concreto. */
+  function suena(slot, fuerza, tono) {
+    var P = C.pref;
+    if (!fuerza) { if (slot === 'zumbido' ? !P.sonZumbido : slot === 'conex' ? (!P.conexion || pasivo()) : (!P.sonMsg || pasivo())) return; }
+    var id = tono || P[slot === 'priv' ? 'tonoPriv' : slot === 'grupo' ? 'tonoGrupo' : slot === 'zumbido' ? 'tonoZumbido' : 'tonoConex'], t = TONOS[id];
+    if (!t || !t.s.length || P.vol <= 0) return;
+    t.s.forEach(function (n) { nota(n[0], n[1], n[2], n[3], n[4]); });
+  }
+  function sonidoMsg(fuerza, k) { suena(k && compartida(k) ? 'grupo' : 'priv', fuerza); }
+  function sonidoZumbido(fuerza) { suena('zumbido', fuerza); }
+  function sonidoConexion(fuerza) { suena('conex', fuerza); }
 
   /* ================= ESTILOS ================= */
   /* Todo lo que está aquí usa las variables del CRM (--acc, --card, --ink, --line…): el tema claro/oscuro lo decide el bloque 10, el chat solo lo sigue.
@@ -9701,7 +9784,9 @@ function ofcCalcular(cat, sel) {
     '@keyframes mz-pulso{from{transform:scale(1);opacity:.8}to{transform:scale(1.7);opacity:0}}',
     '@keyframes mz-sacude{0%,100%{transform:translate(0,0)}10%{transform:translate(-10px,3px)}20%{transform:translate(9px,-4px)}30%{transform:translate(-9px,4px)}40%{transform:translate(8px,-3px)}50%{transform:translate(-7px,2px)}60%{transform:translate(6px,-2px)}70%{transform:translate(-4px,2px)}80%{transform:translate(3px,-1px)}}',
     '@keyframes mz-campana{0%,100%{transform:rotate(0)}20%{transform:rotate(-18deg)}40%{transform:rotate(16deg)}60%{transform:rotate(-10deg)}80%{transform:rotate(8deg)}}',
-    '@keyframes mz-vuela{40%{transform:translate(5px,-5px)}100%{transform:none}}'
+    '@keyframes mz-vuela{40%{transform:translate(5px,-5px)}100%{transform:none}}',
+    '@keyframes mz-gira{to{transform:rotate(360deg)}}',
+    '@keyframes mz-rec{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}'
   ].join('');
   /* Reglas del interior: se escriben sin prefijo y ambito() les pone «#mz » delante, para que ganen a los estilos generales del CRM (button, input, label…) sin tocar nada fuera del chat. */
   var CSS_DENTRO = [
@@ -9889,11 +9974,32 @@ function ofcCalcular(cat, sel) {
     '.mz-send:hover{filter:brightness(1.07);transform:scale(1.06)}',
     '.mz-send:disabled{background:var(--line2);color:var(--mz-meta);box-shadow:none;transform:none;filter:none}',
     '.mz-send.vuela .mz-ic{animation:mz-vuela .35s ease}',
-    '.mz-emo{position:absolute;left:14px;bottom:calc(100% - 6px);width:min(340px,calc(100% - 28px));max-height:300px;overflow:auto;padding:10px;border-radius:18px;background:var(--card);border:1px solid var(--line2);box-shadow:var(--sh-lg);z-index:5}',
-    '.mz-emo h4{margin:6px 4px 4px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mz-meta)}',
-    '.mz-emo .g{display:grid;grid-template-columns:repeat(8,1fr);gap:2px}',
-    '.mz-emo .g button{height:36px;border-radius:10px;font-size:20px;line-height:1;text-align:center}',
-    '.mz-emo .g button:hover{background:var(--mz-hover)}',
+    '.mz-emo{position:absolute;left:14px;bottom:calc(100% - 6px);width:min(372px,calc(100% - 28px));height:min(410px,62vh);display:flex;flex-direction:column;overflow:hidden;padding:0;border-radius:18px;background:var(--card);border:1px solid var(--line2);box-shadow:var(--sh-lg);z-index:5}',
+    '.mz-emo[hidden]{display:none}',
+    '.mz-emt{display:flex;gap:4px;padding:8px 10px 0}',
+    '.mz-emt button{flex:1;height:34px;border-radius:10px 10px 0 0;font-weight:700;font-size:13px;color:var(--mz-meta);border-bottom:2px solid transparent}',
+    '.mz-emt button[aria-selected=true]{color:var(--acc);border-bottom-color:var(--acc)}',
+    '.mz-emq{display:flex;align-items:center;gap:8px;margin:8px 10px 4px;padding:0 10px;border-radius:12px;background:var(--bg);border:1px solid var(--line2);color:var(--mz-meta)}',
+    '.mz-emq:focus-within{border-color:var(--acc)}',
+    '.mz-emq input{flex:1;min-width:0;height:36px;font-size:13.5px;background:none;border:0;color:var(--ink)}',
+    '.mz-emq input:focus-visible{outline:none}',
+    '.mz-emq input::-webkit-search-cancel-button{display:none}',
+    '.mz-emn{display:flex;gap:2px;padding:2px 10px;overflow-x:auto;flex:none}',
+    '.mz-emn[hidden]{display:none}',
+    '.mz-emn button{flex:none;width:32px;height:32px;border-radius:9px;font-size:17px;line-height:1}',
+    '.mz-emn button:hover{background:var(--mz-hover)}',
+    '.mz-emb{position:relative;flex:1;min-height:0;overflow-y:auto;padding:2px 10px 10px}',
+    '.mz-emb:focus-visible{outline:none}',
+    '.mz-emb h4{margin:8px 4px 4px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mz-meta)}',
+    '.mz-emb .g{display:grid;grid-template-columns:repeat(8,1fr);gap:2px}',
+    '.mz-emb .g button{height:36px;border-radius:10px;font-size:21px;line-height:1;text-align:center}',
+    '.mz-emb .g button:hover{background:var(--mz-hover)}',
+    '.mz-emb button:focus-visible,.mz-emn button:focus-visible,.mz-emt button:focus-visible{outline:2px solid var(--acc);outline-offset:-2px}',
+    '.mz-emb .gs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:2px}',
+    '.mz-emb .gs button{padding:0;border-radius:20px}',
+    '.mz-emb .gs .mz-stk{transition:transform .12s}',
+    '.mz-emb .gs button:hover .mz-stk,.mz-emb .gs button:focus-visible .mz-stk{transform:scale(1.05)}',
+    '.mz-emb .mz-buscando{padding:18px 8px}',
     /* información */
     '.mz-info{display:none;flex-direction:column;min-height:0;background:var(--mz-panel);border-left:1px solid var(--line);overflow-y:auto}',
     '.mz-win.info-on .mz-info{display:flex}',
@@ -10048,6 +10154,162 @@ function ofcCalcular(cat, sel) {
     '.mz-acc.peligro,.mz-acc.peligro .mz-ic{color:var(--bad)}',
     '@media(hover:none){.mz-rm{opacity:.85}.mz-rw .mz-rn{padding-right:28px}.mz-rw:hover .mz-rn time{visibility:visible}.mz-tool{display:none}}',
     '@media(max-width:699px){.mz-mod{padding:0;align-items:end}.mz-card{width:100%;border-radius:22px 22px 0 0}.mz-seg{grid-template-columns:1fr}}',
+    /* ===== Fase 4A: perfil, mensaje de estado, stickers, sonidos y reacciones ===== */
+    '.mz-yo{display:flex;align-items:center;gap:10px;flex:1;min-width:0;text-align:left;border-radius:14px;padding:2px;margin:-2px}',
+    '.mz-yo:hover{background:var(--mz-hover)}',
+    '.mz-yo:focus-visible{outline:2px solid var(--acc);outline-offset:2px}',
+    '.mz-yo .mz-t{display:block;flex:1;min-width:0}',
+    '.mz-av.emo{font-size:calc(var(--s,40px) * .52);font-weight:400;letter-spacing:0;line-height:1}',
+    '.mz-ct .msg{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.mz-if .sub.msg{font-style:italic;max-width:100%;overflow-wrap:anywhere}',
+    '.mz-stk{width:140px;height:140px;box-sizing:border-box;border-radius:28px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px;text-align:center;color:#fff;background:linear-gradient(145deg,hsl(var(--h) 60% 31%),hsl(calc(var(--h) + 34) 62% 22%));box-shadow:0 8px 20px hsl(var(--h) 60% 20% / .35),inset 0 1px 0 rgba(255,255,255,.25);transform:rotate(-2deg)}',
+    '.mz-stk i{font-style:normal;font-size:58px;line-height:1.1;filter:drop-shadow(0 3px 4px rgba(0,0,0,.3))}',
+    '.mz-stk b{font-size:13px;font-weight:800;line-height:1.15;letter-spacing:.01em}',
+    '.mz-stk.mini{width:100%;height:auto;aspect-ratio:1;border-radius:20px;padding:6px;gap:2px;transform:none}',
+    '.mz-stk.mini i{font-size:34px}.mz-stk.mini b{font-size:11.5px}',
+    '.mz-g.yo .mz-b.stk,.mz-g.el .mz-b.stk{background:none;border:0;box-shadow:none;padding:2px 0 0}',
+    '.mz-g.yo .mz-b.stk .mz-mt{color:var(--mz-meta)}',
+    '.mz-b.stk .mz-q{max-width:220px;margin-bottom:6px}',
+    '.mz-g.yo .mz-b.stk .mz-q{background:color-mix(in srgb,var(--acc) 10%,var(--card));color:var(--ink);border-left-color:var(--acc)}',
+    '.mz-g.yo .mz-b.stk .mz-q b{color:var(--acc)}',
+    '.mz-g.yo .mz-b.stk .mz-q span{color:var(--mz-meta)}',
+    '.mz-adj{display:flex;align-items:center;gap:8px;font-size:13.5px}',
+    '.mz-fl{max-width:350px}',
+    '.mz-fl .rx button.mas{color:var(--mz-meta)}',
+    '.mz-fl .rx.mas{display:grid;grid-template-columns:repeat(8,32px);padding-top:0}',
+    '.mz-tn{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;align-items:center;padding:6px 0 10px;border-bottom:1px solid var(--line)}',
+    '.mz-tn label{grid-column:1/-1;font-size:12.5px;font-weight:700;color:var(--mz-meta)}',
+    '.mz-tn select,.mz-fld select{min-width:0;padding:9px 10px;border-radius:10px;background:var(--bg);border:1px solid var(--line2);font-size:13.5px;color:var(--ink)}',
+    '.mz-fld select{display:block;width:100%;box-sizing:border-box;border-radius:12px;font-size:14px;padding:10px 12px}',
+    '.mz-tn select:focus-visible,.mz-fld select:focus-visible{outline:2px solid var(--acc);outline-offset:1px}',
+    '.mz-vol{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;align-items:center;padding:12px 0}',
+    '.mz-vol label{grid-column:1/-1;font-size:13.5px;font-weight:600}',
+    '.mz-vol input{width:100%;accent-color:var(--acc)}',
+    '.mz-vol output{font-weight:700;font-size:13px;min-width:40px;text-align:right}',
+    '.mz-pv{display:flex;align-items:center;gap:14px;padding:12px;margin-bottom:14px;border-radius:16px;background:var(--mz-tinte);border:1px solid var(--mz-borde-tinte)}',
+    '.mz-pv .t{min-width:0;flex:1}.mz-pv b{display:block;font-size:15px}',
+    '.mz-pv small{display:block;color:var(--mz-meta);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.mz-fld .lb{font-size:12.5px;font-weight:700;color:var(--mz-meta)}',
+    '.mz-sws{display:flex;flex-wrap:wrap;gap:8px}',
+    '.mz-sws button{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:2px solid transparent;background:linear-gradient(135deg,hsl(var(--h) 50% 30%),hsl(calc(var(--h) + 24) 54% 24%));color:#fff;font-size:12px;font-weight:800}',
+    '.mz-sws button.auto,.mz-sws.ico button{background:var(--bg);color:var(--ink);border:1px solid var(--line2)}',
+    '.mz-sws button.auto{border-style:dashed}',
+    '.mz-sws.ico button{font-size:18px;line-height:1}',
+    '.mz-sws button[aria-checked=true]{box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--acc)}',
+    '.mz-sws button:focus-visible{outline:2px solid var(--acc);outline-offset:3px}',
+    '.mz-pcnt{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--mz-meta)}',
+    '.mz-pcnt .mz-lnk{margin-left:0}',
+    '.mz-chips{display:flex;flex-wrap:wrap;gap:6px}',
+    '.mz-chips button{padding:5px 10px;border-radius:99px;font-size:12.5px;border:1px solid var(--line2);background:var(--card);color:var(--ink)}',
+    '.mz-chips button:hover{border-color:var(--acc);background:var(--mz-hover)}',
+    /* ===== Fase 4B: archivos, fotos y notas de voz ===== */
+    '.mz-main{position:relative}',
+    '.mz-band{margin:0 2px 8px}',
+    '.mz-bh{display:flex;flex-wrap:wrap;gap:8px}',
+    '.mz-bi{position:relative;width:68px;height:68px;border-radius:12px;overflow:hidden;border:1px solid var(--line2);background:var(--card)}',
+    '.mz-bi img{display:block;width:100%;height:100%;object-fit:cover}',
+    '.mz-bx{position:absolute;top:3px;right:3px;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:rgba(0,0,0,.72);color:#fff}',
+    '.mz-bx:hover{background:#000}',
+    '.mz-bf{position:relative;display:flex;align-items:center;gap:8px;max-width:250px;min-height:48px;padding:6px 34px 6px 8px;border-radius:12px;background:var(--card);border:1px solid var(--line2)}',
+    '.mz-bf .mz-bx{top:50%;right:6px;margin-top:-12px;background:transparent;color:var(--mz-meta)}',
+    '.mz-bf .mz-bx:hover{background:var(--mz-hover);color:var(--ink)}',
+    '.mz-ask{display:grid;gap:8px}',
+    '.mz-ask i{display:block;height:34px;border-radius:10px;background:linear-gradient(90deg,var(--line) 25%,color-mix(in srgb,var(--line) 40%,var(--card)) 50%,var(--line) 75%);background-size:200% 100%;animation:mz-brillo 1.4s linear infinite}',
+    '.mz-bn{display:grid;min-width:0}.mz-bn b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mz-bn small{font-size:11.5px;color:var(--mz-meta)}',
+    '.mz-bth{margin-top:6px;font-size:12px;color:var(--mz-meta)}',
+    '.mz-fi{flex:none;width:38px;height:38px;border-radius:10px;display:grid;place-items:center;font-size:10.5px;font-weight:800;letter-spacing:.02em;color:#fff;background:hsl(var(--fh,215) 55% 34%)}',
+    '.mz-fi.chico{width:30px;height:30px;font-size:9px;border-radius:8px}',
+    '.mz-fi[data-t=pdf]{--fh:4}.mz-fi[data-t=doc]{--fh:214}.mz-fi[data-t=xls]{--fh:142}.mz-fi[data-t=ppt]{--fh:18}.mz-fi[data-t=zip]{--fh:36}.mz-fi[data-t=txt]{--fh:200}.mz-fi[data-t=aud]{--fh:282}.mz-fi[data-t=img]{--fh:168}',
+    '.mz-fi .mz-ic{width:16px;height:16px}',
+    '.mz-drop{position:absolute;inset:8px;z-index:8;display:grid;place-items:center;border:2px dashed var(--acc);border-radius:18px;background:color-mix(in srgb,var(--card) 90%,transparent);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);pointer-events:none;color:var(--acc);text-align:center}',
+    '.mz-drop span{display:grid;gap:8px;justify-items:center;font-size:15px}',
+    '.mz-grab{align-items:center;gap:10px;padding:6px 8px}',
+    '.mz-grab[hidden]{display:none}',
+    '.mz-grab .mz-gx{color:var(--bad)}',
+    '.mz-rec{flex:none;width:10px;height:10px;border-radius:50%;background:var(--bad);animation:mz-rec 1.1s ease-in-out infinite}',
+    '.mz-gt{flex:none;min-width:38px;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}',
+    '.mz-gw{flex:1;min-width:0;display:flex;align-items:center;gap:2px;height:30px;overflow:hidden}',
+    '.mz-gw i{flex:1;max-width:4px;min-width:2px;height:8%;border-radius:2px;background:var(--acc);transition:height .1s}',
+    '.mz-caja[hidden]{display:none}',
+    '.mz-caja.tiene .mz-mic{display:none}',
+    /* fotos dentro de la conversación */
+    '.mz-imgw{margin:-2px 0 2px}',
+    '.mz-img{position:relative;display:block;width:260px;max-width:100%;min-width:130px;min-height:90px;padding:0;border-radius:12px;overflow:hidden;cursor:zoom-in;line-height:0;background:color-mix(in srgb,var(--ink) 12%,transparent)}',
+    '.mz-img img{display:block;width:100%;height:100%;object-fit:cover}',
+    '.mz-img:disabled{cursor:default}',
+    '.mz-img:focus-visible{outline:2px solid var(--acc);outline-offset:2px}',
+    '.mz-g.yo .mz-img:focus-visible{outline-color:var(--on-acc)}',
+    '.mz-sinmini{display:grid;place-items:center;width:100%;height:100%;min-height:110px;color:var(--mz-meta)}',
+    '.mz-up{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.58);color:#fff}',
+    '.mz-up::before{content:"";width:48px;height:48px;border-radius:50%;background:conic-gradient(#fff calc(var(--p,0) * 1%),rgba(255,255,255,.28) 0);-webkit-mask:radial-gradient(circle 19px,transparent 97%,#000 100%);mask:radial-gradient(circle 19px,transparent 97%,#000 100%)}',
+    '.mz-up b{position:absolute;font-size:11px;font-weight:800;line-height:1}',
+    '.mz-cap{margin-top:6px}',
+    '.mz-imgw+.mz-cap{margin-top:6px}',
+    /* ficha de archivo */
+    '.mz-file{display:flex;align-items:center;gap:10px;min-width:210px;max-width:320px;padding:8px 8px 8px 8px;border-radius:12px;background:var(--mz-tinte);border:1px solid var(--mz-borde-tinte)}',
+    '.mz-g.yo .mz-file{background:color-mix(in srgb,var(--acc-h) 55%,transparent);border-color:color-mix(in srgb,var(--on-acc) 30%,transparent)}',
+    '.mz-fn{flex:1;min-width:0;display:grid}',
+    '.mz-fn b{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.mz-fn small{font-size:12px;opacity:.88}',
+    '.mz-fdl{flex:none;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:var(--acc);color:var(--on-acc)}',
+    '.mz-g.yo .mz-fdl{background:color-mix(in srgb,var(--acc-h) 70%,transparent);color:inherit}',
+    '.mz-fdl:hover{filter:brightness(1.1)}.mz-fdl[aria-busy=true]{opacity:.6}',
+    '.mz-pb{position:relative;margin-top:6px;height:18px;border-radius:99px;overflow:hidden;background:rgba(0,0,0,.2);font-size:11px;font-weight:700;line-height:18px;text-align:center}',
+    '.mz-pb i{position:absolute;left:0;top:0;bottom:0;width:calc(var(--p,0) * 1%);background:rgba(255,255,255,.55)}',
+    '.mz-g.el .mz-pb{background:var(--mz-tinte)}.mz-g.el .mz-pb i{background:color-mix(in srgb,var(--acc) 35%,transparent)}',
+    '.mz-pb span{position:relative}',
+    /* reproductor de notas de voz */
+    '.mz-au{display:flex;align-items:center;gap:10px;min-width:230px;max-width:310px}',
+    '.mz-aup{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:var(--acc);color:var(--on-acc)}',
+    '.mz-g.yo .mz-aup{background:color-mix(in srgb,var(--acc-h) 70%,transparent);color:inherit}',
+    '.mz-g.yo .mz-avl{background:color-mix(in srgb,var(--acc-h) 60%,transparent)}',
+    '.mz-g.yo.fallo .mz-file{background:var(--mz-tinte);border-color:var(--mz-borde-tinte)}',
+    '.mz-g.yo.fallo .mz-aup{background:var(--acc);color:var(--on-acc)}',
+    '.mz-g.yo.fallo .mz-fdl{background:var(--acc);color:var(--on-acc)}',
+    '.mz-g.yo.fallo .mz-avl{background:color-mix(in srgb,currentColor 16%,transparent)}',
+    '.mz-aup:disabled{opacity:.5}',
+    '.mz-aw{flex:1;min-width:0;display:flex;align-items:center;gap:2px;height:32px;cursor:pointer;border-radius:8px}',
+    '.mz-aw:focus-visible{outline:2px solid var(--acc);outline-offset:2px}',
+    '.mz-g.yo .mz-aw:focus-visible{outline-color:var(--on-acc)}',
+    '.mz-aw i{flex:1;min-width:2px;max-width:5px;border-radius:2px;background:currentColor;opacity:.36}',
+    '.mz-aw i.on{opacity:1}',
+    '.mz-atm{flex:none;min-width:36px;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;text-align:right}',
+    '.mz-avl{flex:none;min-width:36px;height:24px;padding:0 7px;border-radius:99px;font-size:11.5px;font-weight:800;background:color-mix(in srgb,currentColor 16%,transparent);color:inherit}',
+    '.mz-afn{margin-top:4px;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px}',
+    '.mz-au.mini{min-width:0;gap:6px}.mz-au.mini .mz-aup{width:30px;height:30px}',
+    /* mini-reproductor y carga */
+    '.mz-spin{display:block;width:36px;height:36px;border-radius:50%;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;animation:mz-gira .8s linear infinite}',
+    '.mz-spin.chico{width:16px;height:16px;border-width:2px;border-color:currentColor;border-top-color:transparent}',
+    /* visor de fotos */
+    '.mz-lb{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;background:rgba(6,12,18,.95);color:#fff;animation:mz-pop .18s ease}',
+    '.mz-lbh{display:flex;align-items:center;gap:6px;padding:10px 12px;padding-top:calc(10px + env(safe-area-inset-top,0px))}',
+    '.mz-lbt{flex:1;min-width:0;display:grid}.mz-lbt b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mz-lbt span{font-size:12px;color:rgba(255,255,255,.82)}',
+    '.mz-lbn{font-size:13px;color:rgba(255,255,255,.88);padding:0 8px;white-space:nowrap}',
+    '.mz-lb .mz-ib{color:#fff}.mz-lb .mz-ib:hover{background:rgba(255,255,255,.16);color:#fff}.mz-lb .mz-ib:disabled{opacity:.4}',
+    '.mz-lb button:focus-visible{outline:2px solid #fff;outline-offset:2px}',
+    '.mz-lbs{position:relative;flex:1;min-height:0;display:grid;place-items:center;overflow:auto;padding:8px 64px}',
+    '.mz-lbs img{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;cursor:zoom-in}',
+    '.mz-lbs.zoom{place-items:start center}.mz-lbs.zoom img{max-width:none;max-height:none;cursor:zoom-out}',
+    '.mz-lbs img.mini{filter:blur(7px);opacity:.75;width:min(100%,520px);height:auto;cursor:default}',
+    '.mz-lbs .mz-spin{position:absolute}',
+    '.mz-lbp{position:absolute;top:50%;margin-top:-22px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.18);color:#fff;z-index:2}',
+    '.mz-lbp:hover{background:rgba(255,255,255,.3)}.mz-lbp.ant{left:10px}.mz-lbp.sig{right:10px}',
+    '.mz-lbe{position:absolute;display:grid;gap:8px;justify-items:center;text-align:center;max-width:340px;padding:16px;border-radius:16px;background:rgba(0,0,0,.6)}',
+    '.mz-lbe span{font-size:13px;color:rgba(255,255,255,.9)}',
+    /* panel «Archivos y fotos» */
+    '.mz-gal{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}',
+    '.mz-gi{aspect-ratio:1;padding:0;border-radius:10px;overflow:hidden;display:grid;place-items:center;background:color-mix(in srgb,var(--ink) 10%,transparent);color:var(--mz-meta)}',
+    '.mz-gi img{display:block;width:100%;height:100%;object-fit:cover}',
+    '.mz-gi:focus-visible{outline:2px solid var(--acc);outline-offset:2px}',
+    '.mz-mas2{margin:6px 0 0;font-size:12px;color:var(--mz-meta)}',
+    '.mz-al{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:2px;max-height:280px;overflow:auto}',
+    '.mz-al li{display:flex;align-items:center;gap:8px;padding:6px 0}',
+    '.mz-aln{flex:1;min-width:0;display:grid}.mz-aln b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mz-aln small{font-size:11.5px;color:var(--mz-meta)}',
+    '.mz-al .mz-ib.chico{width:32px;height:32px;border-radius:10px}',
+    '.mz-al .mz-au.mini .mz-atm{display:none}',
+    '.mz-ae{margin:0 0 8px;font-size:13px;color:var(--bad);font-weight:600}',
+    '#mz-arch .vacio{margin:0;font-size:13px;color:var(--mz-meta)}',
+    '@media(max-width:699px){.mz-lbs{padding:8px 8px}.mz-lbp{width:40px;height:40px;margin-top:-20px}.mz-caja:not(.tiene) .mz-send{display:none}.mz-img{width:min(260px,100%)}.mz-au{min-width:200px}.mz-bf{max-width:100%}}',
     /* tamaños */
     '@media(max-width:1099px){.mz-kbd{display:none}.mz-busq input{padding-right:38px}.mz-info{position:absolute;top:0;right:0;bottom:0;width:min(330px,100%);z-index:7;box-shadow:var(--sh-lg);display:flex;transform:translateX(104%);visibility:hidden;transition:transform .22s cubic-bezier(.2,.8,.2,1),visibility .22s}.mz-win.info-on .mz-info{transform:none;visibility:visible}}',
     '@media(min-width:1100px){.mz-win.info-on{grid-template-columns:340px minmax(0,1fr) 308px}}',
@@ -10141,7 +10403,9 @@ function ofcCalcular(cat, sel) {
   /* Carga lo que la lista necesita: personas (con su estado de trabajo) y el resumen de conversaciones con los «sin leer» calculados en la base.
      Devuelve true si salió bien. Si falla después de haber cargado una vez, se conserva lo que ya hay. */
   async function cargaTodo() {
+    var C0 = C, pp = C.sinSocial ? null : llama('chat_perfiles', {}, 8000);   // perfiles (color, icono, mensaje de estado): van aparte y sin hacer esperar a la lista; si falta el SQL 58 se ignoran y el chat sigue como antes
     var res = await Promise.all([llama('chat_directorio'), llama('chat_resumen')]), d = res[0], s = res[1];
+    if (pp) pp.then(function (r) { if (C === C0 && !C.cerrando && aplicaPerfiles(r) && C.open) repintaPerfiles(); });
     if (d.error || s.error) { if (!C.cargadoEn) C.err = msgE(d.error || s.error); return false; }
     C.err = null;
     var dir = d.data || [], R = s.data || {}, lista = R.conversaciones || [];
@@ -10178,7 +10442,7 @@ function ofcCalcular(cat, sel) {
     nuevosG.forEach(function (k) {
       var g = grupos[k]; if (g.creada_por === me.id) return;
       aviso('👥 Te añadieron ' + (g.tipo === 'CANAL' ? 'al canal «' : 'al grupo «') + g.nombre + '»');
-      if (!pasivo() && !silenciada(k)) sonidoMsg();
+      if (!pasivo() && !silenciada(k)) sonidoMsg(false, k);
     });
     if (C.peer && C.open && !document.hidden) nl[C.peer] = 0;
     C.nl = nl;
@@ -10195,6 +10459,53 @@ function ofcCalcular(cat, sel) {
     C.cargadoEn = Date.now(); boton();
     return true;
   }
+  /* ----- Perfiles: color, icono y mensaje de estado de cada persona. SIEMPRE salen de la base (la presencia en vivo la puede escribir cualquiera, por eso no se usa para esto). ----- */
+  function aplicaPerfiles(r) {
+    if (!r || r.error) {
+      if (r && r.error && /PGRST202|PGRST205|42883|42P01/.test(String(r.error.code || '') + ' ' + String(r.error.message || ''))) C.sinSocial = true;   // todavía no se ejecutó el SQL 58: se deja de preguntar
+      return false;
+    }
+    var nuevo = {};
+    (Array.isArray(r.data) ? r.data : []).forEach(function (x) {
+      if (!x || typeof x.id !== 'string') return;
+      var o = {};
+      if (typeof x.color === 'number' && x.color >= 0 && x.color < 12 && x.color % 1 === 0) o.color = x.color;
+      if (typeof x.emoji === 'string' && x.emoji && x.emoji.length <= 16) o.emoji = x.emoji;
+      if (typeof x.msg === 'string' && x.msg.trim()) {
+        o.msg = x.msg.slice(0, 80);
+        if (typeof x.msg_emoji === 'string' && x.msg_emoji && x.msg_emoji.length <= 16) o.me = x.msg_emoji;
+        if (x.hasta) o.hasta = Date.parse(x.hasta) || 0;
+      }
+      nuevo[x.id] = o;
+    });
+    var cambio = JSON.stringify(nuevo) !== JSON.stringify(C.perf); C.perf = nuevo;
+    return cambio;
+  }
+  async function cargaPerfiles() {
+    if (C.sinSocial || C.cerrando) return;
+    var C0 = C; C.perfUlt = Date.now();
+    var r = await llama('chat_perfiles', {}, 8000);
+    if (C === C0 && !C.cerrando && aplicaPerfiles(r) && C.open) repintaPerfiles();
+  }
+  /* Otro compañero cambió su perfil (aviso en vivo): se vuelve a pedir a la base, sin más de una vez cada 5 segundos. */
+  function perfilesSoon() {
+    if (C.sinSocial || C.perfT) return;
+    var espera = Math.max(1200, 5000 - (Date.now() - C.perfUlt));
+    C.perfT = setTimeout(function () { C.perfT = null; cargaPerfiles(); }, espera);
+  }
+  function repintaPerfiles() {
+    if (!C.open) return;
+    pintaMe(); pintaLista();
+    if (C.peer) { var h = document.querySelector('#mz-main .mz-ch'); if (h) h.outerHTML = cabecera(); pintaMsgs(); pintaInfo(); }
+  }
+  function perfilDe(id) { return C.perf[id] || {}; }
+  /* El mensaje de estado vigente de una persona (los vencidos no se muestran aunque la lista tarde un minuto en refrescarse). */
+  function msgEstadoDe(id) {
+    var P = C.perf[id]; if (!P || !P.msg) return null;
+    if (P.hasta && P.hasta < Date.now()) return null;
+    return { t: P.msg, e: P.me || '' };
+  }
+  function txtMsgEstado(id) { var m = msgEstadoDe(id); return m ? (m.e ? m.e + ' ' : '') + m.t : ''; }
   function refrescaSoon() { clearTimeout(C.refrescaT); C.refrescaT = setTimeout(function () { cargaTodo().then(function () { if (C.open) pintaLista(); }); }, 800); }
   /* Avisa a la base de que lo recibido ya llegó a este aparato (así quien lo envió ve «Entregado»). */
   function entregaSoon() { clearTimeout(C.entregaT); C.entregaT = setTimeout(function () { llama('chat_entregar', {}); }, 400); }
@@ -10250,7 +10561,7 @@ function ofcCalcular(cat, sel) {
   function calculaDivisor(peer) {
     var l = C.msgs[peer] || [], d = null, comp = compartida(peer), lim = Date.parse(C.ultLeido[peer] || '') || (Date.now() - 86400000);
     for (var i = 0; i < l.length; i++) {
-      var m = l[i]; if (m.de === me.id || m._est || m.tipo !== 'TEXTO' || m.borrado_at) continue;
+      var m = l[i]; if (m.de === me.id || m._est || !CONTENIDO[m.tipo] || m.borrado_at) continue;
       if (comp ? Date.parse(m.created_at) > lim : !m.leido_at) { d = m.id; break; }
     }
     if (d) C.divisor[peer] = d; else delete C.divisor[peer];
@@ -10287,9 +10598,10 @@ function ofcCalcular(cat, sel) {
 
   /* ================= PINTADO: piezas pequeñas ================= */
   /* gen: true = sala general (degradado del CRM) · 'g' = grupo · 'c' = canal (colores propios y su icono) */
-  function av(id, nombre, tam, gen, mostrarEstado) {
-    var h = HUES[hash(id) % HUES.length], s = tam || 40, grp = gen === 'g' || gen === 'c';
-    return '<span class="mz-av' + (gen === true ? ' gen' : '') + '" style="--s:' + s + 'px;--h:' + h + ';--h2:' + (h + 24) + '">' + (grp ? ic(gen === 'c' ? IC.canal : IC.equipo, Math.round(s * .5)) : gen ? ic(IC.equipo, Math.round(s * .5)) : esc(ini(nombre))) +
+  function av(id, nombre, tam, gen, mostrarEstado, ov) {
+    var P = ov || (!gen && C.perf[id]) || null, s = tam || 40, grp = gen === 'g' || gen === 'c';
+    var h = (P && typeof P.color === 'number') ? HUES12[P.color] : HUES[hash(id) % HUES.length], emo = !gen && P && P.emoji ? P.emoji : '';
+    return '<span class="mz-av' + (gen === true ? ' gen' : '') + (emo ? ' emo' : '') + '" style="--s:' + s + 'px;--h:' + h + ';--h2:' + (h + 24) + '">' + (grp ? ic(gen === 'c' ? IC.canal : IC.equipo, Math.round(s * .5)) : gen ? ic(IC.equipo, Math.round(s * .5)) : emo ? esc(emo) : esc(ini(nombre))) +
       (mostrarEstado ? dot(mostrarEstado) : '') + '</span>';
   }
   function avConv(k, tam, estado) {   // avatar de cualquier conversación
@@ -10321,13 +10633,35 @@ function ofcCalcular(cat, sel) {
     }
     return h;
   }
+  function stickerDe(id) { for (var i = 0; i < STICKERS.length; i++) if (STICKERS[i].id === id) return STICKERS[i]; return null; }
+  /* Texto corto de un mensaje para la lista, los avisos y los fijados (el sticker, la foto o la nota de voz no tienen «texto»). */
+  function etiquetaTipo(m) {
+    switch (m.tipo) {
+      case 'STICKER': var st = stickerDe(m.cuerpo); return (st ? st.e + ' ' : '') + 'Sticker';
+      case 'IMAGEN': return '📷 ' + (m.cuerpo && m.cuerpo !== 'Foto' ? m.cuerpo : 'Foto');
+      case 'AUDIO': return '🎤 Nota de voz';
+      case 'ARCHIVO': return '📎 ' + (m.cuerpo || 'Archivo');
+      default: return String(m.cuerpo || '');
+    }
+  }
+  /* Lo mismo, pero como lo escribe la base en las citas de «Responder». */
+  function textoCita(m) {
+    switch (m.tipo) {
+      case 'STICKER': return 'Sticker';
+      case 'IMAGEN': return 'Foto';
+      case 'AUDIO': return 'Nota de voz';
+      case 'ARCHIVO': return 'Archivo: ' + (m.cuerpo || '');
+      default: return String(m.cuerpo || '').replace(/\s+/g, ' ').slice(0, 140);
+    }
+  }
   function previa(m) {
     if (!m) return '';
     if (m.tipo === 'ZUMBIDO') return (m.de === me.id ? 'Enviaste' : 'Recibiste') + ' un zumbido';
     if (m.borrado_at) return 'Mensaje eliminado';
-    return String(m.cuerpo || '');
+    return etiquetaTipo(m);
   }
-  function eRender(e) { return e === '❤' ? '❤️' : e; }
+  var E_VIS = { '❤': '❤️', '⚠': '⚠️' };
+  function eRender(e) { return E_VIS[e] || e; }
   /* Quién y cuándo eliminó un mensaje, dicho de forma natural para quien lo lee. */
   function textoBorrado(m) {
     var yoAutor = m.de === me.id, porAutor = !m.borrado_por || m.borrado_por === m.de;
@@ -10339,7 +10673,9 @@ function ofcCalcular(cat, sel) {
   /* ================= PINTADO: panel izquierdo ================= */
   function pintaMe() {
     var b = $('mz-me'); if (!b) return;
-    var h = '<div style="display:contents">' + av(me.id, perfil.nombre, 44, false, C.st) + '<div class="mz-t"><b>' + esc(bonito(perfil.nombre)) + '</b><small>' + esc(DEPTO[perfil.rol] || perfil.rol || '') + '</small></div>' +
+    var sub = txtMsgEstado(me.id) || DEPTO[perfil.rol] || perfil.rol || '';
+    var h = '<div style="display:contents"><button type="button" class="mz-yo" id="mz-yo" data-a="perfil" aria-haspopup="dialog" aria-label="Editar tu perfil: ' + esc(bonito(perfil.nombre)) + (msgEstadoDe(me.id) ? '. Tu mensaje de estado: ' + esc(txtMsgEstado(me.id)) : '') + '" title="Editar tu perfil: color, icono y mensaje de estado">' +
+      av(me.id, perfil.nombre, 44, false, C.st) + '<span class="mz-t"><b>' + esc(bonito(perfil.nombre)) + '</b><small>' + esc(sub) + '</small></span></button>' +
       '<button type="button" class="mz-st" id="mz-st" data-a="stmenu" aria-haspopup="menu" aria-expanded="' + C.menu + '" aria-label="Tu estado: ' + esc(ESTADOS[C.st]) + '. Cambiar">' + dot(C.st, true) + '<span>' + esc(ESTADOS[C.st]) + '</span>' + ic(IC.abajo, 14) + '</button></div>';
     h += '<div class="mz-menu" id="mz-menu" role="menu" aria-label="Tu estado"' + (C.menu ? '' : ' hidden') + '>' +
       Object.keys(ESTADOS).map(function (k) { return '<button type="button" role="menuitemradio" aria-checked="' + (k === C.st) + '" data-a="estado" data-v="' + k + '">' + dot(k, true) + ESTADOS[k] + '</button>'; }).join('') + '</div>';
@@ -10361,7 +10697,7 @@ function ofcCalcular(cat, sel) {
     var escribiendo = !gen && !g && C.typ[id] && Date.now() - C.typ[id] < 4000;
     var prev;
     if (escribiendo) prev = '<em>escribiendo…</em>';
-    else if (!r) prev = gen ? 'Todo el equipo' : g ? esc((g.tipo === 'CANAL' ? 'Canal' : 'Grupo') + ' · ' + g.miembros + (g.miembros === 1 ? ' miembro' : ' miembros')) : esc(deptoDe(id));
+    else if (!r) prev = gen ? 'Todo el equipo' : g ? esc((g.tipo === 'CANAL' ? 'Canal' : 'Grupo') + ' · ' + g.miembros + (g.miembros === 1 ? ' miembro' : ' miembros')) : esc(txtMsgEstado(id) || deptoDe(id));
     else if (r.tipo === 'SISTEMA') prev = esc(r.cuerpo);
     else prev = (r._est === 'error' ? '<em style="color:var(--bad)">No enviado:</em> ' : r.de === me.id ? '<em>Tú:</em> ' : ((gen || g) ? '<em>' + esc(nombreDe(r.de).split(' ')[0]) + ':</em> ' : '')) + esc(previa(r));
     return '<div class="mz-rw"><button type="button" class="mz-row' + (n ? ' nuevo' : '') + (cf.silenciado ? ' mudo' : '') + '" data-a="abrir" data-id="' + esc(id) + '"' + (C.peer === id ? ' aria-current="true"' : '') + ' aria-label="' + esc(nombre + (n ? ', ' + n + ' sin leer' : '') + (cf.silenciado ? ', silenciada' : '') + (cf.fijado ? ', fijada' : '')) + '">' +
@@ -10372,7 +10708,7 @@ function ofcCalcular(cat, sel) {
   function filaContacto(c) {
     return '<div class="mz-rw"><button type="button" class="mz-row" data-a="abrir" data-id="' + esc(c.id) + '"' + (C.peer === c.id ? ' aria-current="true"' : '') + '>' +
       av(c.id, c.nombre, 40, false, estadoDe(c.id)) +
-      '<div class="mz-rt"><div class="mz-rn"><b>' + esc(bonito(c.nombre)) + '</b></div><div class="mz-rp"><span>' + esc(DEPTO[c.rol] || c.rol || '') + ' · ' + esc(textoEstado(c.id)) + '</span></div></div></button>' + masBtn(c.id, bonito(c.nombre)) + '</div>';
+      '<div class="mz-rt"><div class="mz-rn"><b>' + esc(bonito(c.nombre)) + '</b></div><div class="mz-rp"><span>' + (msgEstadoDe(c.id) ? esc(txtMsgEstado(c.id)) : esc(DEPTO[c.rol] || c.rol || '') + ' · ' + esc(textoEstado(c.id))) + '</span></div></div></button>' + masBtn(c.id, bonito(c.nombre)) + '</div>';
   }
   function seccion(clave, titulo, n, cuerpo) {
     var cerrado = !!C.col[clave];
@@ -10473,7 +10809,7 @@ function ofcCalcular(cat, sel) {
     var g = C.grupos[id];
     if (g) return '<span class="est">' + (g.tipo === 'CANAL' ? 'Canal' : 'Grupo') + ' · ' + g.miembros + (g.miembros === 1 ? ' miembro' : ' miembros') + (g.descripcion ? ' · ' + esc(g.descripcion) : '') + '</span>';
     if (C.typ[id] && Date.now() - C.typ[id] < 4000) return '<span class="mz-escr">escribiendo<i></i><i></i><i></i></span>';
-    return '<span class="dep">' + esc(deptoDe(id)) + ' ·</span><span class="est">' + dot(estadoDe(id), true) + esc(textoEstado(id)) + '</span>';
+    return '<span class="dep">' + esc(deptoDe(id)) + ' ·</span><span class="est">' + dot(estadoDe(id), true) + esc(textoEstado(id)) + '</span>' + (msgEstadoDe(id) ? '<span class="msg" title="' + esc(txtMsgEstado(id)) + '">· ' + esc(txtMsgEstado(id)) + '</span>' : '');
   }
   function cabecera() {
     var id = C.peer, gen = id === GEN, g = C.grupos[id], nombre = gen ? 'Sala general' : g ? g.nombre : nombreDe(id);
@@ -10497,14 +10833,24 @@ function ofcCalcular(cat, sel) {
     if (g && !puedeEscribir(k)) {   // lector de un grupo, o miembro de un canal: puede leer y reaccionar, pero no escribir
       return '<div class="mz-comp" id="mz-comp"><div class="mz-solo" role="note">' + ic(IC.info, 18) + '<span>' + (g.tipo === 'CANAL' ? 'Este es un canal: solo los administradores publican. Tú puedes leer y reaccionar.' : 'Eres lector en este grupo: puedes leer y reaccionar, pero no escribir.') + '</span></div></div>';
     }
-    return '<div class="mz-comp" id="mz-comp"><span class="mz-cuenta" id="mz-cuenta" hidden></span><div id="mz-ctxc"></div>' +
-      '<div class="mz-emo" id="mz-emo" role="group" aria-label="Emojis" hidden>' + EMOJIS.map(function (gr) {
-        return '<h4>' + gr[0] + '</h4><div class="g">' + gr[1].split(' ').map(function (e) { return '<button type="button" data-a="cara" data-e="' + e + '" aria-label="' + e + '">' + e + '</button>'; }).join('') + '</div>';
-      }).join('') + '</div>' +
-      '<div class="mz-caja"><button type="button" class="mz-ib" id="mz-emob" data-a="emo" aria-label="Insertar emoji" title="Emojis" aria-expanded="false" aria-haspopup="true">' + ic(IC.cara) + '</button>' +
+    return '<div class="mz-comp" id="mz-comp"><span class="mz-cuenta" id="mz-cuenta" hidden></span><div id="mz-ctxc"></div><div class="mz-band" id="mz-band" hidden></div>' +
+      '<div class="mz-emo" id="mz-emo" role="dialog" aria-label="Emojis y stickers" hidden>' +
+        '<div class="mz-emt" role="tablist" aria-label="Qué quieres insertar"><button type="button" role="tab" id="mz-tab-emo" data-a="emotab" data-v="emo" aria-selected="true" aria-controls="mz-emb">Emojis</button>' +
+        '<button type="button" role="tab" id="mz-tab-stk" data-a="emotab" data-v="stk" aria-selected="false" aria-controls="mz-emb" tabindex="-1">Stickers</button></div>' +
+        '<div class="mz-emq"><label class="mz-sr" for="mz-emq">Buscar emoji o sticker</label>' + ic(IC.lupa, 16) + '<input id="mz-emq" type="search" data-minus autocomplete="off" placeholder="Buscar emoji: fuego, café, risa…"></div>' +
+        '<div class="mz-emn" id="mz-emn" role="group" aria-label="Categorías de emojis"></div><div class="mz-emb" id="mz-emb" role="tabpanel" tabindex="-1"></div></div>' +
+      '<div class="mz-caja" id="mz-caja"><button type="button" class="mz-ib" id="mz-emob" data-a="emo" aria-label="Emojis y stickers" title="Emojis y stickers" aria-expanded="false" aria-haspopup="true">' + ic(IC.cara) + '</button>' +
+      (off ? '' : '<button type="button" class="mz-ib" id="mz-clip" data-a="adjuntar" aria-label="Adjuntar foto o archivo" title="Adjuntar foto o archivo">' + ic(IC.clip) + '</button>') +
       (comp || off ? '' : '<button type="button" class="mz-ib mz-bz" id="mz-bz" data-a="zumbido" aria-label="Enviar zumbido" title="Enviar zumbido (llama la atención de ' + esc(nombreDe(k)) + ')">' + ic(IC.campana) + '<span class="cd" id="mz-cd" hidden></span></button>') +
       '<label class="mz-sr" for="mz-in">Escribe un mensaje</label><textarea id="mz-in" rows="1" maxlength="' + MAXLEN + '"' + (off ? ' disabled' : '') + ' data-minus autocomplete="off" placeholder="' + (off ? 'Esta persona ya no está activa' : k === GEN ? 'Escribe a todo el equipo…' : g ? (g.tipo === 'CANAL' ? 'Publica en el canal…' : 'Escribe al grupo…') : 'Escribe un mensaje…') + '"></textarea>' +
-      '<button type="button" class="mz-send" id="mz-send" data-a="enviar" aria-label="Enviar mensaje" title="Enviar (Enter)" disabled>' + ic(IC.envia) + '</button></div></div>';
+      (off ? '' : '<button type="button" class="mz-ib mz-mic" id="mz-mic" data-a="grabar" aria-label="Grabar nota de voz" title="Grabar nota de voz">' + ic(IC.mic) + '</button>') +
+      '<button type="button" class="mz-send" id="mz-send" data-a="enviar" aria-label="Enviar mensaje" title="Enviar (Enter)" disabled>' + ic(IC.envia) + '</button></div>' +
+      (off ? '' : '<div class="mz-caja mz-grab" id="mz-grab" role="group" aria-label="Grabando nota de voz" hidden>' +
+        '<button type="button" class="mz-ib mz-gx" data-a="grab-cancela" aria-label="Cancelar la grabación" title="Cancelar (Esc)">' + ic(IC.papelera) + '</button>' +
+        '<span class="mz-rec" aria-hidden="true"></span><span class="mz-gt" id="mz-gt">0:00</span>' +
+        '<div class="mz-gw" id="mz-gw" aria-hidden="true">' + new Array(41).join('<i></i>') + '</div>' +
+        '<button type="button" class="mz-send" data-a="grab-envia" aria-label="Enviar nota de voz" title="Enviar nota de voz">' + ic(IC.envia) + '</button></div>' +
+        '<input type="file" id="mz-file" multiple hidden tabindex="-1" aria-hidden="true" accept="' + ADJ_ACCEPT + '">') + '</div>';
   }
   /* Barra sobre el cuadro de escribir: «Respondiendo a…» o «Editando mensaje». */
   function pintaCtx() {
@@ -10520,7 +10866,7 @@ function ofcCalcular(cat, sel) {
     var c = $('mz-fijc'); if (!c) return;
     var k = C.peer, f = (k && C.fij[k]) || [];
     if (!f.length) { c.innerHTML = ''; return; }
-    var i = Math.min(C.fijIdx[k] || 0, f.length - 1), m = f[i], texto = String(m.cuerpo || '').replace(/\s+/g, ' ').slice(0, 140), quien = nombreDe(m.de).split(' ')[0];
+    var i = Math.min(C.fijIdx[k] || 0, f.length - 1), m = f[i], texto = textoCita(m), quien = nombreDe(m.de).split(' ')[0];
     c.innerHTML = '<div class="mz-fijb"><button type="button" class="go" data-a="irfij" aria-label="Ir al mensaje fijado' + (f.length > 1 ? ' ' + (i + 1) + ' de ' + f.length : '') + ': ' + esc(quien + ': ' + texto) + '">' + ic(IC.pin, 16) +
       '<span class="t"><b>' + (f.length > 1 ? 'Mensaje fijado ' + (i + 1) + ' de ' + f.length : 'Mensaje fijado') + '</b><span>' + esc(quien) + ': ' + esc(texto) + '</span></span></button>' +
       (puedeFijarMsg(k) ? '<button type="button" class="mz-ib" data-a="desfijar" data-id="' + esc(m.id) + '" aria-label="Quitar este mensaje de los fijados" title="Quitar fijado">' + ic(IC.x, 16) + '</button>' : '') + '</div>';
@@ -10528,12 +10874,13 @@ function ofcCalcular(cat, sel) {
   /* Cambia la cabecera y el cuadro de escribir sin tocar los mensajes (por ejemplo cuando cambia mi papel en un grupo). */
   function repintaChrome() {
     var M = $('mz-main'); if (!M || !C.peer || !C.open) return;
+    C.emo = false;
     var h = M.querySelector('.mz-ch'), c = $('mz-comp'), i = $('mz-in'), val = i ? i.value : null, foco = !!(i && document.activeElement === i);
     if (h) h.outerHTML = cabecera();
     if (c) {
       c.outerHTML = compositor(); var n = $('mz-in');
       if (n && val != null) { n.value = val; autoTam(); }
-      actualizaEnvio(); actualizaZumbidoBtn(); pintaCtx(); if (foco && n) n.focus();
+      pintaBandeja(); pintaGrab(); actualizaEnvio(); actualizaZumbidoBtn(); pintaCtx(); if (foco && n) n.focus();
     }
     var e = $('mz-es'); if (e) e.innerHTML = lineaEstado();
   }
@@ -10551,7 +10898,7 @@ function ofcCalcular(cat, sel) {
   }
   function puedeEditar(m) { return !!m && m.de === me.id && m.tipo === 'TEXTO' && !m.borrado_at && !m._est && (Date.now() - Date.parse(m.created_at)) < T_EDITAR; }
   function puedeBorrar(k, m) {
-    if (!m || m.tipo !== 'TEXTO' || m.borrado_at || m._est) return false;
+    if (!m || !CONTENIDO[m.tipo] || m.borrado_at || m._est) return false;
     if (esGrupo(k) ? soyAdminDe(k) : k === GEN ? moderador() : false) return true;
     return m.de === me.id && (Date.now() - Date.parse(m.created_at)) < T_BORRAR;
   }
@@ -10575,6 +10922,17 @@ function ofcCalcular(cat, sel) {
       (puedeEscribir(C.peer) ? '<button type="button" tabindex="-1" data-a="responder" data-id="' + id + '" aria-label="Responder" title="Responder">' + ic(IC.responder, 16) + '</button>' : '') +
       '<button type="button" tabindex="-1" data-a="msgmenu" data-modo="todo" data-id="' + id + '" aria-haspopup="menu" aria-label="Más acciones" title="Más acciones">' + ic(IC.mas, 16) + '</button></div>';
   }
+  function htmlSticker(id, mini) {
+    var st = stickerDe(id);
+    var lec = mini ? ' aria-hidden="true"' : ' role="img" aria-label="Sticker' + (st ? ': ' + esc(st.t) : '') + '"';
+    if (!st) return '<div class="mz-stk' + (mini ? ' mini' : '') + '" style="--h:204"' + lec + '><i>🏷️</i><b>Sticker</b></div>';
+    return '<div class="mz-stk' + (mini ? ' mini' : '') + '" style="--h:' + st.h + '"' + lec + '><i>' + st.e + '</i><b>' + esc(st.t) + '</b></div>';
+  }
+  function htmlCuerpo(m, q) {
+    if (m.tipo === 'STICKER') return htmlSticker(m.cuerpo);
+    if (m.tipo === 'IMAGEN' || m.tipo === 'AUDIO' || m.tipo === 'ARCHIVO') return htmlAdjunto(m, q);
+    return '<div class="mz-t">' + textoHtml(m.cuerpo, q) + '</div>';
+  }
   function htmlMsgs() {
     var l = C.msgs[C.peer] || [], k = C.peer, gen = k === GEN, comp = compartida(k), q = C.busq.on ? C.busq.q.trim() : '', h = '', ult = null, ultT = 0, ultD = null;
     if (!l.length) {
@@ -10597,12 +10955,12 @@ function ofcCalcular(cat, sel) {
       var fin = !sig || sig.de !== m.de || sig.tipo === 'ZUMBIDO' || sig.tipo === 'SISTEMA' || Date.parse(sig.created_at) - t > 300000 || !mismoDia(m.created_at, sig.created_at) || C.divisor[k] === sig.id;
       h += '<div class="mz-g ' + (yo ? 'yo' : 'el') + (prim ? ' prim' : '') + (fin ? ' ult' : '') + (m._est === 'error' ? ' fallo' : '') + (C.fresh[m.id] ? ' mz-pop' : '') + '" id="mz-m-' + mid + '"' + (real && !del ? ' data-mid="' + mid + '" tabindex="-1"' : '') + '>';
       if (!yo) h += fin ? av(m.de, nombreDe(m.de), 30, false) : '<span class="mz-sp"></span>';
-      h += '<div class="mz-b' + (del ? ' del' : '') + '">' + (!yo && comp && prim ? '<span class="mz-nm">' + esc(nombreDe(m.de)) + '</span>' : '');
+      h += '<div class="mz-b' + (del ? ' del' : '') + (m.tipo === 'STICKER' && !del ? ' stk' : '') + '">' + (!yo && comp && prim ? '<span class="mz-nm">' + esc(nombreDe(m.de)) + '</span>' : '');
       if (del) h += '<div class="mz-t">' + esc(textoBorrado(m)) + '</div>';
-      else h += (m.responde_a ? htmlCita(m) : '') + '<div class="mz-t">' + textoHtml(m.cuerpo, q) + '</div>' + htmlReac(m);
+      else h += (m.responde_a ? htmlCita(m) : '') + htmlCuerpo(m, q) + htmlReac(m);
       h += '<div class="mz-mt">' + (m.fijado_at && !del ? '<span class="mz-pinm" title="Mensaje fijado">' + ic(IC.pin, 13) + '<span class="mz-sr">Fijado</span></span>' : '') + (m.editado_at && !del ? '<span class="mz-ed">editado</span>' : '') +
         '<time datetime="' + esc(m.created_at) + '">' + esc(hhmm(m.created_at)) + '</time>' + (yo && !del ? marcasEstado(m, comp) : '') + '</div>';
-      if (m._est === 'error') h += '<div class="mz-err"><span>' + esc(m._red ? 'Sin conexión: no se envió. Se reintentará sola.' : (m._msg || 'No se envió.')) + '</span><button type="button" data-a="reintentar-msg" data-id="' + mid + '">Reintentar</button><button type="button" data-a="descartar" data-id="' + mid + '">Descartar</button></div>';
+      if (m._est === 'error') h += '<div class="mz-err"><span>' + esc(m._arch ? (m._msg || 'No se envió.') + ' Pulsa «Reintentar».' : m._red ? 'Sin conexión: no se envió. Se reintentará sola.' : (m._msg || 'No se envió.')) + '</span><button type="button" data-a="reintentar-msg" data-id="' + mid + '">Reintentar</button><button type="button" data-a="descartar" data-id="' + mid + '">Descartar</button></div>';
       if (real && !del) h += htmlHerramientas(m);
       h += '</div></div>';
       ult = m.de; ultT = t;
@@ -10623,7 +10981,7 @@ function ofcCalcular(cat, sel) {
       var el = $('mz-m-' + C.resaltar); C.resaltar = null;
       if (el) { try { el.scrollIntoView({ block: 'center' }); } catch (e) { } el.classList.add('mz-flash'); setTimeout(function () { el.classList.remove('mz-flash'); }, 1300); }
     }
-    pintaFijados(); actualizaAbajo();
+    pintaFijados(); actualizaAbajo(); pintaAudios();
   }
   function actualizaAbajo() {
     var b = $('mz-ms'), p = $('mz-abajo'); if (!b || !p) return;
@@ -10638,7 +10996,7 @@ function ofcCalcular(cat, sel) {
     M.innerHTML = cabecera() + barraBusq() + '<div id="mz-fijc"></div><div class="mz-lienzo"><div class="mz-ms" id="mz-ms" role="log" aria-label="Mensajes" tabindex="0"></div><button type="button" class="mz-abajo" id="mz-abajo" data-a="abajo" hidden></button></div>' +
       '<div class="mz-ty" id="mz-ty"></div>' + compositor();
     var i = $('mz-in'); if (i) { i.value = C.borr[C.peer] || ''; autoTam(); }
-    actualizaEnvio(); pintaTyping(); actualizaZumbidoBtn(); pintaCtx(); pintaFijados();
+    pintaBandeja(); actualizaEnvio(); pintaTyping(); actualizaZumbidoBtn(); pintaCtx(); pintaFijados(); pintaGrab();
     var s = $('mz-ms'); if (s) s.addEventListener('scroll', actualizaAbajo, { passive: true });
   }
   function pintaTyping() {
@@ -10679,7 +11037,7 @@ function ofcCalcular(cat, sel) {
       var ids = Object.keys(C.on);
       h += '<div class="mz-if">' + av(GEN, 'Sala general', 84, true) + '<b>Sala general</b><span class="sub">Todo el equipo con perfil activo</span></div>' +
         '<div class="mz-bl"><h4>En línea ahora (' + (ids.length + (C.on[me.id] ? 0 : 1)) + ')</h4>' + (ids.length || true ? '<div class="mz-pers">' + av(me.id, perfil.nombre, 28, false, C.st) + '<b>Tú</b></div>' : '') +
-        ids.filter(function (k) { return k !== me.id; }).map(function (k) { return '<div class="mz-pers">' + av(k, nombreDe(k), 28, false, estadoDe(k)) + '<b>' + esc(nombreDe(k)) + '</b></div>'; }).join('') + '</div>' + bloqueAjustes(id);
+        ids.filter(function (k) { return k !== me.id; }).map(function (k) { return '<div class="mz-pers">' + av(k, nombreDe(k), 28, false, estadoDe(k)) + '<b>' + esc(nombreDe(k)) + '</b></div>'; }).join('') + '</div>' + bloqueArchivos(id) + bloqueAjustes(id);
     } else if (g) {
       var admin = soyAdminDe(id), creador = g.creada_por ? nombreDe(g.creada_por) : '', canal = g.tipo === 'CANAL';
       h += '<div class="mz-if">' + avConv(id, 84) + '<b>' + esc(g.nombre) + '</b><span class="sub">' + (canal ? 'Canal' : 'Grupo') + ' · ' + g.miembros + (g.miembros === 1 ? ' miembro' : ' miembros') + '</span>' +
@@ -10688,14 +11046,14 @@ function ofcCalcular(cat, sel) {
         (creador ? '<div class="mz-kv"><span>Creado por</span><b>' + esc(creador) + '</b></div>' : '') +
         (canal ? '<div class="mz-kv"><span>Quién escribe</span><b>Solo administradores</b></div>' : '') +
         (admin ? '<button type="button" class="mz-acc" data-a="grupo-editar">' + ic(IC.lapiz, 18) + 'Editar nombre y descripción</button>' : '') + '</div>' +
-        bloqueMiembros(id) + bloqueAjustes(id) +
+        bloqueMiembros(id) + bloqueArchivos(id) + bloqueAjustes(id) +
         '<div class="mz-bl"><h4>Acciones</h4><button type="button" class="mz-acc" data-a="busqconv">' + ic(IC.lupa, 18) + 'Buscar en la conversación</button>' +
         '<button type="button" class="mz-acc peligro" data-a="grupo-salir">' + ic(IC.salir, 18) + 'Salir del ' + (canal ? 'canal' : 'grupo') + '</button></div>';
     } else {
       var ult = C.rec[id];
-      h += '<div class="mz-if">' + av(id, nombreDe(id), 84, false, estadoDe(id)) + '<b>' + esc(nombreDe(id)) + '</b><span class="sub">' + esc(deptoDe(id)) + '</span><span class="sub">' + dot(estadoDe(id), true) + esc(textoEstado(id)) + '</span></div>' +
+      h += '<div class="mz-if">' + av(id, nombreDe(id), 84, false, estadoDe(id)) + '<b>' + esc(nombreDe(id)) + '</b><span class="sub">' + esc(deptoDe(id)) + '</span><span class="sub">' + dot(estadoDe(id), true) + esc(textoEstado(id)) + '</span>' + (msgEstadoDe(id) ? '<span class="sub msg">' + esc(txtMsgEstado(id)) + '</span>' : '') + '</div>' +
         '<div class="mz-bl"><h4>Conversación</h4><div class="mz-kv"><span>Mensajes cargados</span><b>' + l.length + '</b></div><div class="mz-kv"><span>Enviados por ti</span><b>' + env + '</b></div><div class="mz-kv"><span>Recibidos</span><b>' + (l.length - env) + '</b></div>' +
-        (ult ? '<div class="mz-kv"><span>Último mensaje</span><b>' + esc(etiquetaDia(ult.created_at) + ' · ' + hhmm(ult.created_at)) + '</b></div>' : '') + '</div>' + bloqueAjustes(id) +
+        (ult ? '<div class="mz-kv"><span>Último mensaje</span><b>' + esc(etiquetaDia(ult.created_at) + ' · ' + hhmm(ult.created_at)) + '</b></div>' : '') + '</div>' + bloqueArchivos(id) + bloqueAjustes(id) +
         '<div class="mz-bl"><h4>Acciones</h4><button type="button" class="mz-acc" data-a="zumbido" id="mz-izb">' + ic(IC.campana, 18) + 'Enviar zumbido</button>' +
         '<button type="button" class="mz-acc" data-a="busqconv">' + ic(IC.lupa, 18) + 'Buscar en la conversación</button></div>';
     }
@@ -10704,8 +11062,8 @@ function ofcCalcular(cat, sel) {
   function autoTam() { var i = $('mz-in'); if (!i) return; i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 140) + 'px'; }
   function actualizaEnvio() {
     var i = $('mz-in'), s = $('mz-send'), c = $('mz-cuenta'); if (!i || !s) return;
-    var n = i.value.length, vacioT = !i.value.trim();
-    s.disabled = vacioT;
+    var n = i.value.length, vacioT = !i.value.trim(), conArch = bandejaDe(C.peer).length > 0, cj = $('mz-caja');
+    s.disabled = vacioT && !conArch; if (cj) cj.classList.toggle('tiene', !vacioT || conArch);
     if (c) { c.hidden = n < MAXLEN - 300; c.textContent = n + '/' + MAXLEN; c.classList.toggle('max', n >= MAXLEN); }
   }
   function actualizaZumbidoBtn() {
@@ -10727,14 +11085,20 @@ function ofcCalcular(cat, sel) {
   function interruptor(k, titulo, detalle) {
     return '<label class="mz-sw"><span class="t"><b>' + titulo + '</b><small>' + detalle + '</small></span><input type="checkbox" role="switch" data-p="' + k + '"' + (C.pref[k] ? ' checked' : '') + '></label>';
   }
+  function filaTono(k, titulo) {
+    return '<div class="mz-tn"><label for="mz-tn-' + k + '">' + titulo + '</label><select id="mz-tn-' + k + '" data-q="' + k + '">' +
+      SLOT_TONOS[k].map(function (t) { return '<option value="' + t + '"' + (C.pref[k] === t ? ' selected' : '') + '>' + TONOS[t].n + '</option>'; }).join('') + '</select>' +
+      '<button type="button" class="mz-btn sec chico" data-a="probar" data-k="' + SLOT_DE[k] + '" aria-label="Probar el tono: ' + titulo + '">Probar</button></div>';
+  }
   function pintaAjustes() {
     var A = $('mz-ajp'); if (!A) return;
     A.innerHTML = '<div class="mz-ajh"><button type="button" class="mz-ib" data-a="aj-cerrar" aria-label="Volver" title="Volver">' + ic(IC.atras) + '</button><b>Configuración del chat</b></div>' +
       '<div class="mz-ajc"><h4>Sonidos</h4>' +
-      interruptor('sonMsg', 'Sonido al recibir un mensaje', 'Un tono suave cuando llega un mensaje y no lo estás viendo.') +
-      interruptor('sonZumbido', 'Sonido del zumbido', 'Suena cuando envías o recibes un zumbido.') +
-      interruptor('conexion', 'Aviso de compañero que se conecta', 'Un aviso discreto con tono corto cuando alguien entra en línea.') +
-      '<div class="mz-pr"><button type="button" class="mz-btn sec chico" data-a="probar" data-k="msg">Probar mensaje</button><button type="button" class="mz-btn sec chico" data-a="probar" data-k="zumbido">Probar zumbido</button><button type="button" class="mz-btn sec chico" data-a="probar" data-k="conexion">Probar conexión</button></div>' +
+      interruptor('sonMsg', 'Sonido al recibir un mensaje', 'Suena cuando llega un mensaje y no lo estás viendo. Elige un tono distinto para cada tipo.') +
+      filaTono('tonoPriv', 'Mensajes privados') + filaTono('tonoGrupo', 'Grupos, canales y sala general') +
+      interruptor('sonZumbido', 'Sonido del zumbido', 'Suena cuando envías o recibes un zumbido.') + filaTono('tonoZumbido', 'Zumbido') +
+      interruptor('conexion', 'Aviso de compañero que se conecta', 'Un aviso discreto con tono corto cuando alguien entra en línea.') + filaTono('tonoConex', 'Compañero conectado') +
+      '<div class="mz-vol"><label for="mz-vol">Volumen de los sonidos</label><input type="range" id="mz-vol" min="0" max="100" step="5" value="' + C.pref.vol + '" data-q="vol" aria-valuetext="' + C.pref.vol + ' por ciento"><output id="mz-volo" for="mz-vol">' + C.pref.vol + '%</output></div>' +
       '<h4>Efectos visuales</h4>' +
       interruptor('animRecibir', 'Animación al recibir un mensaje', 'El mensaje y el botón del chat se animan al llegar uno nuevo.') +
       interruptor('animEnviar', 'Animación al enviar', 'El mensaje y el botón de enviar se mueven al mandar.') +
@@ -10753,7 +11117,7 @@ function ofcCalcular(cat, sel) {
     if (!C.open) abrirVentana(true, true);
     guardaBorrador();
     var cambia = C.peer !== peer, cache = C.cargado[peer] ? C.msgs[peer] : null;
-    C.edit = null; if (cambia) { C.resp = null; cierraPop(); }
+    C.edit = null; if (cambia) { C.resp = null; cierraPop(); cancelaGrab(); cierraLB(); }
     C.peer = peer; C.vista = 'conv'; C.emo = false; C.busq = { on: false, q: '', i: 0, n: 0 }; C.nuevos = 0; C.resaltar = op.resaltar || null; C.errConv = null; C.cargaConv = !cache;
     if (cambia) delete C.divisor[peer];
     pintaMain(); aplicaVista(); pintaLista(); pintaInfo();
@@ -10769,13 +11133,15 @@ function ofcCalcular(cat, sel) {
     pintaMsgs({ inicio: true }); pintaInfo(); pintaLista();
     var i = $('mz-in'); if (i && window.innerWidth > 700 && !C.resaltar) i.focus();
   }
-  function cerrarConv() { guardaBorrador(); C.peer = null; C.resp = null; C.edit = null; cierraPop(); C.vista = 'lista'; C.busq = { on: false, q: '', i: 0, n: 0 }; pintaMain(); aplicaVista(); pintaLista(); }
+  function cerrarConv() { guardaBorrador(); cancelaGrab(); cierraLB(); C.peer = null; C.resp = null; C.edit = null; cierraPop(); C.vista = 'lista'; C.busq = { on: false, q: '', i: 0, n: 0 }; pintaMain(); aplicaVista(); pintaLista(); }
 
   /* ----- Cola de envío: lo que no se pudo enviar por falta de red se guarda en este navegador y se reintenta solo.
      Es seguro reintentar: cada mensaje lleva su client_id y la base no crea dos con el mismo. ----- */
   function colaGuarda() { lsSet('crm_chat_cola_' + me.id, JSON.stringify(C.cola.slice(-50))); }
   function colaAgrega(tmp, key) {
+    if (tmp._arch) return;
     var x = { client_id: tmp.client_id, key: key, cuerpo: tmp.cuerpo, created_at: tmp.created_at };
+    if (tmp.tipo && tmp.tipo !== 'TEXTO') x.tp = tmp.tipo;                     // los stickers se reenvían como stickers
     if (esGrupo(key)) x.cv = key;                                                  // los de un grupo recuerdan a qué conversación van
     if (tmp.responde_a) { x.ra = tmp.responde_a; x.rd = tmp.responde_de; x.rc = tmp.responde_cuerpo; }
     C.cola.push(x); colaGuarda();
@@ -10785,7 +11151,7 @@ function ofcCalcular(cat, sel) {
     var arr = []; try { arr = JSON.parse(lsGet('crm_chat_cola_' + me.id) || '[]') || []; } catch (e) { arr = []; }
     C.cola = arr.filter(function (x) { return x && typeof x.client_id === 'string' && typeof x.key === 'string' && typeof x.cuerpo === 'string'; }).slice(-50);
     C.cola.forEach(function (x) {
-      var tmp = { id: 'tmp-q-' + x.client_id, client_id: x.client_id, de: me.id, para: (x.key === GEN || x.cv) ? null : x.key, conversacion_id: x.cv || null, tipo: 'TEXTO', cuerpo: x.cuerpo, leido_at: null, entregado_at: null, created_at: x.created_at, _est: 'error', _red: true, _viejo: true };
+      var tmp = { id: 'tmp-q-' + x.client_id, client_id: x.client_id, de: me.id, para: (x.key === GEN || x.cv) ? null : x.key, conversacion_id: x.cv || null, tipo: CONTENIDO[x.tp] ? x.tp : 'TEXTO', cuerpo: x.cuerpo, leido_at: null, entregado_at: null, created_at: x.created_at, _est: 'error', _red: true, _viejo: true };
       if (x.ra) { tmp.responde_a = x.ra; tmp.responde_de = x.rd || null; tmp.responde_cuerpo = x.rc == null ? null : x.rc; }
       agrega(x.key, tmp); anotaReciente(tmp);
     });
@@ -10827,23 +11193,48 @@ function ofcCalcular(cat, sel) {
       pintaLista(); return;
     }
     if (C.edit && C.edit.key === peer) { guardaEdicion(); return; }
-    var txt = ((inp && inp.value) || '').trim(); if (!txt) return;
+    var txt = ((inp && inp.value) || '').trim(), band = bandejaDe(peer);
+    if (!txt && !band.length) return;
     if (txt.length > MAXLEN) { aviso('El mensaje supera los ' + MAXLEN + ' caracteres', true); return; }
     if (!puedeEscribir(peer)) { aviso(ERR_CHAT.solo_lectura, true); return; }
+    if (band.length) {   // fotos y archivos preparados: el texto que escribiste acompaña al primero
+      if (txt.length > MAX_CAP) { aviso('El texto que acompaña a un archivo admite hasta ' + MAX_CAP + ' caracteres', true); return; }
+      var items = band.slice(); C.band[peer] = []; inp.value = ''; delete C.borr[peer]; autoTam(); pintaBandeja(); actualizaEnvio();
+      for (var q = 0; q < items.length; q++) await mandaAdj(peer, items[q], q === 0 ? txt : '');
+      return;
+    }
     inp.value = ''; delete C.borr[peer]; autoTam(); actualizaEnvio();
-    var tmp = { id: 'tmp-' + (++C.tmpN) + '-' + Date.now(), client_id: uuid(), de: me.id, para: compartida(peer) ? null : peer, conversacion_id: esGrupo(peer) ? peer : null, tipo: 'TEXTO', cuerpo: txt, leido_at: null, entregado_at: null, created_at: new Date().toISOString(), _est: 'enviando' };
+    await mandaTmp(peer, 'TEXTO', txt);
+  }
+  /* Pone el mensaje «enviando» en pantalla, lo guarda en la cola de reintentos y lo manda. Sirve para texto y para stickers. */
+  async function mandaTmp(peer, tipo, cuerpo, extra) {
+    var inp = $('mz-in');
+    var tmp = { id: 'tmp-' + (++C.tmpN) + '-' + Date.now(), client_id: uuid(), de: me.id, para: compartida(peer) ? null : peer, conversacion_id: esGrupo(peer) ? peer : null, tipo: tipo, cuerpo: cuerpo, leido_at: null, entregado_at: null, created_at: new Date().toISOString(), _est: 'enviando' };
+    if (extra) Object.keys(extra).forEach(function (k) { tmp[k] = extra[k]; });
     if (C.resp && C.resp.key === peer) { tmp.responde_a = C.resp.id; tmp.responde_de = C.resp.de; tmp.responde_cuerpo = C.resp.cuerpo; C.resp = null; pintaCtx(); }
     colaAgrega(tmp, peer);
     agrega(peer, tmp); C.fresh[tmp.id] = anim('animEnviar'); anotaReciente(tmp);
     pintaMsgs({ fuerza: true }); pintaLista();
     var sb2 = $('mz-send'); if (sb2 && anim('animEnviar')) { sb2.classList.remove('vuela'); void sb2.offsetWidth; sb2.classList.add('vuela'); }
     if (inp) inp.focus();
+    if (tmp._arch) { encolaSubida(peer, tmp); return tmp; }                      // fotos, audios y archivos: primero se suben (de uno en uno) y luego se manda el mensaje
     await enviaFila(peer, tmp);
   }
   async function enviaFila(key, tmp) {
     tmp._est = 'enviando'; tmp._red = false; tmp._msg = '';
-    var args = { p_conversacion: C.convId[key] || (esGrupo(key) ? key : null), p_para: compartida(key) ? null : key, p_cuerpo: tmp.cuerpo, p_client_id: tmp.client_id, p_tipo: 'TEXTO' };
+    if (tmp._arch && !tmp._subido) {
+      var ru = await subeArchivo(key, tmp);
+      if (tmp._descartado) return;
+      if (!ru.ok) {
+        tmp._est = 'error'; tmp._red = !!ru.red; tmp._msg = ru.error || 'No se pudo subir el archivo.'; tmp._n = (tmp._n || 0) + 1;
+        if (C.peer === key) pintaMsgs({ fuerza: true });
+        aviso(tmp._msg, true); pintaLista(); return;
+      }
+      if (C.peer === key) pintaMsgs();
+    }
+    var args = { p_conversacion: C.convId[key] || (esGrupo(key) ? key : null), p_para: compartida(key) ? null : key, p_cuerpo: tmp.cuerpo, p_client_id: tmp.client_id, p_tipo: tmp.tipo || 'TEXTO' };
     if (tmp.responde_a) args.p_responde_a = tmp.responde_a;                      // solo se manda si es una respuesta: así lo demás funciona aunque falte ejecutar 57b
+    if (tmp.adjunto && tmp._arch) args.p_adjunto = adjSrv(tmp.adjunto);
     var r = await llama('chat_enviar', args);
     var l = C.msgs[key] || [], i = -1; for (var k = 0; k < l.length; k++) if (l[k].client_id === tmp.client_id) { i = k; break; }
     var d = r.data && r.data.mensaje;
@@ -10851,8 +11242,10 @@ function ofcCalcular(cat, sel) {
       if (i >= 0 && !l[i]._est) { colaQuita(tmp.client_id); return; }   // mientras tanto llegó por tiempo real: ya está guardado
       var red = !r.error || esRed(r.error);                              // sin error ni dato = respuesta rara: se trata como corte de red
       tmp._est = 'error'; tmp._red = red; tmp._msg = red ? '' : msgE(r.error); tmp._n = (tmp._n || 0) + 1;
+      if (!red && tmp.tipo === 'STICKER' && /chat:tipo_invalido/.test(String(r.error && r.error.message))) tmp._msg = 'Falta ejecutar 58_chat_social.sql en Supabase para enviar stickers';
+      if (!red && tmp._arch && /chat:tipo_invalido|PGRST202|42883/.test(String(r.error && (r.error.message || r.error.code)))) tmp._msg = 'Falta ejecutar 58_chat_social.sql en Supabase para enviar archivos';
       if (/chat:respuesta_invalida/.test(String(r.error && r.error.message))) { tmp._msg = 'El mensaje al que respondías ya no está. Al reintentar se envía sin cita.'; tmp.responde_a = null; tmp.responde_de = null; tmp.responde_cuerpo = null; }
-      if (red) programaCola(Math.min(5000 * Math.pow(2, tmp._n - 1), 60000)); else colaQuita(tmp.client_id);
+      if (red && !tmp._arch) programaCola(Math.min(5000 * Math.pow(2, tmp._n - 1), 60000)); else colaQuita(tmp.client_id);
       if (C.peer === key) pintaMsgs({ fuerza: true });
       if (!tmp._viejo || !red) aviso(msgE(r.error), true);
       pintaLista(); return;
@@ -10862,6 +11255,7 @@ function ofcCalcular(cat, sel) {
     if (i >= 0) { if (l[i].id !== d.id) { if (l.some(function (x) { return x.id === d.id; })) l.splice(i, 1); else l[i] = d; } }
     else if (!l.some(function (x) { return x.id === d.id; })) l.push(d);
     ordena(l); anotaReciente(d);
+    if (d.adjunto) refrescaArch(key);
     if (C.peer === key) pintaMsgs(); pintaLista();
   }
   function sacude(el) { if (!el || reducido()) return; el.classList.remove('sacude'); void el.offsetWidth; el.classList.add('sacude'); }
@@ -10886,6 +11280,7 @@ function ofcCalcular(cat, sel) {
       if (C.open && C.peer === peer) { pintaMsgs(); if (C.info) cargaMiembros(peer, true); }
       pintaLista(); refrescaSoon(); return;
     }
+    if (m.adjunto) refrescaArch(peer);
     if (m.para) { C.typ[m.de] = 0; entregaSoon(); }                    // en privado: confirma a la base que llegó a este aparato
     var viendo = C.open && C.peer === peer && !document.hidden;
     if (viendo) {
@@ -10904,11 +11299,11 @@ function ofcCalcular(cat, sel) {
       anuncia(quien + ' te envió un zumbido');
     } else if (!pasivo() && !callada) {
       if (!viendo) {
-        sonidoMsg();
-        aviso('💬 ' + quien + (C.pref.avisoTexto ? ': ' + String(m.cuerpo).slice(0, 60) : ' te escribió'));
+        sonidoMsg(false, peer);
+        aviso('💬 ' + quien + (C.pref.avisoTexto ? ': ' + etiquetaTipo(m).slice(0, 60) : ' te escribió'));
         var f = $('chat23-btn'); if (f && anim('animRecibir')) { f.classList.remove('mz-pulso'); void f.offsetWidth; f.classList.add('mz-pulso'); setTimeout(function () { f.classList.remove('mz-pulso'); }, 2600); }
       }
-      anuncia('Mensaje nuevo de ' + quien + (C.pref.avisoTexto ? ': ' + String(m.cuerpo).slice(0, 120) : ''));
+      anuncia('Mensaje nuevo de ' + quien + (C.pref.avisoTexto ? ': ' + etiquetaTipo(m).slice(0, 120) : ''));
     }
   }
   /* Mantiene al día la lista de mensajes fijados de una conversación (hasta 5, el más reciente primero). */
@@ -10948,9 +11343,9 @@ function ofcCalcular(cat, sel) {
 
   /* ================= FASE 3B: ACCIONES SOBRE MENSAJES, AJUSTES DE CONVERSACIÓN Y GRUPOS ================= */
   /* Todo se decide en la base (permisos, plazos, límites). Aquí solo se muestra lo que la persona puede hacer y se avisa con claridad si la base dice que no. */
-  function resumenTexto(m) { return String(m.cuerpo || '').replace(/\s+/g, ' ').slice(0, 140); }
+  function resumenTexto(m) { return textoCita(m); }
   function iniciaResp(id) {
-    var k = C.peer, m = msgPorId(k, id); if (!m || m.borrado_at || m._est || m.tipo !== 'TEXTO') return;
+    var k = C.peer, m = msgPorId(k, id); if (!m || m.borrado_at || m._est || !CONTENIDO[m.tipo]) return;
     if (!puedeEscribir(k)) { aviso(ERR_CHAT.solo_lectura, true); return; }
     if (C.edit) cancelaCtx(false);
     C.resp = { key: k, id: m.id, de: m.de, cuerpo: resumenTexto(m) };
@@ -11001,7 +11396,7 @@ function ofcCalcular(cat, sel) {
     var k = C.peer, m = msgPorId(k, id); if (!m || m.borrado_at || m._est) return;
     var antes = JSON.stringify(m.reacciones || {}), r = JSON.parse(antes), arr = r[e] || [], i = arr.indexOf(me.id);
     if (i >= 0) { arr.splice(i, 1); if (arr.length) r[e] = arr; else delete r[e]; }
-    else { if (!r[e] && Object.keys(r).length >= 8) { aviso(ERR_CHAT.demasiadas_reacciones, true); return; } r[e] = arr.concat(me.id); }
+    else { if (!r[e] && Object.keys(r).length >= MAX_REAC) { aviso(ERR_CHAT.demasiadas_reacciones, true); return; } r[e] = arr.concat(me.id); }
     m.reacciones = r; pintaMsgs();                                      // se ve al instante; si la base dice que no, se deshace
     var res = await llama('chat_reaccionar', { p_mensaje: id, p_emoji: e }), m2 = msgPorId(k, id); if (!m2) return;
     if (res.error || !res.data) { m2.reacciones = JSON.parse(antes); aviso(msgE(res.error), true); } else m2.reacciones = res.data.reacciones || {};
@@ -11062,13 +11457,16 @@ function ofcCalcular(cat, sel) {
     if (p.tipo === 'msg') {
       var m = msgPorId(k, p.id); if (!m) { C.pop = null; P.hidden = true; P.innerHTML = ''; return; }
       var mio = function (e) { return ((m.reacciones || {})[e] || []).indexOf(me.id) >= 0; };
-      h += '<div class="rx" role="group" aria-label="Reaccionar">' + REAC.map(function (e) { return '<button type="button" role="menuitem" class="' + (mio(e) ? 'mio' : '') + '" data-a="reac" data-id="' + esc(m.id) + '" data-e="' + esc(e) + '" aria-label="' + (mio(e) ? 'Quitar ' : 'Reaccionar con ') + eRender(e) + '">' + eRender(e) + '</button>'; }).join('') + '</div>';
+      var rbtn = function (e) { return '<button type="button" role="menuitem" class="' + (mio(e) ? 'mio' : '') + '" data-a="reac" data-id="' + esc(m.id) + '" data-e="' + esc(e) + '" aria-label="' + (mio(e) ? 'Quitar ' : 'Reaccionar con ') + eRender(e) + '">' + eRender(e) + '</button>'; };
+      h += '<div class="rx" role="group" aria-label="Reaccionar">' + REAC_RAP.map(rbtn).join('') + '<button type="button" role="menuitem" class="mas" data-a="reacmas" aria-expanded="' + !!p.mas + '" aria-label="' + (p.mas ? 'Menos reacciones' : 'Más reacciones') + '" title="' + (p.mas ? 'Menos reacciones' : 'Más reacciones') + '">' + ic(p.mas ? IC.arriba : IC.mas2, 18) + '</button></div>';
+      if (p.mas) h += '<div class="rx mas" role="group" aria-label="Más reacciones">' + REAC.slice(REAC_RAP.length).map(rbtn).join('') + '</div>';
       if (p.modo !== 'reac') {
         var id = ' data-id="' + esc(m.id) + '"';
         if (puedeEscribir(k)) h += itemPop('responder', IC.responder, 'Responder', id);
-        h += itemPop('copiar', IC.copiar, 'Copiar texto', id);
+        if (m.tipo === 'TEXTO') h += itemPop('copiar', IC.copiar, 'Copiar texto', id);
+        if (m.adjunto && m.adjunto.id && !m._est && !m.borrado_at) h += itemPop('descarga', IC.descarga, 'Descargar', id);
         if (puedeEditar(m)) h += itemPop('editar', IC.lapiz, 'Editar', id);
-        if (puedeFijarMsg(k)) h += itemPop('fijarmsg', IC.pin, m.fijado_at ? 'Quitar de fijados' : 'Fijar mensaje', id + ' data-v="' + (m.fijado_at ? 0 : 1) + '"');
+        if (puedeFijarMsg(k) && m.tipo !== 'STICKER') h += itemPop('fijarmsg', IC.pin, m.fijado_at ? 'Quitar de fijados' : 'Fijar mensaje', id + ' data-v="' + (m.fijado_at ? 0 : 1) + '"');
         if (puedeBorrar(k, m)) h += itemPop('borrar', IC.papelera, 'Eliminar', id, 'peligro');
       }
       P.setAttribute('aria-label', 'Acciones del mensaje');
@@ -11232,13 +11630,14 @@ function ofcCalcular(cat, sel) {
       titulo = 'Editar ' + (g && g.tipo === 'CANAL' ? 'canal' : 'grupo'); ok = 'Guardar';
       cuerpo = '<div class="mz-fld"><label for="mz-gn">Nombre</label><input id="mz-gn" data-minus autocomplete="off" maxlength="60"></div>' +
         '<div class="mz-fld"><label for="mz-gd">Descripción <span class="op">(opcional)</span></label><textarea id="mz-gd" data-minus rows="3" maxlength="200"></textarea></div>';
-    }
+    } else if (t === 'perfil') { titulo = 'Tu perfil'; ok = 'Guardar'; cuerpo = htmlPerfil(M); }
     O.innerHTML = '<div class="mz-card" role="dialog" aria-modal="true" aria-labelledby="mz-mt1"><div class="hd"><h3 id="mz-mt1">' + esc(titulo) + '</h3><button type="button" class="mz-ib" data-a="mod-cerrar" aria-label="Cerrar" title="Cerrar">' + ic(IC.x) + '</button></div>' +
       '<div class="body">' + cuerpo + '<p class="mz-err2" id="mz-gerr" role="alert" hidden></p></div>' +
       '<div class="ft"><button type="button" class="mz-btn sec" data-a="mod-cerrar">Cancelar</button><button type="button" class="mz-btn' + (M.peligro ? ' peligro' : '') + '" id="mz-mok" data-a="mod-ok" data-ok="' + esc(ok) + '">' + esc(ok) + '</button></div></div>';
     O.hidden = false;
     var n = $('mz-gn'), d = $('mz-gd'); if (n) n.value = M.nombre || ''; if (d) d.value = M.desc || '';
     if (t === 'grupo' || t === 'miembros') pintaModalPersonas();
+    if (t === 'perfil') actualizaPerfil();
     actualizaModalBtn();
   }
   function actualizaModalBtn() {
@@ -11247,6 +11646,7 @@ function ofcCalcular(cat, sel) {
     if (M.tipo === 'grupo') { listo = nombreOk && n >= 1 && n <= 199; etiqueta = M.gtipo === 'CANAL' ? 'Crear canal' : 'Crear grupo'; if (n > 199) aviso2 = 'Un grupo admite como máximo 200 personas.'; }
     else if (M.tipo === 'miembros') { listo = n >= 1; etiqueta = n ? 'Añadir ' + n + (n === 1 ? ' persona' : ' personas') : 'Añadir'; }
     else if (M.tipo === 'editar') { var g = C.grupos[M.key] || {}; listo = nombreOk && ((M.nombre || '').trim() !== g.nombre || (M.desc || '').trim() !== (g.descripcion || '')); }
+    if (M.tipo === 'perfil') { var cbp = cambiosPerfil(M); listo = (cbp.av || cbp.msg) && cbp.txt.length <= 80; etiqueta = 'Guardar'; }
     var c = $('mz-gcount'); if (c) c.textContent = n + (n === 1 ? ' persona elegida' : ' personas elegidas');
     b.disabled = !listo || !!M.enviando; b.textContent = M.enviando ? 'Un momento…' : etiqueta;
     var e = $('mz-gerr'); if (e) { var t2 = M.err || aviso2; e.textContent = t2; e.hidden = !t2; }
@@ -11279,6 +11679,7 @@ function ofcCalcular(cat, sel) {
       else if (M.tipo === 'grupo') res = await creaGrupo(M);
       else if (M.tipo === 'miembros') res = await agregaMiembros(M);
       else if (M.tipo === 'editar') res = await editaGrupo(M);
+      else if (M.tipo === 'perfil') res = await guardaPerfil(M);
     } catch (e) { console.error(e); M.err = 'Error inesperado'; }
     if (C.modal !== M) return;
     M.enviando = false;
@@ -11308,7 +11709,7 @@ function ofcCalcular(cat, sel) {
   }
   function teclaModal(e) {
     if (e.key !== 'Tab' || !C.modal) return;
-    var O = $('mz-modal'), f = Array.prototype.slice.call(O.querySelectorAll('button:not([disabled]),input,textarea,[tabindex="0"]')).filter(function (x) { return x.offsetParent !== null; });
+    var O = $('mz-modal'), f = Array.prototype.slice.call(O.querySelectorAll('button:not([disabled]),input,textarea,select,[tabindex="0"]')).filter(function (x) { return x.offsetParent !== null && x.tabIndex >= 0; });
     if (!f.length) return;
     var i = f.indexOf(document.activeElement);
     if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
@@ -11346,7 +11747,7 @@ function ofcCalcular(cat, sel) {
       if (!sinFoco && window.innerWidth > 700) setTimeout(function () { var q = $('mz-q'), i = $('mz-in'); (C.peer && i ? i : q) && (C.peer && i ? i : q).focus(); }, 60);
       if (Date.now() - C.ultimaVez > 60000) resync();
     } else {
-      guardaBorrador(); C.open = false; C.emo = false; C.menu = false;
+      guardaBorrador(); cancelaGrab(); cierraLB(); detieneAudio(); C.open = false; C.emo = false; C.menu = false;
       var fin = function () { if (!C.open) w.hidden = true; w.classList.remove('mz-sale'); };
       if (anim('animPaneles')) { w.classList.add('mz-sale'); setTimeout(fin, 170); } else fin();
       document.body.classList.remove('mz-abierto');
@@ -11438,10 +11839,627 @@ function ofcCalcular(cat, sel) {
     }).on('broadcast', { event: 'typing' }, function (pl) {
       var d = pl && pl.payload; if (!d || d.para !== me.id) return;
       C.typ[d.de] = Date.now(); pintaTyping(); setTimeout(pintaTyping, 4200);
+    }).on('broadcast', { event: 'perfil' }, function (pl) {
+      var d = pl && pl.payload; if (d && d.de && d.de !== me.id) perfilesSoon();
     }).subscribe(function (s) { if (s === 'SUBSCRIBED') { try { ch.track({ nombre: perfil.nombre, st: C.st, t: Date.now() }); } catch (e) { } } });
   }
 
   /* ================= EVENTOS ================= */
+  /* ================= ARCHIVOS, FOTOS Y NOTAS DE VOZ (Fase 4B) =================
+     Los textos viajan por Supabase; los archivos van a TU Google Drive a través del servicio de Apps Script de Ofertas (la misma dirección que ya pegaste en Ofertas → Ajustes).
+     Subir: el navegador reduce la foto, pide al servicio que la guarde (el servicio comprueba con Supabase que puedes escribir en esa conversación) y después manda el mensaje con la
+     ficha del archivo (id de Drive, nombre, tipo, tamaño y, en fotos, una miniatura diminuta). Bajar: el servicio vuelve a comprobar con Supabase que perteneces a la conversación. */
+  var ADJ_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/aac', 'audio/x-m4a', 'application/pdf', 'text/plain', 'text/csv',
+    'application/zip', 'application/x-zip-compressed', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/vnd.oasis.opendocument.text', 'application/vnd.oasis.opendocument.spreadsheet'];
+  var EXT_MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', m4a: 'audio/x-m4a', aac: 'audio/aac', weba: 'audio/webm',
+    pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', zip: 'application/zip', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    odt: 'application/vnd.oasis.opendocument.text', ods: 'application/vnd.oasis.opendocument.spreadsheet' };
+  var ADJ_ACCEPT = 'image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.odt,.ods';
+  var MAX_ADJ = 10485760, MAX_BANDEJA = 10, MAX_GRAB = 300, MIN_GRAB = 1, MAX_CACHE = 40 * 1048576, MAX_LADO = 1600, LADO_MINI = 200, MAX_CAP = 500, VELS = [1, 1.5, 2];
+  var TIPO_ARCH = { pdf: ['PDF', 'pdf'], doc: ['Word', 'doc'], docx: ['Word', 'doc'], odt: ['Texto', 'doc'], xls: ['Excel', 'xls'], xlsx: ['Excel', 'xls'], ods: ['Hoja de cálculo', 'xls'], csv: ['CSV', 'xls'],
+    ppt: ['PowerPoint', 'ppt'], pptx: ['PowerPoint', 'ppt'], zip: ['ZIP', 'zip'], txt: ['Texto', 'txt'] };
+  IC.clip = '<path d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>';
+  IC.mic = '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/>';
+  IC.play = '<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>';
+  IC.pausa = '<rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/>';
+  IC.descarga = '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>';
+  IC.der = '<path d="M9 18l6-6-6-6"/>';
+  IC.zoom = '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>';
+  IC.imagen = '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>';
+
+  function tamHum(b) { b = +b || 0; return b < 1024 ? b + ' B' : b < 1048576 ? Math.round(b / 1024) + ' KB' : (b / 1048576).toFixed(b < 10485760 ? 1 : 0).replace('.', ',') + ' MB'; }
+  function mmss(s) { s = Math.max(0, Math.round(+s || 0)); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+  function extDe(n) { var m = /\.([A-Za-z0-9]{1,8})$/.exec(String(n || '')); return m ? m[1].toLowerCase() : ''; }
+  function stampArch() { var d = new Date(), p = function (n) { return ('0' + n).slice(-2); }; return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()); }
+  /* Tipo del archivo: se fía del nombre cuando el sistema no lo sabe (o lo confunde, como Windows con los CSV) */
+  function mimeDe(f) {
+    var t = String(f.type || '').toLowerCase().split(';')[0].trim(), e = extDe(f.name), x = EXT_MIME[e] || '';
+    if (t === 'image/jpg' || t === 'image/pjpeg') t = 'image/jpeg';
+    if (t === 'audio/mp3') t = 'audio/mpeg';
+    if (!t || t === 'application/octet-stream' || e === 'csv') t = x || t;
+    return ADJ_MIMES.indexOf(t) >= 0 ? t : '';
+  }
+  function tipoDeMime(m) { return /^image\//.test(m) ? 'IMAGEN' : /^audio\//.test(m) ? 'AUDIO' : 'ARCHIVO'; }
+  function defectoCuerpo(tipo, nombre) { return tipo === 'IMAGEN' ? 'Foto' : tipo === 'AUDIO' ? 'Nota de voz' : nombre; }
+  function miniOk(s) { return typeof s === 'string' && s.length <= 9000 && /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+\/=]+$/.test(s); }
+  function urlServicioOk(u) { return typeof u === 'string' && (/^https:\/\/[^\s]+$/.test(u) || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/[^\s]*$/.test(u)); }
+
+  /* ----- Servicio: ¿está activado? (la dirección la pega el administrador en Ofertas → Ajustes) ----- */
+  async function cargaCfgAdj(forzar) {
+    if (C.adjP && !forzar) return C.adjP;
+    var C0 = C;
+    C.adjP = (async function () {
+      var r = await llama('chat_adjuntos_cfg', {}, 8000);
+      if (C !== C0) return null;
+      if (r.error || !r.data) { C.adj = { activo: false, falta: !!(r.error && /PGRST202|PGRST205|42883|does not exist/.test(String(r.error.code || '') + ' ' + String(r.error.message || ''))), red: !!(r.error && esRed(r.error)) }; return C.adj; }
+      var d = r.data;
+      C.adj = { activo: !!d.activo && urlServicioOk(d.url), url: d.url, max: Math.min(+d.max_bytes || MAX_ADJ, MAX_ADJ), porDia: +d.por_dia || 100 };
+      return C.adj;
+    })();
+    return C.adjP;
+  }
+  async function asegCfg() {
+    var a = await cargaCfgAdj(!C.adj || !C.adj.activo);
+    if (a && a.activo) return true;
+    aviso(a && a.falta ? 'Falta ejecutar 58_chat_social.sql en Supabase' : a && a.red ? 'No se pudo comprobar el servicio de archivos. Revisa tu conexión' : 'Los archivos todavía no están activados. El administrador debe pegar la dirección del servicio en Ofertas → Ajustes (es la misma de las ofertas)', true);
+    return false;
+  }
+  /* Llamada al servicio de Apps Script con la sesión de la persona. Se usa XMLHttpRequest para poder enseñar el avance de la subida. */
+  function llamaArchivo(accion, datos, o) {
+    o = o || {};
+    return new Promise(async function (res) {
+      var cfg = C.adj;
+      if (!cfg || !cfg.url) { res({ ok: false, codigo: 'CONFIG', error: 'Los archivos todavía no están activados.' }); return; }
+      var ses; try { ses = await sb.auth.getSession(); } catch (e) { ses = null; }
+      var jwt = ses && ses.data && ses.data.session && ses.data.session.access_token;
+      if (!jwt) { res({ ok: false, codigo: 'SESION', error: 'Tu sesión venció. Entra de nuevo al CRM.' }); return; }
+      var x = new XMLHttpRequest(), cuerpo;
+      try { cuerpo = JSON.stringify(Object.assign({ accion: accion, jwt: jwt }, datos || {})); } catch (e) { res({ ok: false, codigo: 'DATOS', error: 'No se pudo preparar el archivo.' }); return; }
+      x.open('POST', cfg.url, true); x.setRequestHeader('Content-Type', 'text/plain;charset=utf-8'); x.timeout = o.ms || 180000;
+      if (o.progreso && x.upload) x.upload.onprogress = function (ev) { if (ev.lengthComputable && ev.total) o.progreso(ev.loaded / ev.total); };
+      x.onload = function () {
+        var j = null; try { j = JSON.parse(x.responseText); } catch (e) { }
+        if (x.status >= 500 || x.status === 429) { res({ ok: false, codigo: 'RED', red: true, error: 'El servicio de archivos no está disponible ahora mismo.' }); return; }
+        if (!j || typeof j !== 'object') { res({ ok: false, codigo: 'SERVICIO', error: 'El servicio de archivos no respondió como se esperaba. Avisa al administrador: la implementación debe tener acceso «Cualquier persona» y estar publicada como «Nueva versión».' }); return; }
+        res(j);
+      };
+      x.onerror = function () { res({ ok: false, codigo: 'RED', red: true, error: 'Sin conexión con el servicio de archivos.' }); };
+      x.ontimeout = function () { res({ ok: false, codigo: 'RED', red: true, error: 'El servicio tardó demasiado.' }); };
+      x.onabort = function () { res({ ok: false, codigo: 'RED', red: false, error: 'Cancelado.' }); };
+      if (o.id) { C.xhr = C.xhr || {}; C.xhr[o.id] = x; }
+      x.send(cuerpo);
+    });
+  }
+
+  /* ----- Archivos descargados que se guardan un rato en memoria (para no volver a pedirlos al Drive) ----- */
+  function cacheGet(id) { var c = C.bl && C.bl[id]; if (c) c.t = Date.now(); return c || null; }
+  function cachePon(id, blob) {
+    C.bl = C.bl || {};
+    if (C.bl[id]) { try { URL.revokeObjectURL(C.bl[id].url); } catch (e) { } }
+    C.bl[id] = { blob: blob, url: URL.createObjectURL(blob), t: Date.now(), n: blob.size };
+    var tot = 0, ids = Object.keys(C.bl); ids.forEach(function (k) { tot += C.bl[k].n; });
+    if (tot > MAX_CACHE) {
+      var usados = {}; if (C.aud) usados[C.aud.id] = 1; if (C.lb) usados[C.lb.cur] = 1;
+      ids.filter(function (k) { return k !== id; }).sort(function (a, b) { return C.bl[a].t - C.bl[b].t; }).forEach(function (k) {
+        if (tot <= MAX_CACHE || usados[k]) return;
+        tot -= C.bl[k].n; try { URL.revokeObjectURL(C.bl[k].url); } catch (e) { } delete C.bl[k];
+      });
+    }
+    return C.bl[id];
+  }
+  function b64ABlob(b64, mime) {
+    var bin = atob(b64), n = bin.length, a = new Uint8Array(n);
+    for (var i = 0; i < n; i++) a[i] = bin.charCodeAt(i);
+    return new Blob([a], { type: mime });
+  }
+  function aBase64(blob) {
+    return new Promise(function (res, rej) {
+      var fr = new FileReader();
+      fr.onload = function () { var s = String(fr.result || ''), i = s.indexOf(','); res(i >= 0 ? s.slice(i + 1) : ''); };
+      fr.onerror = function () { rej(fr.error || new Error('lectura')); };
+      fr.readAsDataURL(blob);
+    });
+  }
+  async function bajarArchivo(a) {
+    if (!a || !a.id) return { ok: false, error: 'Archivo no válido.' };
+    var c = cacheGet(a.id); if (c) return { ok: true, url: c.url, blob: c.blob };
+    C.bajando = C.bajando || {};
+    if (C.bajando[a.id]) return C.bajando[a.id];
+    var C0 = C;
+    C.bajando[a.id] = (async function () {
+      var cfg = await cargaCfgAdj(!C.adj || !C.adj.activo);                      // quien solo recibe archivos también necesita saber la dirección del servicio
+      if (C !== C0) { delete C0.bajando[a.id]; return { ok: false, error: 'Cancelado.' }; }
+      if (!cfg || !cfg.activo) { delete C0.bajando[a.id]; return { ok: false, red: !!(cfg && cfg.red), error: cfg && cfg.falta ? 'Falta ejecutar 58_chat_social.sql en Supabase' : cfg && cfg.red ? 'No se pudo comprobar el servicio de archivos. Revisa tu conexión' : 'Los archivos todavía no están activados. Avisa al administrador (debe pegar la dirección del servicio en Ofertas → Ajustes).' }; }
+      var r = await llamaArchivo('chat_bajar', { id: a.id }, { ms: 180000 });
+      delete C0.bajando[a.id];
+      if (!r || !r.ok) return { ok: false, red: !!(r && r.red), error: (r && r.error) || 'No se pudo descargar el archivo.' };
+      var mime = ADJ_MIMES.indexOf(r.mime) >= 0 ? r.mime : (ADJ_MIMES.indexOf(a.mime) >= 0 ? a.mime : 'application/octet-stream'), blob;
+      try { blob = b64ABlob(r.b64 || '', mime); } catch (e) { return { ok: false, error: 'El archivo llegó dañado. Intenta de nuevo.' }; }
+      if (C !== C0) return { ok: false, error: 'Cancelado.' };
+      var cc = cachePon(a.id, blob); return { ok: true, url: cc.url, blob: blob };
+    })();
+    return C.bajando[a.id];
+  }
+
+  /* ----- Preparar fotos: se reducen (máx. 1600 px) y se saca una miniatura de menos de 9 000 caracteres ----- */
+  async function decodificaImg(f) {
+    if (window.createImageBitmap) { try { return await createImageBitmap(f, { imageOrientation: 'from-image' }); } catch (e) { } }
+    return await new Promise(function (res, rej) {
+      var u = URL.createObjectURL(f), im = new Image();
+      im.onload = function () { URL.revokeObjectURL(u); res(im); };
+      im.onerror = function () { URL.revokeObjectURL(u); rej(new Error('imagen')); };
+      im.src = u;
+    });
+  }
+  function dibuja(src, w, h) {
+    var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    var cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h); cx.imageSmoothingQuality = 'high'; cx.drawImage(src, 0, 0, w, h);
+    return cv;
+  }
+  function aBlobCv(cv, tipo, q) { return new Promise(function (res) { try { cv.toBlob(res, tipo, q); } catch (e) { res(null); } }); }
+  async function procesaImagen(f, mime) {
+    var im = await decodificaImg(f), W = im.width || im.naturalWidth, H = im.height || im.naturalHeight;
+    if (!W || !H) throw new Error('imagen vacía');
+    var esc2 = Math.min(1, MAX_LADO / Math.max(W, H)), blob = f, mimeF = mime, nombre = f.name || 'foto', w = W, h = H;
+    var rehacer = mime !== 'image/gif' && (esc2 < 1 || f.size > 1.5 * 1048576 || ['image/jpeg', 'image/png', 'image/webp'].indexOf(mime) < 0);
+    if (rehacer) {
+      w = Math.max(1, Math.round(W * esc2)); h = Math.max(1, Math.round(H * esc2));
+      var cv = dibuja(im, w, h), qs = [0.82, 0.7, 0.58, 0.45], b = null;
+      for (var i = 0; i < qs.length; i++) { b = await aBlobCv(cv, 'image/jpeg', qs[i]); if (b && b.size <= 1.5 * 1048576) break; }
+      if (b && b.size < f.size) { blob = b; mimeF = 'image/jpeg'; nombre = nombre.replace(/\.[A-Za-z0-9]+$/, '') + '.jpg'; }
+      else { w = W; h = H; }
+    }
+    var tw = Math.max(1, Math.round(W * Math.min(1, LADO_MINI / Math.max(W, H)))), th = Math.max(1, Math.round(H * Math.min(1, LADO_MINI / Math.max(W, H)))), thumb = '';
+    for (var v = 0; v < 4 && !thumb; v++) {
+      var cm = dibuja(im, tw, th);
+      for (var qq = 0.62; qq >= 0.3; qq -= 0.12) { var du = cm.toDataURL('image/jpeg', qq); if (du.length <= 8800) { thumb = du; break; } }
+      tw = Math.max(1, Math.round(tw * 0.8)); th = Math.max(1, Math.round(th * 0.8));
+    }
+    if (im.close) { try { im.close(); } catch (e) { } }
+    return { file: blob, mime: mimeF, nombre: nombre, bytes: blob.size, tipo: 'IMAGEN', w: w, h: h, thumb: miniOk(thumb) ? thumb : '' };
+  }
+  /* Duración y forma de onda (48 barras) de un audio. Si el navegador no sabe decodificarlo, se envía sin forma (se dibuja plana). */
+  function barras(vals, n) {
+    var out = [], mx = 0, i, j;
+    for (i = 0; i < n; i++) {
+      var a = Math.floor(i * vals.length / n), b = Math.max(a + 1, Math.floor((i + 1) * vals.length / n)), s = 0, c = 0;
+      for (j = a; j < b && j < vals.length; j++) { s = Math.max(s, vals[j]); c++; }
+      out.push(c ? s : 0); mx = Math.max(mx, out[i]);
+    }
+    return out.map(function (v) { return mx > 0.02 ? Math.round(Math.max(8, Math.min(100, v / mx * 100))) : 8; });
+  }
+  async function analizaAudio(blob) {
+    var AC = window.OfflineAudioContext || window.webkitOfflineAudioContext; if (!AC || blob.size > 6 * 1048576) return null;
+    try {
+      var ab = await blob.arrayBuffer(), ctx = new AC(1, 1, 44100), buf = await ctx.decodeAudioData(ab), d = buf.getChannelData(0), paso = Math.max(1, Math.floor(d.length / 4000)), v = [];
+      for (var i = 0; i < d.length; i += paso) v.push(Math.abs(d[i]));
+      return { dur: Math.round(buf.duration * 10) / 10, peaks: barras(v, 48) };
+    } catch (e) { return null; }
+  }
+  async function armaItem(f, mime) {
+    var tipo = tipoDeMime(mime), it;
+    if (tipo === 'IMAGEN') it = await procesaImagen(f, mime);
+    else {
+      it = { file: f, mime: mime, nombre: f.name || 'archivo', bytes: f.size, tipo: tipo };
+      if (tipo === 'AUDIO') { var an = await analizaAudio(f); if (an) { it.dur = an.dur; it.peaks = an.peaks; } }
+    }
+    if (!it.nombre || /^(image|imagen|blob)\.(png|jpe?g|gif|webp)$/i.test(it.nombre)) it.nombre = 'captura-' + stampArch() + '.' + (extDe(it.nombre) || (it.mime === 'image/jpeg' ? 'jpg' : it.mime.split('/')[1] || 'png'));
+    it.id = 'a' + (++C.adjN);
+    if (tipo === 'IMAGEN') it.url = URL.createObjectURL(it.file);
+    return it;
+  }
+
+  /* ----- Bandeja: lo que vas a enviar, antes de enviarlo ----- */
+  function bandejaDe(k) { return (C.band && C.band[k]) || []; }
+  function soltarItem(it) { if (it && it.url) { try { URL.revokeObjectURL(it.url); } catch (e) { } it.url = null; } }
+  function infoTipoArch(nombre, mime) {
+    var e = extDe(nombre), t = TIPO_ARCH[e];
+    if (!t) t = /^audio\//.test(mime) ? ['Audio', 'aud'] : /^image\//.test(mime) ? ['Imagen', 'img'] : ['Archivo', 'gen'];
+    return { ext: (e || 'archivo').toUpperCase().slice(0, 4), txt: t[0], cls: t[1] };
+  }
+  function pintaBandeja() {
+    var B = $('mz-band'); if (!B) return;
+    var l = bandejaDe(C.peer);
+    if (!l.length) { B.hidden = true; B.innerHTML = ''; return; }
+    B.hidden = false;
+    B.innerHTML = '<div class="mz-bh" role="group" aria-label="Archivos listos para enviar">' + l.map(function (it) {
+      var q = '<button type="button" class="mz-bx" data-a="quitar-adj" data-id="' + esc(it.id) + '" aria-label="Quitar ' + esc(it.nombre) + '" title="Quitar">' + ic(IC.x, 14) + '</button>';
+      if (it.tipo === 'IMAGEN' && it.url) return '<div class="mz-bi"><img src="' + esc(it.url) + '" alt="Vista previa: ' + esc(it.nombre) + '">' + q + '</div>';
+      var inf = infoTipoArch(it.nombre, it.mime);
+      return '<div class="mz-bf"><span class="mz-fi" data-t="' + inf.cls + '" aria-hidden="true">' + (it.tipo === 'AUDIO' ? ic(IC.mic, 16) : esc(inf.ext)) + '</span><span class="mz-bn"><b>' + esc(it.nombre) + '</b><small>' + esc(tamHum(it.bytes)) + (it.dur ? ' · ' + mmss(it.dur) : '') + '</small></span>' + q + '</div>';
+    }).join('') + '</div><div class="mz-bth">' + l.length + (l.length === 1 ? ' archivo listo' : ' archivos listos') + '. Escribe un texto si quieres y pulsa Enviar.</div>';
+  }
+  async function preparaArchivos(lista, peer) {
+    peer = peer || C.peer; if (!peer) return;
+    if (!puedeEscribir(peer)) { aviso(ERR_CHAT.solo_lectura, true); return; }
+    var files = Array.prototype.slice.call(lista || []); if (!files.length) return;
+    if (!(await asegCfg())) return;
+    if (C.peer !== peer) return;
+    var max = (C.adj && C.adj.max) || MAX_ADJ;
+    C.band = C.band || {}; var B = C.band[peer] = C.band[peer] || [], listos = 0;
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i], nom = f.name || 'archivo';
+      if (B.length >= MAX_BANDEJA) { aviso('Puedes preparar hasta ' + MAX_BANDEJA + ' archivos a la vez', true); break; }
+      var mime = mimeDe(f);
+      if (!mime) { aviso('«' + nom + '»: ese tipo de archivo no se puede enviar. Admite fotos, audios, PDF, Word, Excel, PowerPoint, texto, CSV y ZIP', true); continue; }
+      if (!f.size) { aviso('«' + nom + '» está vacío', true); continue; }
+      if (f.size > max * 8 && tipoDeMime(mime) === 'IMAGEN') { aviso('«' + nom + '» es demasiado grande', true); continue; }
+      if (f.size > max && tipoDeMime(mime) !== 'IMAGEN') { aviso('«' + nom + '» pesa más de ' + Math.round(max / 1048576) + ' MB', true); continue; }
+      var it; try { it = await armaItem(f, mime); } catch (e) { aviso('«' + nom + '»: no se pudo leer ese archivo', true); continue; }
+      if (C.peer !== peer || C.cerrando) { soltarItem(it); return; }
+      if (it.bytes > max) { soltarItem(it); aviso('«' + nom + '» pesa más de ' + Math.round(max / 1048576) + ' MB', true); continue; }
+      B.push(it); listos++;
+    }
+    pintaBandeja(); actualizaEnvio();
+    if (listos) { var inp = $('mz-in'); if (inp && window.innerWidth > 700) inp.focus(); anuncia(listos + (listos === 1 ? ' archivo listo para enviar' : ' archivos listos para enviar')); }
+  }
+  function quitaAdj(id) {
+    var B = bandejaDe(C.peer), i; for (i = 0; i < B.length; i++) if (B[i].id === id) break;
+    if (i >= B.length) return; soltarItem(B[i]); B.splice(i, 1); pintaBandeja(); actualizaEnvio();
+    var inp = $('mz-in'); if (inp) inp.focus();
+  }
+  function vaciaBandeja(k) { var B = bandejaDe(k); B.forEach(soltarItem); if (C.band) C.band[k] = []; }
+
+  /* ----- Enviar: el mensaje aparece al instante («enviando» con su avance) y se sube en segundo plano, de uno en uno ----- */
+  function adjSrv(a) {
+    var o = { id: a.id, nombre: a.nombre, mime: a.mime, bytes: a.bytes };
+    if (a.dur) o.dur = a.dur; if (Array.isArray(a.peaks) && a.peaks.length) o.peaks = a.peaks;
+    if (miniOk(a.thumb)) o.thumb = a.thumb; if (a.w) o.w = a.w; if (a.h) o.h = a.h;
+    return o;
+  }
+  function mandaAdj(peer, it, texto) {
+    var a = { nombre: it.nombre, mime: it.mime, bytes: it.bytes };
+    if (it.tipo === 'AUDIO') { if (it.dur) a.dur = it.dur; if (it.peaks) a.peaks = it.peaks; }
+    if (it.tipo === 'IMAGEN') { if (it.thumb) a.thumb = it.thumb; if (it.w) a.w = it.w; if (it.h) a.h = it.h; }
+    return mandaTmp(peer, it.tipo, texto || defectoCuerpo(it.tipo, it.nombre), { adjunto: a, _arch: it, _pct: 0 });
+  }
+  function encolaSubida(peer, tmp) {
+    C.subQ = (C.subQ || Promise.resolve()).then(function () { if (tmp._descartado || C.cerrando) return; return enviaFila(peer, tmp); }).catch(function (e) { console.error(e); });
+    return C.subQ;
+  }
+  function ringPct(tmp) { return Math.max(0, Math.min(100, Math.round((tmp._pct || 0) * 100))); }
+  function actualizaProgreso(tmp) {
+    var el = $('mz-m-' + tmp.id); if (!el) return;
+    var p = ringPct(tmp), r = el.querySelector('.mz-up'), b = el.querySelector('.mz-pb');
+    if (r) { r.style.setProperty('--p', p); var t = r.querySelector('b'); if (t) t.textContent = p + '%'; r.setAttribute('aria-valuenow', p); }
+    if (b) { b.style.setProperty('--p', p); b.setAttribute('aria-valuenow', p); var s = b.querySelector('span'); if (s) s.textContent = tmp._subido ? 'Enviando…' : 'Subiendo ' + p + '%'; }
+  }
+  async function subeArchivo(key, tmp) {
+    var it = tmp._arch, b64;
+    try { b64 = await aBase64(it.file); } catch (e) { return { ok: false, error: 'No se pudo leer el archivo. Vuelve a elegirlo.' }; }
+    var datos = { nombre: it.nombre, mime: it.mime, bytes: it.bytes, b64: b64, subida: tmp.client_id };
+    if (compartida(key)) datos.conv = idConv(key) || null; else datos.con = key;
+    tmp._pct = 0; actualizaProgreso(tmp);
+    var r = await llamaArchivo('chat_subir', datos, { ms: 240000, id: tmp.client_id, progreso: function (f) { tmp._pct = f; actualizaProgreso(tmp); } });
+    if (C.xhr) delete C.xhr[tmp.client_id];
+    if (!r || !r.ok || !r.id) return { ok: false, red: !!(r && r.red), error: (r && r.error) || 'No se pudo subir el archivo.' };
+    tmp._pct = 1; tmp._subido = true;
+    tmp.adjunto.id = r.id; if (r.nombre) tmp.adjunto.nombre = r.nombre; if (r.mime) tmp.adjunto.mime = r.mime; if (r.bytes) tmp.adjunto.bytes = r.bytes;
+    cachePon(r.id, it.file);                                   // quien lo envía lo ve y lo oye al instante, sin pedirlo al Drive
+    soltarItem(it); actualizaProgreso(tmp);
+    return { ok: true };
+  }
+
+  /* ----- Cómo se ven los archivos dentro de la conversación ----- */
+  function captionDe(m) {
+    var c = String(m.cuerpo || ''), a = m.adjunto || {};
+    if (!c || c === defectoCuerpo(m.tipo, a.nombre || '')) return '';
+    return c;
+  }
+  function ringHtml(m) { var p = ringPct(m); return '<span class="mz-up" role="progressbar" aria-label="Subiendo la foto" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + p + '" style="--p:' + p + '"><b>' + p + '%</b></span>'; }
+  function pbHtml(m) { var p = ringPct(m); return '<div class="mz-pb" role="progressbar" aria-label="Subiendo el archivo" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + p + '" style="--p:' + p + '"><i></i><span>' + (m._subido ? 'Enviando…' : 'Subiendo ' + p + '%') + '</span></div>'; }
+  function onda(a) {
+    var pk = Array.isArray(a.peaks) && a.peaks.length ? a.peaks : null, n = pk ? pk.length : 36, h = '';
+    for (var i = 0; i < n; i++) h += '<i style="height:' + (pk ? Math.max(10, Math.min(100, +pk[i] || 10)) : 34 + ((i * 37) % 5) * 6) + '%"></i>';
+    return h;
+  }
+  function htmlAdjunto(m, q) {
+    var a = m.adjunto || {}, id = esc(m.id), nom = a.nombre || m.cuerpo || 'Archivo', subiendo = m._est === 'enviando' && !!m._arch && !m._subido, pre = m._est === 'enviando' && !!m._arch;
+    var cap = captionDe(m), pie = cap ? '<div class="mz-t mz-cap">' + textoHtml(cap, q) + '</div>' : '';
+    if (m.tipo === 'IMAGEN') {
+      var c = a.id ? cacheGet(a.id) : null, src = c ? c.url : (miniOk(a.thumb) ? a.thumb : '');
+      var asp = a.w && a.h && a.w < 20000 && a.h < 20000 ? ' style="aspect-ratio:' + (+a.w) + '/' + (+a.h) + '"' : '';
+      return '<div class="mz-imgw"><button type="button" class="mz-img" data-a="verimg" data-id="' + id + '"' + asp + (pre || !a.id ? ' disabled' : '') + ' aria-label="Ver foto: ' + esc(nom) + '">' +
+        (src ? '<img src="' + esc(src) + '" alt="Foto: ' + esc(nom) + '" draggable="false" decoding="async">' : '<span class="mz-sinmini" aria-hidden="true">' + ic(IC.imagen, 28) + '</span>') + (pre ? ringHtml(m) : '') + '</button></div>' + pie;
+    }
+    if (m.tipo === 'AUDIO') {
+      var voz = Array.isArray(a.peaks) && a.peaks.length, dur = +a.dur || 0;
+      return '<div class="mz-au' + (voz ? '' : ' plano') + '" data-au="' + id + '" role="group" aria-label="' + (voz ? 'Nota de voz' : 'Audio') + (dur ? ' de ' + mmss(dur) : '') + '">' +
+        '<button type="button" class="mz-aup" data-a="audio" data-id="' + id + '" aria-label="Reproducir"' + (pre || !a.id ? ' disabled' : '') + '>' + ic(IC.play, 18) + '</button>' +
+        '<div class="mz-aw" data-a="aseek" data-id="' + id + '" role="slider" tabindex="0" aria-label="Posición de la reproducción" aria-valuemin="0" aria-valuemax="' + Math.round(dur) + '" aria-valuenow="0" aria-valuetext="0:00 de ' + mmss(dur) + '">' + onda(a) + '</div>' +
+        '<span class="mz-atm">' + mmss(dur) + '</span><button type="button" class="mz-avl" data-a="avel" aria-label="Velocidad de reproducción: ' + (C.vel || 1) + ' por">' + (C.vel || 1) + '×</button></div>' +
+        (voz ? '' : '<div class="mz-afn">' + resaltar(nom, q) + '</div>') + (subiendo ? pbHtml(m) : pre ? pbHtml(m) : '') + pie;
+    }
+    var inf = infoTipoArch(nom, a.mime || '');
+    return '<div class="mz-file"><span class="mz-fi" data-t="' + inf.cls + '" aria-hidden="true">' + esc(inf.ext) + '</span><div class="mz-fn"><b>' + resaltar(nom, q) + '</b><small>' + esc(inf.txt) + ' · ' + esc(tamHum(a.bytes)) + '</small></div>' +
+      (pre || !a.id ? '' : '<button type="button" class="mz-fdl" data-a="descarga" data-id="' + id + '" aria-label="Descargar ' + esc(nom) + '" title="Descargar">' + ic(IC.descarga, 18) + '</button>') + '</div>' + (pre ? pbHtml(m) : '') + pie;
+  }
+  /* Busca un mensaje con archivo en la conversación abierta o en el panel «Archivos y fotos» */
+  function adjDe(id) {
+    var m = C.peer ? msgPorId(C.peer, id) : null; if (m) return m;
+    var A = C.peer && C.arch && C.arch[C.peer]; if (A && A.items) for (var i = 0; i < A.items.length; i++) if (A.items[i].id === id) return A.items[i];
+    return null;
+  }
+
+  /* ----- Descargar ----- */
+  async function descargar(id) {
+    var m = adjDe(id), a = m && m.adjunto; if (!a || !a.id) return;
+    var btns = document.querySelectorAll('#mz [data-a="descarga"][data-id="' + id + '"]'); btns.forEach(function (b) { b.setAttribute('aria-busy', 'true'); b.disabled = true; });
+    var r = await bajarArchivo(a);
+    btns.forEach(function (b) { b.removeAttribute('aria-busy'); b.disabled = false; });
+    if (!r.ok) { aviso(r.error, true); return; }
+    var el = document.createElement('a'); el.href = r.url; el.download = a.nombre || 'archivo'; el.rel = 'noopener'; el.style.display = 'none';
+    document.body.appendChild(el); el.click(); setTimeout(function () { el.remove(); }, 0);
+  }
+
+  /* ----- Visor de fotos ----- */
+  function fotosDe(k) {
+    var vistos = {}, out = [];
+    var suma = function (m) { if (m && m.tipo === 'IMAGEN' && !m.borrado_at && !m._est && m.adjunto && m.adjunto.id && !vistos[m.id]) { vistos[m.id] = 1; out.push(m); } };
+    (C.msgs[k] || []).forEach(suma); var A = C.arch && C.arch[k]; if (A && A.items) A.items.forEach(suma);
+    return out.sort(function (a, b) { return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0; });
+  }
+  function abreLB(id, opener) {
+    var l = fotosDe(C.peer), i = -1; l.forEach(function (m, j) { if (m.id === id) i = j; });
+    if (i < 0) return;
+    cierraPop(); if (C.emo) cierraEmo();
+    C.lb = { key: C.peer, ids: l.map(function (m) { return m.id; }), i: i, cur: l[i].adjunto.id, est: 'cargando', zoom: false, opener: opener || null, tok: 0 };
+    var w = $('mz'); var d = $('mz-lb'); if (d) d.remove();
+    d = document.createElement('div'); d.id = 'mz-lb'; d.className = 'mz-lb'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-modal', 'true'); d.setAttribute('aria-label', 'Visor de fotos');
+    w.appendChild(d); pintaLB(); cargaLB();
+  }
+  function pintaLB() {
+    var L = C.lb, d = $('mz-lb'); if (!L || !d) return;
+    var m = msgPorId(L.key, L.ids[L.i]) || (function () { var A = C.arch && C.arch[L.key]; return A && A.items ? A.items.filter(function (x) { return x.id === L.ids[L.i]; })[0] : null; })();
+    if (!m) { cierraLB(); return; }
+    var a = m.adjunto, c = cacheGet(a.id), mini = miniOk(a.thumb) ? a.thumb : '';
+    var foco = document.activeElement && d.contains(document.activeElement) ? document.activeElement.getAttribute('data-a') : '';
+    d.innerHTML = '<div class="mz-lbh"><div class="mz-lbt"><b>' + esc(a.nombre || 'Foto') + '</b><span>' + esc(nombreDe(m.de) + ' · ' + etiquetaDia(m.created_at) + ' ' + hhmm(m.created_at)) + '</span></div>' +
+      '<span class="mz-lbn" aria-live="polite">' + (L.i + 1) + ' de ' + L.ids.length + '</span>' +
+      '<button type="button" class="mz-ib" data-a="lb-zoom" aria-pressed="' + !!L.zoom + '" aria-label="' + (L.zoom ? 'Ajustar a la pantalla' : 'Ver a tamaño real') + '" title="' + (L.zoom ? 'Ajustar' : 'Tamaño real') + '"' + (L.est === 'ok' ? '' : ' disabled') + '>' + ic(IC.zoom) + '</button>' +
+      '<button type="button" class="mz-ib" data-a="lb-descarga" aria-label="Descargar foto" title="Descargar">' + ic(IC.descarga) + '</button>' +
+      '<button type="button" class="mz-ib" data-a="lb-cerrar" aria-label="Cerrar visor" title="Cerrar (Esc)">' + ic(IC.x) + '</button></div>' +
+      '<div class="mz-lbs' + (L.zoom ? ' zoom' : '') + '" id="mz-lbs">' +
+      (L.i > 0 ? '<button type="button" class="mz-lbp ant" data-a="lb-ant" aria-label="Foto anterior" title="Anterior (←)">' + ic(IC.atras, 26) + '</button>' : '') +
+      (L.est === 'ok' && c ? '<img src="' + esc(c.url) + '" alt="' + esc('Foto: ' + (a.nombre || '')) + '" data-a="lb-zoom" draggable="false">' :
+        (mini ? '<img class="mini" src="' + esc(mini) + '" alt="" aria-hidden="true">' : '') + (L.est === 'error' ? '<div class="mz-lbe" role="alert"><b>No se pudo abrir la foto</b><span>' + esc(L.err || '') + '</span><button type="button" class="mz-btn chico" data-a="lb-reint">' + ic(IC.otra, 16) + 'Reintentar</button></div>' : '<span class="mz-spin" role="status" aria-label="Cargando la foto"></span>')) +
+      (L.i < L.ids.length - 1 ? '<button type="button" class="mz-lbp sig" data-a="lb-sig" aria-label="Foto siguiente" title="Siguiente (→)">' + ic(IC.der, 26) + '</button>' : '') + '</div>';
+    var f = foco && d.querySelector('[data-a="' + foco + '"]:not([disabled])'); if (!f) f = d.querySelector('[data-a="lb-cerrar"]'); if (f) f.focus();
+  }
+  async function cargaLB() {
+    var L = C.lb; if (!L) return;
+    var tok = ++L.tok, m = msgPorId(L.key, L.ids[L.i]) || (C.arch && C.arch[L.key] && C.arch[L.key].items.filter(function (x) { return x.id === L.ids[L.i]; })[0]);
+    if (!m) return; var a = m.adjunto; L.cur = a.id; L.est = cacheGet(a.id) ? 'ok' : 'cargando'; L.err = ''; pintaLB();
+    if (L.est === 'ok') return;
+    var r = await bajarArchivo(a);
+    if (!C.lb || C.lb !== L || L.tok !== tok) return;
+    if (r.ok) L.est = 'ok'; else { L.est = 'error'; L.err = r.error; }
+    pintaLB();
+  }
+  function lbMueve(d) { var L = C.lb; if (!L) return; var j = L.i + d; if (j < 0 || j >= L.ids.length) return; L.i = j; L.zoom = false; cargaLB(); }
+  function cierraLB() {
+    var L = C.lb, d = $('mz-lb'); C.lb = null; if (d) d.remove();
+    if (L && L.opener) { var o = document.querySelector('#mz [data-a="' + L.opener.a + '"][data-id="' + L.opener.id + '"]') || $('mz-in'); if (o && o.focus) o.focus(); }
+  }
+  function teclaLB(e) {
+    if (!C.lb) return false;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cierraLB(); return true; }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); lbMueve(-1); return true; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); lbMueve(1); return true; }
+    if (e.key === 'Tab') {
+      var d = $('mz-lb'), fs = Array.prototype.slice.call(d.querySelectorAll('button:not([disabled])')).filter(function (x) { return x.offsetParent !== null; });
+      if (!fs.length) return true; var i = fs.indexOf(document.activeElement);
+      if (e.shiftKey && (i <= 0)) { e.preventDefault(); fs[fs.length - 1].focus(); }
+      else if (!e.shiftKey && (i === fs.length - 1 || i < 0)) { e.preventDefault(); fs[0].focus(); }
+      return true;
+    }
+    return false;
+  }
+
+  /* ----- Notas de voz: reproducir ----- */
+  function detieneAudio() {
+    var A = C.aud; C.aud = null;
+    if (A && A.el) { try { A.el.pause(); A.el.removeAttribute('src'); A.el.load(); } catch (e) { } }
+    pintaAudios();
+  }
+  function pintaAudios() {
+    var A = C.aud;
+    document.querySelectorAll('#mz [data-au]').forEach(function (el) {
+      var id = el.getAttribute('data-au'), act = A && A.id === id, m = adjDe(id), dur = (A && act && A.dur) || (m && m.adjunto && +m.adjunto.dur) || 0;
+      var pos = act ? A.pos : 0, p = dur ? Math.max(0, Math.min(1, pos / dur)) : 0, juega = act && A.est === 'play', carga = act && A.est === 'cargando';
+      var bt = el.querySelector('.mz-aup'), tm = el.querySelector('.mz-atm'), w = el.querySelector('.mz-aw'), vl = el.querySelector('.mz-avl');
+      if (bt) {
+        var nuevo = carga ? 'c' : juega ? 'p' : 'o'; if (bt.getAttribute('data-e') !== nuevo) { bt.setAttribute('data-e', nuevo); bt.innerHTML = carga ? '<span class="mz-spin chico" aria-hidden="true"></span>' : ic(juega ? IC.pausa : IC.play, 18); }
+        bt.setAttribute('aria-label', carga ? 'Cargando la nota de voz' : juega ? 'Pausar' : 'Reproducir'); bt.setAttribute('aria-pressed', String(!!juega)); bt.classList.toggle('carga', !!carga);
+      }
+      if (tm) tm.textContent = act && (juega || pos > 0.2) ? mmss(pos) + ' / ' + mmss(dur) : mmss(dur);
+      if (w) {
+        w.setAttribute('aria-valuenow', String(Math.round(pos))); w.setAttribute('aria-valuetext', mmss(pos) + ' de ' + mmss(dur));
+        var bars = w.children, corte = Math.floor(p * bars.length + 0.0001);
+        for (var i = 0; i < bars.length; i++) { var on = i < corte; if (bars[i].classList.contains('on') !== on) bars[i].classList.toggle('on', on); }
+      }
+      if (vl) { vl.textContent = (C.vel || 1) + '×'; vl.setAttribute('aria-label', 'Velocidad de reproducción: ' + (C.vel || 1) + ' por'); }
+      el.classList.toggle('sonando', !!juega);
+    });
+  }
+  function arreglaDuracion(el) {   // las notas grabadas por el navegador no dicen cuánto duran: hay que obligarlo a calcularlo para poder avanzar y retroceder
+    return new Promise(function (res) {
+      var fin = false, listo = function () { if (!fin) { fin = true; res(); } };
+      var mira = function () {
+        if (el.duration === Infinity || isNaN(el.duration)) { var h = function () { el.removeEventListener('timeupdate', h); try { el.currentTime = 0; } catch (e) { } listo(); }; el.addEventListener('timeupdate', h); try { el.currentTime = 1e101; } catch (e) { listo(); } }
+        else listo();
+      };
+      if (el.readyState >= 1) mira(); else el.addEventListener('loadedmetadata', mira, { once: true });
+      el.addEventListener('error', listo, { once: true }); setTimeout(listo, 2500);
+    });
+  }
+  async function reproduce(id, desde) {
+    var m = adjDe(id), a = m && m.adjunto; if (!a || !a.id) return;
+    if (C.aud && C.aud.id === id) {
+      var el0 = C.aud.el; if (!el0 || C.aud.est === 'cargando') return;
+      if (el0.paused) { try { await el0.play(); } catch (e) { } } else el0.pause();
+      return;
+    }
+    detieneAudio();
+    var A = C.aud = { id: id, el: null, est: 'cargando', pos: 0, dur: +a.dur || 0 }; pintaAudios();
+    var r = await bajarArchivo(a);
+    if (C.aud !== A) return;
+    if (!r.ok) { C.aud = null; pintaAudios(); aviso(r.error, true); return; }
+    var el = new Audio(); el.preload = 'auto'; el.src = r.url; A.el = el; el.playbackRate = C.vel || 1;
+    el.addEventListener('timeupdate', function () { if (C.aud !== A) return; A.pos = el.currentTime || 0; if (isFinite(el.duration) && el.duration > 0) A.dur = Math.max(A.dur || 0, 0) || el.duration; pintaAudios(); });
+    el.addEventListener('play', function () { if (C.aud === A) { A.est = 'play'; pintaAudios(); } });
+    el.addEventListener('pause', function () { if (C.aud === A) { A.est = 'pausa'; pintaAudios(); } });
+    el.addEventListener('ended', function () { if (C.aud === A) { C.aud = null; pintaAudios(); } });
+    el.addEventListener('error', function () { if (C.aud === A) { C.aud = null; pintaAudios(); aviso('No se pudo reproducir ese audio', true); } });
+    await arreglaDuracion(el);
+    if (C.aud !== A) return;
+    if (desde > 0 && A.dur) { try { el.currentTime = desde * A.dur; A.pos = el.currentTime; } catch (e) { } }
+    try { await el.play(); A.est = 'play'; } catch (e) { A.est = 'pausa'; aviso('No se pudo reproducir ese audio', true); }
+    pintaAudios();
+  }
+  function saltaAudio(id, frac, seg) {
+    var A = C.aud;
+    if (!A || A.id !== id || !A.el || A.est === 'cargando') { if (frac != null) reproduce(id, frac); return; }
+    var dur = A.dur || (isFinite(A.el.duration) ? A.el.duration : 0); if (!dur) return;
+    var t = frac != null ? frac * dur : (A.el.currentTime || 0) + seg;
+    try { A.el.currentTime = Math.max(0, Math.min(dur, t)); A.pos = A.el.currentTime; } catch (e) { }
+    pintaAudios();
+  }
+  function cambiaVel() {
+    var i = VELS.indexOf(C.vel || 1); C.vel = VELS[(i + 1) % VELS.length]; lsSet('crm_chat_vel_' + me.id, String(C.vel));
+    if (C.aud && C.aud.el) C.aud.el.playbackRate = C.vel; pintaAudios(); anuncia('Velocidad ' + C.vel + ' por');
+  }
+
+  /* ----- Notas de voz: grabar ----- */
+  function grabSoportada() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder); }
+  function mimeGrab() {
+    var c = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4'];
+    for (var i = 0; i < c.length; i++) { try { if (MediaRecorder.isTypeSupported(c[i])) return c[i]; } catch (e) { } }
+    return '';
+  }
+  function pintaGrab() {
+    var g = $('mz-grab'), cj = $('mz-caja'); if (!g || !cj) return;
+    var R = C.rec2 && C.rec2.peer === C.peer ? C.rec2 : null;
+    g.hidden = !R; cj.hidden = !!R;
+    if (R) { var f = g.querySelector('[data-a="grab-envia"]'); if (f && document.activeElement !== f) f.focus(); }
+  }
+  function tickGrab(R) {
+    if (C.rec2 !== R) return;
+    var ms = performance.now() - R.t0, lvl = 0;
+    if (R.an) { R.an.getByteTimeDomainData(R.buf); var s = 0; for (var i = 0; i < R.buf.length; i++) { var v = (R.buf[i] - 128) / 128; s += v * v; } lvl = Math.min(1, Math.sqrt(Math.sqrt(s / R.buf.length)) * 2.2); }   // raíz de la raíz: la voz normal y la baja también se ven
+    R.niveles.push(lvl);
+    var t = $('mz-gt'); if (t) t.textContent = mmss(ms / 1000);
+    var w = $('mz-gw'); if (w) { var bs = w.children, n = bs.length, ult = R.niveles.slice(-n); for (var k = 0; k < n; k++) { var x = ult[k - (n - ult.length)]; bs[k].style.height = (x == null ? 8 : Math.max(8, Math.round(x * 100))) + '%'; } }
+    if (ms >= MAX_GRAB * 1000) { aviso('Llegaste al máximo de ' + (MAX_GRAB / 60) + ' minutos: se envía la nota'); terminaGrab(true); }
+  }
+  async function iniciaGrab() {
+    var peer = C.peer; if (!peer || C.rec2 || C.grabPidiendo) return;
+    if (!puedeEscribir(peer)) { aviso(ERR_CHAT.solo_lectura, true); return; }
+    if (!grabSoportada()) { aviso('Este navegador no permite grabar audio. Usa una versión reciente de Chrome, Edge, Firefox o Safari', true); return; }
+    C.grabPidiendo = true;
+    try {
+      if (!(await asegCfg())) return;
+      var stream;
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+      catch (e) { aviso(/NotAllowed|Permission|Security/i.test(String(e && e.name)) ? 'El navegador no te dejó usar el micrófono. Pulsa el candado de la barra de direcciones y permite el micrófono' : /NotFound|Devices/i.test(String(e && e.name)) ? 'No se encontró ningún micrófono' : 'No se pudo usar el micrófono', true); return; }
+      if (C.peer !== peer || C.rec2 || C.cerrando) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+      var mt = mimeGrab(), mr;
+      try { mr = mt ? new MediaRecorder(stream, { mimeType: mt }) : new MediaRecorder(stream); } catch (e) { stream.getTracks().forEach(function (t) { t.stop(); }); aviso('No se pudo iniciar la grabación', true); return; }
+      var R = C.rec2 = { peer: peer, stream: stream, mr: mr, chunks: [], t0: performance.now(), niveles: [], mime: mt || mr.mimeType || '', ctx: null, an: null, buf: null, tick: null, enviar: false, cancelada: false };
+      mr.ondataavailable = function (ev) { if (ev.data && ev.data.size) R.chunks.push(ev.data); };
+      mr.onstop = function () { finGrab(R); };
+      try { mr.start(250); } catch (e) { stream.getTracks().forEach(function (t) { t.stop(); }); C.rec2 = null; aviso('No se pudo iniciar la grabación', true); return; }
+      try { var AC = window.AudioContext || window.webkitAudioContext; R.ctx = new AC(); var src = R.ctx.createMediaStreamSource(stream); R.an = R.ctx.createAnalyser(); R.an.fftSize = 512; src.connect(R.an); R.buf = new Uint8Array(R.an.fftSize); } catch (e) { R.an = null; }
+      R.tick = setInterval(function () { tickGrab(R); }, 100);
+      pintaGrab(); anuncia('Grabando nota de voz. Pulsa Enviar para mandarla o Esc para cancelar');
+    } finally { C.grabPidiendo = false; }
+  }
+  function terminaGrab(enviar) {
+    var R = C.rec2; if (!R) return;
+    R.enviar = !!enviar; R.cancelada = !enviar;
+    try { if (R.mr.state !== 'inactive') R.mr.stop(); else finGrab(R); } catch (e) { finGrab(R); }
+  }
+  function cancelaGrab() { if (C.rec2) terminaGrab(false); }
+  function finGrab(R) {
+    if (R.fin) return; R.fin = true;
+    clearInterval(R.tick); try { R.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) { } try { if (R.ctx) R.ctx.close(); } catch (e) { }
+    if (C.rec2 === R) C.rec2 = null; pintaGrab();
+    var inp = $('mz-in'); if (inp && window.innerWidth > 700) inp.focus();
+    if (R.cancelada || !R.enviar || C.cerrando) return;
+    var dur = (performance.now() - R.t0) / 1000;
+    if (dur < MIN_GRAB || !R.chunks.length) { aviso('La nota es demasiado corta: graba al menos un segundo', true); return; }
+    var base = String((R.mime || (R.chunks[0] && R.chunks[0].type) || 'audio/webm')).split(';')[0].toLowerCase();
+    if (ADJ_MIMES.indexOf(base) < 0 || !/^audio\//.test(base)) base = 'audio/webm';
+    var blob = new Blob(R.chunks, { type: base }), max = (C.adj && C.adj.max) || MAX_ADJ;
+    if (blob.size > max) { aviso('La nota pasa de ' + Math.round(max / 1048576) + ' MB', true); return; }
+    var ext = base === 'audio/mp4' ? 'm4a' : base === 'audio/ogg' ? 'ogg' : 'webm';
+    mandaAdj(R.peer, { file: blob, mime: base, nombre: 'nota-de-voz-' + stampArch() + '.' + ext, bytes: blob.size, tipo: 'AUDIO', dur: Math.round(dur * 10) / 10, peaks: barras(R.niveles.length ? R.niveles : [0.3], 48) }, '');
+  }
+
+  /* ----- Panel «Archivos y fotos» de la información de la conversación ----- */
+  function archValido(x) { return x && typeof x.id === 'string' && x.adjunto && typeof x.adjunto === 'object' && typeof x.adjunto.id === 'string' && CONTENIDO[x.tipo] && x.tipo !== 'STICKER'; }
+  async function cargaArchivos(k) {
+    C.arch = C.arch || {};
+    var cid = idConv(k), A = C.arch[k] = C.arch[k] || { items: [] };
+    if (!cid) { A.cargando = false; A.items = []; pintaArch(); return; }
+    if (A.cargando) { A.otra = true; return; }                                   // llegó algo nuevo mientras se cargaba: se vuelve a pedir al terminar
+    A.cargando = true; A.otra = false; A.err = null; pintaArch();
+    var C0 = C, r = await llama('chat_archivos', { p_conversacion: cid, p_limite: 40 }, 10000);
+    if (C !== C0) return;
+    A.cargando = false;
+    if (r.error) A.err = /PGRST202|42883|does not exist/.test(String(r.error.code || '') + ' ' + String(r.error.message || '')) ? 'Falta ejecutar 58_chat_social.sql en Supabase' : 'No se pudieron cargar los archivos';
+    else { A.items = (Array.isArray(r.data) ? r.data : []).filter(archValido); A.viejo = false; A.t = Date.now(); }
+    pintaArch();
+    if (A.otra) { A.otra = false; if (C.peer === k && C.info) cargaArchivos(k); else A.viejo = true; }
+  }
+  function refrescaArch(k) { var A = C.arch && C.arch[k]; if (A) A.viejo = true; if (C.info && C.peer === k) cargaArchivos(k); }
+  function htmlArch(k) {
+    var A = C.arch && C.arch[k];
+    if (!A || (A.cargando && !A.items.length)) return '<div class="mz-ask" role="status" aria-label="Cargando archivos"><i></i><i></i><i></i></div>';
+    if (A.err) return '<p class="mz-ae">' + esc(A.err) + '</p><button type="button" class="mz-acc" data-a="arch-reint">' + ic(IC.otra, 18) + 'Reintentar</button>';
+    if (!A.items.length) return '<p class="vacio">Aún no hay archivos ni fotos en esta conversación.</p>';
+    var fotos = A.items.filter(function (x) { return x.tipo === 'IMAGEN'; }), resto = A.items.filter(function (x) { return x.tipo !== 'IMAGEN'; }), h = '';
+    if (fotos.length) h += '<div class="mz-gal" role="group" aria-label="Fotos">' + fotos.slice(0, 12).map(function (x) {
+      var a = x.adjunto, c = cacheGet(a.id), src = c ? c.url : (miniOk(a.thumb) ? a.thumb : '');
+      return '<button type="button" class="mz-gi" data-a="verimg" data-id="' + esc(x.id) + '" aria-label="Ver foto: ' + esc(a.nombre || 'foto') + '">' + (src ? '<img src="' + esc(src) + '" alt="" draggable="false" decoding="async">' : ic(IC.imagen, 22)) + '</button>';
+    }).join('') + '</div>' + (fotos.length > 12 ? '<p class="mz-mas2">y ' + (fotos.length - 12) + ' más (ábrelas desde el visor)</p>' : '');
+    if (resto.length) h += '<ul class="mz-al" aria-label="Archivos y notas de voz">' + resto.map(function (x) {
+      var a = x.adjunto, inf = infoTipoArch(a.nombre || '', a.mime || ''), voz = x.tipo === 'AUDIO', id = esc(x.id);
+      return '<li><span class="mz-fi chico" data-t="' + inf.cls + '" aria-hidden="true">' + (voz ? ic(IC.mic, 14) : esc(inf.ext)) + '</span><span class="mz-aln"><b>' + esc(voz && a.peaks ? 'Nota de voz' : a.nombre || 'Archivo') + '</b><small>' + esc((voz && a.dur ? mmss(a.dur) + ' · ' : '') + tamHum(a.bytes) + ' · ' + etiquetaDia(x.created_at)) + '</small></span>' +
+        (voz ? '<span class="mz-au mini" data-au="' + id + '"><button type="button" class="mz-aup" data-a="audio" data-id="' + id + '" aria-label="Reproducir">' + ic(IC.play, 16) + '</button><span class="mz-atm" aria-hidden="true">' + mmss(a.dur) + '</span></span>' : '') +
+        '<button type="button" class="mz-ib chico" data-a="descarga" data-id="' + id + '" aria-label="Descargar ' + esc(a.nombre || 'archivo') + '" title="Descargar">' + ic(IC.descarga, 16) + '</button></li>';
+    }).join('') + '</ul>';
+    return h;
+  }
+  function pintaArch() { var b = $('mz-arch'); if (b) { b.innerHTML = htmlArch(C.peer); pintaAudios(); } }
+  function bloqueArchivos(k) {
+    var A = C.arch && C.arch[k];
+    if (!A || A.viejo || (!A.cargando && !A.t && !A.err && idConv(k))) setTimeout(function () { if (C.peer === k && !(C.arch && C.arch[k] && C.arch[k].cargando)) cargaArchivos(k); }, 0);
+    return '<div class="mz-bl"><h4>Archivos y fotos</h4><div id="mz-arch">' + htmlArch(k) + '</div></div>';
+  }
+
+  /* ----- Arrastrar y soltar, y pegar capturas ----- */
+  function tieneArchivos(dt) { if (!dt) return false; var t = dt.types; if (!t) return false; for (var i = 0; i < t.length; i++) if (t[i] === 'Files') return true; return false; }
+  function sueltaZona(v) {
+    var M = $('mz-main'); if (!M) return; var d = $('mz-drop');
+    if (v && !d) { d = document.createElement('div'); d.id = 'mz-drop'; d.className = 'mz-drop'; d.setAttribute('aria-hidden', 'true'); d.innerHTML = '<span>' + ic(IC.clip, 28) + '<b>Suelta aquí para enviar</b></span>'; M.appendChild(d); }
+    else if (!v && d) d.remove();
+  }
+  function dragEntra(e) { if (!C.peer || !tieneArchivos(e.dataTransfer) || !e.target.closest || !e.target.closest('#mz-main')) return; e.preventDefault(); C.dragN = (C.dragN || 0) + 1; if (puedeEscribir(C.peer)) sueltaZona(true); }
+  function dragSobre(e) { if (!C.peer || !tieneArchivos(e.dataTransfer) || !e.target.closest || !e.target.closest('#mz-main')) return; e.preventDefault(); try { e.dataTransfer.dropEffect = puedeEscribir(C.peer) ? 'copy' : 'none'; } catch (x) { } }
+  function dragSale(e) { if (!C.dragN) return; C.dragN = Math.max(0, C.dragN - 1); if (!C.dragN) sueltaZona(false); }
+  function suelta(e) {
+    if (!C.peer || !tieneArchivos(e.dataTransfer) || !e.target.closest || !e.target.closest('#mz-main')) return;
+    e.preventDefault(); C.dragN = 0; sueltaZona(false); preparaArchivos(e.dataTransfer.files, C.peer);
+  }
+  function pega(e) {
+    if (!e.target || e.target.id !== 'mz-in' || !e.clipboardData || !e.clipboardData.files || !e.clipboardData.files.length) return;
+    if (e.clipboardData.getData && e.clipboardData.getData('text/plain')) return;       // si trae texto, es un pegado normal
+    e.preventDefault(); preparaArchivos(e.clipboardData.files, C.peer);
+  }
+
   function esTactil() { try { return window.matchMedia('(hover: none)').matches; } catch (e) { return false; } }
   function clic(e) {
     var t = e.target;
@@ -11455,7 +12473,7 @@ function ofcCalcular(cat, sel) {
       return;
     }
     var a = b.getAttribute('data-a'), enPop = !!t.closest('#mz-pop');
-    if (enPop) cierraPop(true);
+    if (enPop && a !== 'reacmas') cierraPop(true);
     switch (a) {
       case 'cerrar': abrirVentana(false); break;
       case 'abrir': abrirConv(b.getAttribute('data-id'), { resaltar: b.getAttribute('data-m') || null }); break;
@@ -11467,11 +12485,39 @@ function ofcCalcular(cat, sel) {
       case 'mas': cargaAnteriores(C.peer, false); break;
       case 'reintentar-conv': C.errConv = null; C.cargaConv = true; pintaMsgs(); (function (p) { cargaConv(p).then(function (er) { if (C.peer !== p) return; C.cargaConv = false; if (er) C.errConv = er; else { calculaDivisor(p); marca(p); } pintaMsgs({ inicio: true }); pintaInfo(); }); })(C.peer); break;
       case 'enviar': enviar('TEXTO'); break;
+      case 'adjuntar': if (C.peer && puedeEscribir(C.peer)) { asegCfg().then(function (okc) { var fi = $('mz-file'); if (okc && fi) fi.click(); }); } else aviso(ERR_CHAT.solo_lectura, true); break;
+      case 'quitar-adj': quitaAdj(b.getAttribute('data-id')); break;
+      case 'grabar': iniciaGrab(); break;
+      case 'grab-cancela': cancelaGrab(); break;
+      case 'grab-envia': terminaGrab(true); break;
+      case 'audio': reproduce(b.getAttribute('data-id')); break;
+      case 'avel': cambiaVel(); break;
+      case 'aseek': var rc = b.getBoundingClientRect(); saltaAudio(b.getAttribute('data-id'), rc.width ? Math.max(0, Math.min(1, (e.clientX - rc.left) / rc.width)) : 0, 0); break;
+      case 'descarga': descargar(b.getAttribute('data-id')); break;
+      case 'verimg': abreLB(b.getAttribute('data-id'), { a: 'verimg', id: b.getAttribute('data-id') }); break;
+      case 'lb-cerrar': cierraLB(); break;
+      case 'lb-ant': lbMueve(-1); break;
+      case 'lb-sig': lbMueve(1); break;
+      case 'lb-zoom': if (C.lb && C.lb.est === 'ok') { C.lb.zoom = !C.lb.zoom; pintaLB(); } break;
+      case 'lb-reint': cargaLB(); break;
+      case 'lb-descarga': if (C.lb) descargar(C.lb.ids[C.lb.i]); break;
+      case 'arch-reint': if (C.peer) cargaArchivos(C.peer); break;
       case 'zumbido': if (b.getAttribute('aria-disabled') === 'true') { aviso(C.peer && C.peer !== GEN && trabajoDe(C.peer) === 'dnd' ? nombreDe(C.peer) + ' tiene «No molestar»: no se le pueden enviar zumbidos' : 'Espera unos segundos para enviar otro zumbido'); break; } enviar('ZUMBIDO'); break;
       case 'emo': toggleEmo(); break;
       case 'cara': insertaCara(b.getAttribute('data-e')); break;
+      case 'perfil': abrirPerfil(); break;
+      case 'pf-color': if (C.modal && C.modal.tipo === 'perfil') { var vc = b.getAttribute('data-v'); C.modal.color = vc === 'auto' ? null : +vc; C.modal.err = ''; actualizaPerfil(); } break;
+      case 'pf-emoji': if (C.modal && C.modal.tipo === 'perfil') { C.modal.emoji = b.getAttribute('data-v'); C.modal.err = ''; actualizaPerfil(); } break;
+      case 'pf-me': if (C.modal && C.modal.tipo === 'perfil') { C.modal.me = b.getAttribute('data-v'); actualizaPerfil(); } break;
+      case 'pf-chip': var sg = SUGERENCIAS[+b.getAttribute('data-i')]; if (sg && C.modal && C.modal.tipo === 'perfil') { C.modal.me = sg[0]; C.modal.msg = sg[1]; C.modal.dur = sg[2]; C.modal.durTocada = true; C.modal.err = ''; actualizaPerfil(); var pmi = $('mz-pm'); if (pmi) pmi.focus(); } break;
+      case 'pf-borrar': if (C.modal && C.modal.tipo === 'perfil') { C.modal.msg = ''; C.modal.me = ''; actualizaPerfil(); var pmj = $('mz-pm'); if (pmj) pmj.focus(); } break;
+      case 'reacmas': if (C.pop && C.pop.tipo === 'msg') { C.pop.mas = !C.pop.mas; pintaPop(); var rm = document.querySelector('#mz-pop [data-a="reacmas"]'); if (rm) rm.focus(); } break;
+      case 'emotab': C.emoTab = b.getAttribute('data-v') === 'stk' ? 'stk' : 'emo'; pintaEmo(); break;
+      case 'emocat': var hc = $('mz-ec-' + b.getAttribute('data-i')), eb2 = $('mz-emb'); if (hc && eb2) eb2.scrollTop = Math.max(0, hc.offsetTop - 4); break;
+      case 'stk': enviarSticker(b.getAttribute('data-id')); break;
       case 'saludar': var ii = $('mz-in'); if (ii) { ii.value = '¡Hola! 👋'; autoTam(); actualizaEnvio(); ii.focus(); } break;
-      case 'info': C.info = !C.info; C.pref.info = C.info; guardaPrefs(); aplicaVista(); document.querySelectorAll('#mz [data-a="info"][aria-pressed]').forEach(function (x) { x.setAttribute('aria-pressed', String(C.info)); }); break;
+      case 'info': C.info = !C.info; C.pref.info = C.info; guardaPrefs(); aplicaVista(); if (C.info && C.peer) pintaInfo();   // al abrirla se actualiza (puede haber llegado algo con la columna cerrada)
+        document.querySelectorAll('#mz [data-a="info"][aria-pressed]').forEach(function (x) { x.setAttribute('aria-pressed', String(C.info)); }); break;
       case 'busqconv': busqAbrir(!C.busq.on); break;
       case 'bprev': if (C.busq.n) { C.busq.i = (C.busq.i - 1 + C.busq.n) % C.busq.n; marcaBusqueda(true); } break;
       case 'bnext': if (C.busq.n) { C.busq.i = (C.busq.i + 1) % C.busq.n; marcaBusqueda(true); } break;
@@ -11480,8 +12526,12 @@ function ofcCalcular(cat, sel) {
       case 'estado': cambiaEstado(b.getAttribute('data-v')); break;
       case 'aj': ajustes(true); break;
       case 'aj-cerrar': ajustes(false); break;
-      case 'probar': var k = b.getAttribute('data-k'); C.gesto = true; if (k === 'msg') sonidoMsg(true); else if (k === 'zumbido') sonidoZumbido(true); else sonidoConexion(true); break;
-      case 'reintentar-msg': var tm = (C.msgs[C.peer] || []).filter(function (x) { return x.id === b.getAttribute('data-id'); })[0]; if (tm) { tm._est = 'enviando'; tm._viejo = false; if (!C.cola.some(function (x) { return x.client_id === tm.client_id; })) colaAgrega(tm, C.peer); pintaMsgs(); enviaFila(C.peer, tm); } break;
+      case 'probar': var kpr = b.getAttribute('data-k'); C.gesto = true;
+        if (C.pref.vol <= 0) aviso('El volumen está en 0: súbelo para oír el tono');
+        else if (C.pref[kpr === 'priv' ? 'tonoPriv' : kpr === 'grupo' ? 'tonoGrupo' : kpr === 'zumbido' ? 'tonoZumbido' : 'tonoConex'] === 'silencio') aviso('Ese aviso está en «Sin sonido»');
+        else suena(kpr, true);
+        break;
+      case 'reintentar-msg': var tm = (C.msgs[C.peer] || []).filter(function (x) { return x.id === b.getAttribute('data-id'); })[0]; if (tm) { tm._est = 'enviando'; tm._viejo = false; if (!C.cola.some(function (x) { return x.client_id === tm.client_id; })) colaAgrega(tm, C.peer); pintaMsgs(); if (tm._arch) encolaSubida(C.peer, tm); else enviaFila(C.peer, tm); } break;
       case 'msgmenu': abrirMenuMsg(b.getAttribute('data-id'), b.getAttribute('data-modo') || 'todo', b); break;
       case 'menuconv': if (C.pop && C.pop.tipo === 'conv' && C.pop.key === b.getAttribute('data-id')) cierraPop(true); else abrePop({ tipo: 'conv', key: b.getAttribute('data-id') }, b); break;
       case 'menumiembro': if (C.pop && C.pop.tipo === 'miembro' && C.pop.id === b.getAttribute('data-id')) cierraPop(true); else abrePop({ tipo: 'miembro', key: C.peer, id: b.getAttribute('data-id') }, b); break;
@@ -11510,18 +12560,185 @@ function ofcCalcular(cat, sel) {
       case 'mod-tipo': if (C.modal && C.modal.tipo === 'grupo') { C.modal.gtipo = b.getAttribute('data-v'); document.querySelectorAll('#mz-modal [data-a="mod-tipo"]').forEach(function (x) { x.setAttribute('aria-checked', String(x === b)); }); actualizaModalBtn(); } break;
       case 'mod-todos': if (C.modal) { var q2 = plano(C.modal.q || ''); candidatos(C.modal).forEach(function (c) { if (!q2 || plano(c.nombre + ' ' + c.rol + ' ' + (DEPTO[c.rol] || '')).indexOf(q2) >= 0) C.modal.sel[c.id] = 1; }); pintaModalPersonas(); } break;
       case 'mod-ninguno': if (C.modal) { C.modal.sel = {}; pintaModalPersonas(); } break;
-      case 'descartar': var lm = C.msgs[C.peer] || [], id2 = b.getAttribute('data-id'); for (var z = 0; z < lm.length; z++) if (lm[z].id === id2) { colaQuita(lm[z].client_id); var inp = $('mz-in'); if (inp && !inp.value) { inp.value = lm[z].cuerpo; autoTam(); actualizaEnvio(); } lm.splice(z, 1); break; } pintaMsgs(); pintaLista(); break;
+      case 'descartar': var lm = C.msgs[C.peer] || [], id2 = b.getAttribute('data-id'); for (var z = 0; z < lm.length; z++) if (lm[z].id === id2) { colaQuita(lm[z].client_id); if (lm[z]._arch) { lm[z]._descartado = true; soltarItem(lm[z]._arch); } else { var inp = $('mz-in'); if (inp && !inp.value) { inp.value = lm[z].cuerpo; autoTam(); actualizaEnvio(); } } lm.splice(z, 1); break; } pintaMsgs(); pintaLista(); break;
     }
   }
-  function toggleEmo() { C.emo = !C.emo; var e = $('mz-emo'), b = $('mz-emob'); if (e) e.hidden = !C.emo; if (b) b.setAttribute('aria-expanded', String(C.emo)); if (C.emo && e) { var p = e.querySelector('button'); if (p) p.focus(); } }
+  var EMO_IDX = null;
+  function emoIndice() {
+    if (EMO_IDX) return EMO_IDX; var o = [];
+    EMO_CATS.forEach(function (c, ci) {
+      c[2].split(';').forEach(function (it) {
+        it = it.trim(); if (!it) return; var sp = it.indexOf(' '), e = sp < 0 ? it : it.slice(0, sp), k = sp < 0 ? '' : it.slice(sp + 1);
+        o.push({ e: e, n: k.split(' ')[0] || e, k: plano(k), c: ci });
+      });
+    });
+    return (EMO_IDX = o);
+  }
+  function btnEmo(it) { return '<button type="button" tabindex="-1" data-a="cara" data-e="' + esc(it.e) + '" aria-label="' + esc(it.n || it.e) + '" title="' + esc(it.n || '') + '">' + esc(it.e) + '</button>'; }
+  function pintaEmo() {
+    var B = $('mz-emb'), N = $('mz-emn'); if (!B || !N) return;
+    var qt = (C.emoQ || '').trim(), q = plano(qt), stk = C.emoTab === 'stk', h = '';
+    ['emo', 'stk'].forEach(function (v) { var t = $('mz-tab-' + v); if (t) { t.setAttribute('aria-selected', String(v === C.emoTab)); t.tabIndex = v === C.emoTab ? 0 : -1; } });
+    var inp = $('mz-emq'); if (inp) inp.placeholder = stk ? 'Buscar sticker: gracias, bravo, café…' : 'Buscar emoji: fuego, café, risa…';
+    if (stk) {
+      var lista = STICKERS.filter(function (x) { return !q || plano(x.t + ' ' + x.id + ' ' + x.k).indexOf(q) >= 0; });
+      var rec = q ? [] : C.stkRec.map(stickerDe).filter(Boolean);
+      var bs = function (x) { return '<button type="button" class="stkb" tabindex="-1" data-a="stk" data-id="' + x.id + '" aria-label="Enviar sticker: ' + esc(x.t) + '">' + htmlSticker(x.id, true) + '</button>'; };
+      if (rec.length) h += '<h4>Recientes</h4><div class="gs">' + rec.map(bs).join('') + '</div>';
+      h += (rec.length ? '<h4>Todos</h4>' : '') + (lista.length ? '<div class="gs">' + lista.map(bs).join('') + '</div>' : '<div class="mz-buscando" role="status">Ningún sticker coincide con «' + esc(qt) + '».</div>');
+      N.innerHTML = ''; N.hidden = true;
+    } else if (q) {
+      var res = emoIndice().filter(function (x) { return x.k.indexOf(q) >= 0 || x.e === qt; });
+      h = res.length ? '<div class="g">' + res.map(btnEmo).join('') + '</div>' : '<div class="mz-buscando" role="status">Ningún emoji coincide con «' + esc(qt) + '».</div>';
+      N.innerHTML = ''; N.hidden = true;
+    } else {
+      if (C.emoRec.length) h += '<h4>Recientes</h4><div class="g">' + C.emoRec.map(function (e) { return btnEmo({ e: e }); }).join('') + '</div>';
+      EMO_CATS.forEach(function (c, ci) { h += '<h4 id="mz-ec-' + ci + '">' + esc(c[0]) + '</h4><div class="g">' + emoIndice().filter(function (x) { return x.c === ci; }).map(btnEmo).join('') + '</div>'; });
+      N.innerHTML = EMO_CATS.map(function (c, ci) { return '<button type="button" data-a="emocat" data-i="' + ci + '" aria-label="Ir a ' + esc(c[0]) + '" title="' + esc(c[0]) + '">' + c[1] + '</button>'; }).join('');
+      N.hidden = false;
+    }
+    B.innerHTML = h; B.scrollTop = 0;
+    var f = B.querySelector('button'); if (f) f.tabIndex = 0;
+    var cnt = B.querySelectorAll('button').length; B.setAttribute('aria-label', stk ? 'Stickers: ' + cnt : 'Emojis: ' + cnt);
+  }
+  function toggleEmo() {
+    C.emo = !C.emo; var e = $('mz-emo'), b = $('mz-emob'); if (e) e.hidden = !C.emo; if (b) b.setAttribute('aria-expanded', String(C.emo));
+    if (C.emo && e) { C.emoQ = ''; var qi = $('mz-emq'); if (qi) qi.value = ''; pintaEmo(); if (qi) qi.focus(); }
+  }
   function cierraEmo() { C.emo = false; var e = $('mz-emo'), b = $('mz-emob'); if (e) e.hidden = true; if (b) b.setAttribute('aria-expanded', 'false'); }
   function insertaCara(em) {
     var i = $('mz-in'); if (!i) return;
     var s = i.selectionStart == null ? i.value.length : i.selectionStart, f = i.selectionEnd == null ? s : i.selectionEnd;
     if ((i.value.length - (f - s) + em.length) > MAXLEN) return;
     i.value = i.value.slice(0, s) + em + i.value.slice(f);
+    usaReciente('emo', em);
     cierraEmo(); i.focus(); try { i.setSelectionRange(s + em.length, s + em.length); } catch (e) { }
     autoTam(); actualizaEnvio(); guardaBorrador();
+  }
+  async function enviarSticker(id) {
+    var peer = C.peer; if (!peer || !stickerDe(id)) return;
+    if (!puedeEscribir(peer)) { aviso(ERR_CHAT.solo_lectura, true); return; }
+    if (!compartida(peer) && inactivo(peer)) { aviso(ERR_CHAT.destinatario_inactivo, true); return; }
+    if (C.edit && C.edit.key === peer) { aviso('Termina o cancela la edición para enviar un sticker', true); return; }
+    usaReciente('stk', id); cierraEmo();
+    await mandaTmp(peer, 'STICKER', id);
+  }
+  /* Flechas dentro del panel: se mueve de emoji en emoji (también arriba y abajo, aunque cambie de categoría). */
+  function teclaEmo(e) {
+    if (!C.emo) return;
+    var t = e.target, P = $('mz-emo'); if (!P || !P.contains(t)) return;
+    if (t.getAttribute('role') === 'tab' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault(); C.emoTab = C.emoTab === 'emo' ? 'stk' : 'emo'; pintaEmo(); var nt = $('mz-tab-' + C.emoTab); if (nt) nt.focus(); return;
+    }
+    var grid = Array.prototype.slice.call(P.querySelectorAll('#mz-emb button')), i = grid.indexOf(t);
+    if (t.id === 'mz-emq') {
+      if (e.key === 'ArrowDown' && grid.length) { e.preventDefault(); grid[0].tabIndex = 0; grid[0].focus(); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (grid[0]) grid[0].click(); }
+      return;
+    }
+    if (i < 0) return;
+    var k = e.key, r = t.getBoundingClientRect(), dest = null;
+    if (k === 'ArrowRight') dest = grid[i + 1]; else if (k === 'ArrowLeft') dest = grid[i - 1];
+    else if (k === 'Home') dest = grid[0]; else if (k === 'End') dest = grid[grid.length - 1];
+    else if (k === 'ArrowDown' || k === 'ArrowUp') {
+      var dir = k === 'ArrowDown' ? 1 : -1, bestDy = 1e9, bestDx = 1e9;
+      grid.forEach(function (b2) {
+        var r2 = b2.getBoundingClientRect(), dy = (r2.top - r.top) * dir; if (dy < 4) return;
+        var dx = Math.abs(r2.left - r.left);
+        if (dy < bestDy - 2 || (Math.abs(dy - bestDy) <= 2 && dx < bestDx)) { dest = b2; bestDy = dy; bestDx = dx; }
+      });
+      if (!dest && k === 'ArrowUp') { var qi = $('mz-emq'); if (qi) { e.preventDefault(); qi.focus(); } return; }
+    } else return;
+    if (dest) { e.preventDefault(); grid.forEach(function (b2) { b2.tabIndex = -1; }); dest.tabIndex = 0; dest.focus(); try { dest.scrollIntoView({ block: 'nearest' }); } catch (x) { } }
+  }
+
+  /* ----- Mi perfil: color, icono y mensaje de estado ----- */
+  function abrirPerfil() {
+    if (C.sinSocial) { aviso('Falta ejecutar 58_chat_social.sql en Supabase', true); return; }
+    var P = perfilDe(me.id), vig = msgEstadoDe(me.id);
+    abreModal({ tipo: 'perfil', key: '_perfil', color: typeof P.color === 'number' ? P.color : null, emoji: P.emoji || '', msg: vig ? vig.t : '', me: vig ? vig.e : '', dur: vig ? (P.hasta ? 'resto' : 'nunca') : '240', durTocada: false, err: '', enviando: false, enfoque: '#mz-pm' });
+  }
+  function textoResto(hasta) {
+    var m = Math.max(1, Math.ceil((hasta - Date.now()) / 60000));
+    return m < 60 ? m + ' min' : m < 1440 ? Math.round(m / 60) + ' h' : Math.round(m / 1440) + ' d';
+  }
+  function htmlPerfil(M) {
+    var P = perfilDe(me.id), durs = DURACIONES.slice();
+    if (P.hasta && msgEstadoDe(me.id)) durs.unshift(['resto', 'Lo que queda (' + textoResto(P.hasta) + ')']);
+    var sw = '<button type="button" role="radio" class="auto" aria-checked="false" data-a="pf-color" data-v="auto" aria-label="Automático" title="Automático">A</button>' +
+      HUES12.map(function (h, i) { return '<button type="button" role="radio" aria-checked="false" data-a="pf-color" data-v="' + i + '" style="--h:' + h + '" aria-label="' + NOM_COLOR[i] + '" title="' + NOM_COLOR[i] + '"></button>'; }).join('');
+    var ic2 = '<button type="button" role="radio" aria-checked="false" data-a="pf-emoji" data-v="" aria-label="Iniciales" title="Iniciales">Aa</button>' +
+      ICONOS_AV.map(function (e) { return '<button type="button" role="radio" aria-checked="false" data-a="pf-emoji" data-v="' + e + '" aria-label="Icono ' + e + '">' + e + '</button>'; }).join('');
+    var em = '<button type="button" role="radio" aria-checked="false" data-a="pf-me" data-v="" aria-label="Sin emoji" title="Sin emoji">—</button>' +
+      EMO_ESTADO.map(function (e) { return '<button type="button" role="radio" aria-checked="false" data-a="pf-me" data-v="' + e + '" aria-label="Emoji ' + e + '">' + e + '</button>'; }).join('');
+    return '<div class="mz-pv" id="mz-pv"></div>' +
+      '<div class="mz-fld"><span class="lb" id="mz-pl1">Color del avatar</span><div class="mz-sws" role="radiogroup" aria-labelledby="mz-pl1">' + sw + '</div></div>' +
+      '<div class="mz-fld"><span class="lb" id="mz-pl2">Icono <span class="op">(sin icono se ven tus iniciales)</span></span><div class="mz-sws ico" role="radiogroup" aria-labelledby="mz-pl2">' + ic2 + '</div></div>' +
+      '<div class="mz-fld"><label for="mz-pm">Mensaje de estado <span class="op">(lo ven tus compañeros)</span></label>' +
+      '<input id="mz-pm" data-minus autocomplete="off" maxlength="80" placeholder="Ej.: Atendiendo clientes"><div class="mz-pcnt"><span id="mz-pcnt" aria-live="off">0/80</span><button type="button" class="mz-lnk" data-a="pf-borrar">Quitar mi mensaje</button></div>' +
+      '<div class="mz-chips" role="group" aria-label="Ideas de mensaje">' + SUGERENCIAS.map(function (x, i) { return '<button type="button" data-a="pf-chip" data-i="' + i + '">' + x[0] + ' ' + esc(x[1]) + '</button>'; }).join('') + '</div></div>' +
+      '<div class="mz-fld" id="mz-pdw"><span class="lb" id="mz-pl3">Emoji del mensaje</span><div class="mz-sws ico" role="radiogroup" aria-labelledby="mz-pl3">' + em + '</div>' +
+      '<label for="mz-pd">Borrar el mensaje</label><select id="mz-pd">' + durs.map(function (d) { return '<option value="' + d[0] + '">' + esc(d[1]) + '</option>'; }).join('') + '</select></div>';
+  }
+  function actualizaPerfil() {
+    var M = C.modal; if (!M || M.tipo !== 'perfil') return;
+    var txt = M.msg.replace(/\s+/g, ' ').trim();
+    var pv = $('mz-pv'); if (pv) pv.innerHTML = av(me.id, perfil.nombre, 56, false, C.st, { color: M.color, emoji: M.emoji }) + '<div class="t"><b>' + esc(bonito(perfil.nombre)) + '</b><small>' + (txt ? esc((M.me ? M.me + ' ' : '') + txt) : 'Sin mensaje de estado') + '</small></div>';
+    var marca2 = function (acc, ok) { document.querySelectorAll('#mz-modal [data-a="' + acc + '"]').forEach(function (b) { var v = b.getAttribute('data-v'), on = ok(v); b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; }); };
+    marca2('pf-color', function (v) { return v === 'auto' ? M.color == null : M.color != null && +v === M.color; });
+    marca2('pf-emoji', function (v) { return v === (M.emoji || ''); });
+    marca2('pf-me', function (v) { return v === (M.me || ''); });
+    var inp = $('mz-pm'); if (inp && inp.value !== M.msg) inp.value = M.msg;
+    var d = $('mz-pd'); if (d && d.value !== M.dur) d.value = M.dur;
+    var cn = $('mz-pcnt'); if (cn) cn.textContent = M.msg.length + '/80';
+    var dw = $('mz-pdw'); if (dw) dw.hidden = !txt;
+    actualizaModalBtn();
+  }
+  /* ¿Qué cambió respecto a lo guardado? Solo se llama a la base por lo que cambió. */
+  function cambiosPerfil(M) {
+    var P0 = perfilDe(me.id), v0 = msgEstadoDe(me.id), txt = M.msg.replace(/\s+/g, ' ').trim();
+    return {
+      txt: txt,
+      av: (M.color == null ? -1 : M.color) !== (typeof P0.color === 'number' ? P0.color : -1) || (M.emoji || '') !== (P0.emoji || ''),
+      msg: txt !== (v0 ? v0.t : '') || (!!txt && (M.me || '') !== (v0 ? v0.e : '')) || (!!txt && M.durTocada)
+    };
+  }
+  function minutosDe(M) {
+    var d = M.dur;
+    if (d === 'nunca') return null;
+    if (d === 'hoy') { var f = new Date(); f.setHours(23, 59, 59, 0); return Math.max(1, Math.ceil((f.getTime() - Date.now()) / 60000)); }
+    if (d === 'resto') { var P = perfilDe(me.id); return P.hasta ? Math.max(1, Math.min(10080, Math.ceil((P.hasta - Date.now()) / 60000))) : null; }
+    var n = parseInt(d, 10); return n > 0 ? n : null;
+  }
+  async function guardaPerfil(M) {
+    var cb = cambiosPerfil(M), txt = cb.txt, minutos = minutosDe(M), P0 = perfilDe(me.id), nuevo = {};
+    if (txt.length > 80) { M.err = 'El mensaje de estado puede tener hasta 80 caracteres'; return false; }
+    var errDe = function (e) { var t = String((e && e.message) || ''); return /chat:emoji_invalido/.test(t) ? 'Ese icono no es válido' : /chat:texto_invalido/.test(t) ? 'El mensaje de estado puede tener hasta 80 caracteres' : msgE(e); };
+    nuevo.color = M.color; nuevo.emoji = M.emoji;
+    if (cb.av) {
+      var r1 = await llama('chat_avatar_set', { p_color: M.color == null ? null : M.color, p_emoji: M.emoji || null });
+      if (r1.error) { M.err = errDe(r1.error); return false; }
+    } else { nuevo.color = typeof P0.color === 'number' ? P0.color : null; nuevo.emoji = P0.emoji || ''; }
+    var o = {}; if (nuevo.color != null) o.color = nuevo.color; if (nuevo.emoji) o.emoji = nuevo.emoji;
+    var v0 = msgEstadoDe(me.id);
+    if (cb.msg) {
+      var r2 = await llama('chat_mensaje_estado_set', { p_texto: txt || null, p_emoji: txt ? (M.me || null) : null, p_minutos: txt ? minutos : null });
+      if (r2.error) { C.perf[me.id] = o; if (v0) { o.msg = v0.t; if (v0.e) o.me = v0.e; if (P0.hasta) o.hasta = P0.hasta; } repintaPerfiles(); M.err = errDe(r2.error); return false; }
+      if (txt) { o.msg = txt; if (M.me) o.me = M.me; if (minutos) o.hasta = Date.now() + minutos * 60000; }
+    } else if (v0) { o.msg = v0.t; if (v0.e) o.me = v0.e; if (P0.hasta) o.hasta = P0.hasta; }
+    C.perf[me.id] = o; repintaPerfiles();
+    try { if (C.chP) C.chP.send({ type: 'broadcast', event: 'perfil', payload: { de: me.id } }); } catch (e) { }   // solo avisa «mira de nuevo»: lo que se ve sale siempre de la base
+    cargaPerfiles();
+    aviso('Perfil actualizado');
+    return true;
+  }
+  /* En un grupo de opciones tipo «radio» las flechas cambian la elección. */
+  function teclaRadio(e) {
+    var t = e.target; if (!C.modal || !t.getAttribute || t.getAttribute('role') !== 'radio') return;
+    var d = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 0; if (!d) return;
+    var g = t.closest('[role=radiogroup]'); if (!g) return;
+    var l = Array.prototype.slice.call(g.querySelectorAll('[role=radio]')), n = l[(l.indexOf(t) + d + l.length) % l.length];
+    e.preventDefault(); n.focus(); n.click();
   }
   function entrada(e) {
     var id = e.target.id;
@@ -11531,9 +12748,16 @@ function ofcCalcular(cat, sel) {
     else if (C.modal && id === 'mz-gn') { C.modal.nombre = e.target.value; C.modal.err = ''; actualizaModalBtn(); }
     else if (C.modal && id === 'mz-gd') { C.modal.desc = e.target.value; C.modal.err = ''; actualizaModalBtn(); }
     else if (C.modal && id === 'mz-gq') { C.modal.q = e.target.value; pintaModalPersonas(); }
+    else if (C.modal && id === 'mz-pm') { C.modal.msg = e.target.value; C.modal.err = ''; actualizaPerfil(); }
+    else if (id === 'mz-emq') { C.emoQ = e.target.value; pintaEmo(); }
+    else if (e.target.getAttribute && e.target.getAttribute('data-q') === 'vol') { var vo = $('mz-volo'); if (vo) vo.textContent = e.target.value + '%'; }
   }
   function cambio(e) {
-    var t = e.target, p = t.getAttribute && t.getAttribute('data-p');
+    var t = e.target, p = t.getAttribute && t.getAttribute('data-p'), q = t.getAttribute && t.getAttribute('data-q');
+    if (t.id === 'mz-file') { var fl = Array.prototype.slice.call(t.files || []); t.value = ''; preparaArchivos(fl, C.peer); return; }
+    if (q === 'vol') { C.pref.vol = Math.max(0, Math.min(100, Math.round(+t.value || 0))); guardaPrefs(); t.setAttribute('aria-valuetext', C.pref.vol + ' por ciento'); C.gesto = true; suena('priv', true); return; }
+    if (q && q in PREF_S) { if (SLOT_TONOS[q].indexOf(t.value) >= 0) { C.pref[q] = t.value; guardaPrefs(); C.gesto = true; suena(SLOT_DE[q], true); } return; }
+    if (C.modal && t.id === 'mz-pd') { C.modal.dur = t.value; C.modal.durTocada = true; actualizaPerfil(); return; }
     if (p && p in PREF0) { C.pref[p] = t.checked; guardaPrefs(); aplicaPrefs(); return; }
     var cf = t.getAttribute && t.getAttribute('data-cfg'); if (cf && C.peer) { ajusteConv(C.peer, cf, t.checked); return; }
     var sel = t.getAttribute && t.getAttribute('data-sel'); if (sel && C.modal && C.modal.sel) { C.modal.sel[sel] = t.checked ? 1 : 0; C.modal.err = ''; actualizaModalBtn(); }
@@ -11550,6 +12774,18 @@ function ofcCalcular(cat, sel) {
     if (e.key === 'ArrowDown' && i < filas.length - 1) filas[i + 1].focus();
     else if (e.key === 'ArrowUp') { if (i > 0) filas[i - 1].focus(); else { var q = $('mz-q'); if (q) q.focus(); } }
   }
+  function teclaAdj(e) {
+    if (teclaLB(e)) return;
+    var t = e.target;
+    if (t && t.getAttribute && t.getAttribute('data-a') === 'aseek') {
+      var id = t.getAttribute('data-id');
+      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); saltaAudio(id, null, 5); }
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); saltaAudio(id, null, -5); }
+      else if (e.key === 'Home') { e.preventDefault(); saltaAudio(id, 0, 0); }
+      else if (e.key === 'End') { e.preventDefault(); saltaAudio(id, 0.999, 0); }
+      else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); reproduce(id); }
+    }
+  }
   function teclaEntrada(e) {
     if (e.target.id === 'mz-in' && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); enviar('TEXTO'); }
     else if (e.target.id === 'mz-bqi' && e.key === 'Enter') { e.preventDefault(); if (C.busq.n) { C.busq.i = (C.busq.i + (e.shiftKey ? -1 : 1) + C.busq.n) % C.busq.n; marcaBusqueda(true); } }
@@ -11565,6 +12801,8 @@ function ofcCalcular(cat, sel) {
      Solo actúa si el cursor está en el chat (o en ningún sitio) y si no hay una ventana del CRM abierta, que tiene su propio Esc. */
   function teclaGlobal(e) {
     if (!C.open || e.key !== 'Escape') return;
+    if (C.lb) { e.preventDefault(); e.stopPropagation(); cierraLB(); return; }
+    if (C.rec2) { e.preventDefault(); e.stopPropagation(); cancelaGrab(); return; }
     var t = e.target;
     if (document.querySelector('.k-ov')) return;
     if (t && t !== document.body && t !== document.documentElement && t.closest && !t.closest('#mz') && !t.closest('#chat23-btn')) return;
@@ -11589,7 +12827,8 @@ function ofcCalcular(cat, sel) {
     if ($('mz') || typeof me === 'undefined' || !me || typeof perfil === 'undefined' || !perfil || !$('app')) return;
     ['chat23', 'chat23c', 'chat23-btn'].forEach(function (i) { var o = $(i); if (o) o.remove(); });   // por si quedara algo del chat antiguo
     var guardado = lsGet('crm_chat_estado_' + me.id);
-    C = nuevoEstado(); C.pref = cargaPrefs(); C.st = ESTADOS[guardado] ? guardado : 'on'; colaCarga();
+    C = nuevoEstado(); C.pref = cargaPrefs(); cargaRecientes(); C.st = ESTADOS[guardado] ? guardado : 'on'; colaCarga();
+    var vv = parseFloat(lsGet('crm_chat_vel_' + me.id)); C.vel = VELS.indexOf(vv) >= 0 ? vv : 1;
     C.info = C.pref.info !== null ? C.pref.info : window.innerWidth >= 1360;
     var fab = document.createElement('button'); fab.id = 'chat23-btn'; fab.type = 'button'; fab.setAttribute('aria-controls', 'mz'); fab.setAttribute('aria-expanded', 'false'); fab.setAttribute('aria-haspopup', 'dialog');
     fab.innerHTML = ic(IC.chat, 26); fab.addEventListener('click', function () { C.gesto = true; abrirVentana(!C.open); });
@@ -11616,7 +12855,9 @@ function ofcCalcular(cat, sel) {
       '<div class="mz-banner" id="mz-banner" role="status" hidden>' + ic(IC.alerta, 16) + 'Sin conexión en vivo. Reconectando…</div>' +
       '<div class="mz-toasts" id="mz-toasts"></div><div class="mz-sr" id="mz-live" role="status" aria-live="polite"></div>';
     w.addEventListener('click', clic); w.addEventListener('input', entrada); w.addEventListener('change', cambio); w.addEventListener('keydown', teclaEntrada); w.addEventListener('keydown', teclaChatK);
-    w.addEventListener('keydown', teclaMsgs); w.addEventListener('contextmenu', menuContextual);
+    w.addEventListener('keydown', teclaMsgs); w.addEventListener('keydown', teclaEmo); w.addEventListener('keydown', teclaRadio); w.addEventListener('contextmenu', menuContextual);
+    w.addEventListener('keydown', teclaAdj); w.addEventListener('paste', pega);
+    w.addEventListener('dragenter', dragEntra); w.addEventListener('dragover', dragSobre); w.addEventListener('dragleave', dragSale); w.addEventListener('drop', suelta);
     w.querySelector('#mz-pop').addEventListener('keydown', teclaPop); w.querySelector('#mz-modal').addEventListener('keydown', teclaModal);
     document.body.appendChild(fab); document.body.appendChild(w);
     w.querySelector('#mz-lista').addEventListener('keydown', teclaLista); w.querySelector('#mz-q').addEventListener('keydown', teclaLista);
@@ -11630,13 +12871,14 @@ function ofcCalcular(cat, sel) {
   function quitar() {
     C.cerrando = true;
     try { if (C.chM) sb.removeChannel(C.chM); if (C.chP) sb.removeChannel(C.chP); } catch (e) { }
-    clearInterval(C.buzzT); clearInterval(C.latido); clearTimeout(C.resyncT); clearTimeout(C.colaT); clearTimeout(C.entregaT); clearTimeout(C.refrescaT); clearTimeout(C.busqT);
+    clearInterval(C.buzzT); clearInterval(C.latido); clearTimeout(C.resyncT); clearTimeout(C.colaT); clearTimeout(C.entregaT); clearTimeout(C.refrescaT); clearTimeout(C.busqT); clearTimeout(C.perfT);
     Object.keys(C.markT).forEach(function (k) { clearTimeout(C.markT[k]); });
     if (C.globales) {
       document.removeEventListener('keydown', teclaGlobal, true); document.removeEventListener('visibilitychange', visible);
       document.removeEventListener('pointerdown', gesto, true); document.removeEventListener('keydown', gesto, true);
       window.removeEventListener('online', enLineaNav); window.removeEventListener('offline', sinRed);
     }
+    try { cancelaGrab(); detieneAudio(); Object.keys(C.xhr || {}).forEach(function (k) { try { C.xhr[k].abort(); } catch (e) { } }); Object.keys(C.band || {}).forEach(vaciaBandeja); Object.keys(C.bl || {}).forEach(function (k) { try { URL.revokeObjectURL(C.bl[k].url); } catch (e) { } }); } catch (e) { }
     var a = $('mz'), b = $('chat23-btn'); if (a) a.remove(); if (b) b.remove();
     document.body.classList.remove('mz-abierto');
     C = nuevoEstado();
