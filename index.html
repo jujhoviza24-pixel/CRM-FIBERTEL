@@ -7318,6 +7318,10 @@ function ventaForm(l) {
   function ir(it) {
     if (!it) return; if (!it.leida) marcar([it.id]); cerrar(); quitarPops(); navegar(it.destino);
     if (it.destino === 'incidencias' && it.ref && window.inc54) setTimeout(function () { window.inc54.abrir(it.ref); }, 150);   // abre la incidencia concreta
+    if (it.destino === 'chat' && it.ref && window.mz57 && window.mz57.abrirCon) {   // «te pidió revisar…», «pide ayuda»: abre directamente el chat con esa persona
+      var mu = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.exec(String(it.ref));
+      if (mu) setTimeout(function () { try { window.mz57.abrirCon(mu[0]); } catch (e) { } }, 150);
+    }
   }
   function porId(id) { id = Number(id); for (var i = 0; i < S.items.length; i++) if (S.items[i].id === id) return S.items[i]; return null; }
 
@@ -9481,8 +9485,8 @@ function ofcCalcular(cat, sel) {
   };
 })();
 
-  /* 57 · FIBERTEL MESSENGER (v3.4 · Fase 4B: archivos, fotos y notas de voz en tu Google Drive · 4A: perfil, mensaje de estado, sonidos por tipo, emojis y stickers)
-   REQUIERE haber ejecutado ANTES, en este orden, en Supabase (SQL Editor): 57_chat_mensajeria.sql, 57b_chat_funciones.sql y 58_chat_social.sql.
+  /* 57 · FIBERTEL MESSENGER (v3.5 · Fase 5: ventas y clientes compartidos, revisiones, tareas, ayuda y anuncios · Fase 4B: archivos, fotos y notas de voz en tu Google Drive · 4A: perfil, mensaje de estado, sonidos por tipo, emojis y stickers)
+   REQUIERE haber ejecutado ANTES, en este orden, en Supabase (SQL Editor): 57_chat_mensajeria.sql, 57b_chat_funciones.sql y 58_chat_social.sql. Para las tarjetas del CRM (Fase 5) hace falta además 59_chat_crm.sql; sin él todo lo anterior funciona igual.
    Sin la primera el chat avisa «Falta ejecutar 57_chat_mensajeria.sql» y no abre; sin la segunda funcionan las conversaciones de siempre, pero fallan grupos, responder, editar, borrar, reacciones, fijados y favoritos
    (y avisa «Falta ejecutar 57b_chat_funciones.sql»). Sin la tercera todo lo anterior funciona igual; solo fallan perfil, mensaje de estado, stickers y las 16 reacciones nuevas (y avisa «Falta ejecutar 58_chat_social.sql»).
    PEGAR al final del script de index.html, DESPUÉS del bloque 56 y antes del cierre del script (y borrar el bloque 23 viejo).
@@ -9507,7 +9511,9 @@ function ofcCalcular(cat, sel) {
      · selector de emojis con buscador en español, recientes y categorías; 27 stickers que se dibujan en pantalla (no son imágenes); 24 reacciones (8 a un toque y «+» para el resto), hasta 12 distintas por mensaje.
    Fase 4B (archivos): fotos (se reducen solas), PDF, Word, Excel, PowerPoint, texto, CSV, ZIP y notas de voz. Se guardan en TU Google Drive (carpeta «FIBERTEL Chat - archivos») a través del servicio de Apps Script de Ofertas;
    Supabase solo guarda la ficha (nombre, tipo, tamaño, miniatura). Hasta 10 MB por archivo y 100 por persona cada 24 horas. Hace falta haber actualizado OfertasCRM.gs (ver instrucciones en ese archivo).
-   Qué NO hay todavía (llega en las fases siguientes): clientes compartidos, borrar o archivar un grupo entero (pestaña de administración), borrar de verdad del Drive los archivos de mensajes eliminados.
+   Fase 5 (también decidido por la base): compartir una venta o un cliente del CRM en un chat privado o de grupo (la tarjeta guarda solo la referencia; cada persona ve los datos que su usuario ya puede ver en el CRM, nunca DNI, IBAN, correo ni dirección);
+     pedir una revisión en un chat privado (Pendiente · Revisando · Conforme · Con observaciones · Cancelada); convertir un mensaje en tarea del back; pedir ayuda al supervisor; anuncios del administrador (campana + tarjeta en la Sala general).
+   Qué NO hay todavía (llega en las fases siguientes): borrar o archivar un grupo entero (pestaña de administración), borrar de verdad del Drive los archivos de mensajes eliminados.
    El botón flotante sigue llamándose #chat23-btn porque el bloque 48 (notificaciones) lo pulsa al tocar un aviso de chat. */
 (function () {
   if (window.mz57) return;
@@ -9525,7 +9531,7 @@ function ofcCalcular(cat, sel) {
   var REAC_RAP = ['👍', '❤', '😂', '😮', '😢', '🙏', '✅', '👀'];                      // las 8 de siempre, a un toque
   var REAC = REAC_RAP.concat(['👎', '🎉', '🔥', '👏', '💯', '😍', '🤔', '😡', '🤝', '💪', '🙌', '😅', '☕', '🚀', '⭐', '⚠']);   // las 24 permitidas (la base guarda ❤ y ⚠ sin el selector de variante)
   var MAX_REAC = 12;                                                                                      // reacciones distintas por mensaje
-  var CONTENIDO = { TEXTO: 1, STICKER: 1, IMAGEN: 1, AUDIO: 1, ARCHIVO: 1 };                              // tipos de mensaje «con contenido» (se pueden responder, reaccionar y borrar)
+  var CONTENIDO = { TEXTO: 1, STICKER: 1, IMAGEN: 1, AUDIO: 1, ARCHIVO: 1, TARJETA: 1 };                              // tipos de mensaje «con contenido» (se pueden responder, reaccionar y borrar)
   var HUES12 = [172, 188, 204, 226, 258, 286, 318, 344, 14, 30, 46, 140];                                 // los 12 colores del avatar
   var NOM_COLOR = ['Turquesa', 'Cian', 'Azul', 'Índigo', 'Violeta', 'Magenta', 'Rosa', 'Rojo', 'Naranja', 'Ámbar', 'Dorado', 'Verde'];
   var ICONOS_AV = ['😀', '😎', '🦊', '🐼', '🦁', '🐯', '🐱', '🐶', '🚀', '⚡', '🔥', '🌟', '🍀', '🎧', '☕', '💼'];
@@ -9577,7 +9583,7 @@ function ofcCalcular(cat, sel) {
     ['Viajes y lugares', '✈️', '🚗 auto coche;🚕 taxi;🚌 bus;🚆 tren;✈️ avion viaje;🚲 bicicleta;🏖️ playa vacaciones;⛰️ montaña;🏥 hospital;🏦 banco;🏪 tienda;🛒 compras carrito;🗺️ mapa;🧳 maleta equipaje;⛽ gasolina;🚦 semaforo;🕶️ gafas de sol']
   ];
   var T_EDITAR = 15 * 60000, T_BORRAR = 24 * 3600000, MAX_FIJ_MSG = 5, MAX_FIJ_CONV = 5;   // mismos plazos y topes que impone la base (57b)
-  var CAMPOS_MSG = ['cuerpo', 'leido_at', 'entregado_at', 'editado_at', 'borrado_at', 'borrado_por', 'fijado_at', 'fijado_por', 'reacciones', 'responde_cuerpo'];   // lo que puede cambiar en un mensaje ya enviado
+  var CAMPOS_MSG = ['cuerpo', 'leido_at', 'entregado_at', 'editado_at', 'borrado_at', 'borrado_por', 'fijado_at', 'fijado_por', 'reacciones', 'responde_cuerpo', 'crm'];   // lo que puede cambiar en un mensaje ya enviado
 
   /* ================= UTILIDADES ================= */
   function $(i) { return document.getElementById(i); }
@@ -9625,13 +9631,21 @@ function ofcCalcular(cat, sel) {
     demasiados_fijados_msg: 'Ya hay 5 mensajes fijados aquí. Quita uno primero', respuesta_invalida: 'No se puede responder a ese mensaje', conversacion_invalida: 'Esa conversación no existe',
     sticker_invalido: 'Ese sticker no existe', color_invalido: 'Ese color no es válido', duracion_invalida: 'Esa duración no es válida',
     adjunto_invalido: 'No se pudo adjuntar el archivo', archivo_no_permitido: 'Ese tipo de archivo no se puede enviar', archivo_grande: 'El archivo pasa de 10 MB',
-    demasiados_archivos: 'Llegaste al máximo de archivos de hoy (100). Mañana puedes enviar más'
+    demasiados_archivos: 'Llegaste al máximo de archivos de hoy (100). Mañana puedes enviar más',
+    crm_invalido: 'Esa venta o ese cliente no es válido', crm_sin_acceso: 'Con tu usuario no puedes ver ese registro del CRM, así que no se puede compartir',
+    crm_destino_invalido: 'Las ventas y los clientes solo se comparten en un chat privado o en un grupo', demasiadas_tarjetas: 'Compartiste muchas tarjetas seguidas. Espera un poco',
+    revision_solo_privada: 'Las revisiones se piden en un chat privado', revision_ya_abierta: 'Ya hay una revisión abierta de esto con esa persona',
+    revisor_sin_acceso: 'Esa persona no puede ver el registro con su usuario, así que no se le puede pedir revisión', revision_transicion_invalida: 'La revisión ya cambió. Mira cómo quedó en la tarjeta',
+    revision_estado_invalido: 'Ese estado de revisión no es válido', nota_obligatoria: 'Cuéntale qué debe corregir (mínimo 3 letras)',
+    tarea_ya_creada: 'Ya convertiste este mensaje en tarea', no_se_puede_tarea: 'Ese mensaje no se puede convertir en tarea', fecha_invalida: 'Esa fecha límite no es válida (máximo 400 días)',
+    anuncio_repetido: 'Acabas de enviar un anuncio con ese mismo título. Espera un par de minutos', anuncio_sin_titulo: 'Escribe el título del anuncio'
   };
   /* Un corte de red / servidor caído se puede reintentar solo; un rechazo del servidor («chat:…») no. */
   function esRed(e) { var m = String((e && e.message) || e || ''); return !/chat:/.test(m) && /Failed to fetch|NetworkError|Load failed|network|tiempo agotado|timeout|timed out|50[234]|Bad Gateway|Service Unavailable|Gateway Time/i.test(m); }
   function msgE(e) {
     var m = String((e && e.message) || e || ''), c = String((e && e.code) || '');
     var k = /chat:([a-z_]+)/.exec(m); if (k && ERR_CHAT[k[1]]) return ERR_CHAT[k[1]];
+    if (/PGRST202|PGRST205|42883|42P01|42703/.test(c + ' ' + m) && /chat_crm_|chat_revision|chat_mensaje_a_tarea|chat_anunciar|chat_tareas/.test(m)) return 'Falta ejecutar 59_chat_crm.sql en Supabase';
     if (/PGRST202|PGRST205|42883|42P01|42703/.test(c + ' ' + m) && /chat_perfiles|chat_avatar_set|chat_mensaje_estado_set|chat_adjuntos_cfg|chat_puede_adjuntar|chat_adjunto_ok|chat_archivos|avatar_color|avatar_emoji|mensaje_hasta|mensaje_estado|p_adjunto|adjunto/.test(m)) return 'Falta ejecutar 58_chat_social.sql en Supabase';
     if (/PGRST202|PGRST205|42883|42P01/.test(c + ' ' + m)) return /chat_grupo|chat_miembros|chat_editar|chat_borrar|chat_reaccionar|chat_fijar|chat_conv_ajustes|p_responde_a|responde_a|reacciones|editado_at|borrado_at/.test(m) ? 'Falta ejecutar 57b_chat_funciones.sql en Supabase' : 'Falta ejecutar 57_chat_mensajeria.sql en Supabase';
     if (esRed(e)) return 'No hay conexión con el servidor';
@@ -9690,7 +9704,8 @@ function ofcCalcular(cat, sel) {
       cargadoEn: 0, general: null, latido: null, entregaT: null, refrescaT: null, colaT: null, colaOn: false, cargandoMas: false,
       grupos: {}, cfg: {}, fij: {}, fijIdx: {}, miembros: {}, miembrosCarga: {}, miembrosErr: {}, resp: null, edit: null, pop: null, modal: null, salida: null,
       perf: {}, sinSocial: false, perfT: null, perfUlt: 0, emoQ: '', emoTab: 'emo', emoRec: [], stkRec: [],
-      adj: null, adjP: null, adjN: 0, band: {}, arch: {}, bl: {}, bajando: {}, xhr: {}, lb: null, aud: null, rec2: null, vel: 1, subQ: null, dragN: 0, grabPidiendo: false };
+      adj: null, adjP: null, adjN: 0, band: {}, arch: {}, bl: {}, bajando: {}, xhr: {}, lb: null, aud: null, rec2: null, vel: 1, subQ: null, dragN: 0, grabPidiendo: false,
+      crm: {}, sinCrm: false, backs: null, tarea: {} };
   }
   function cargaPrefs() {
     var p = {}; try { p = JSON.parse(lsGet('crm_chat_prefs_' + me.id) || '{}') || {}; } catch (e) { p = {}; }
@@ -10334,8 +10349,76 @@ function ofcCalcular(cat, sel) {
     }
     return out;
   }
+  /* Fase 5: tarjetas del CRM, revisiones y ventanas nuevas */
+  var CSS_CRM = [
+    '.mz-b.crm{width:min(100%,390px);padding:10px 12px 6px}',
+    '.mz-g.yo .mz-b.crm,.mz-g.el .mz-b.crm{background:var(--card);color:var(--ink);border:1px solid var(--mz-borde-tinte);box-shadow:0 1px 2px rgba(10,30,40,.06)}',
+    '.mz-g.yo .mz-b.crm{border-color:color-mix(in srgb,var(--acc) 38%,var(--line2));border-bottom-right-radius:6px}',
+    '.mz-g.yo:not(.prim) .mz-b.crm{border-top-right-radius:6px}',
+    '.mz-g.yo .mz-b.crm .mz-mt,.mz-g.yo .mz-b.crm .mz-nm{color:var(--mz-meta)}',
+    '.mz-g.yo .mz-b.crm .mz-q{background:color-mix(in srgb,var(--acc) 10%,var(--card));border-left-color:var(--acc);color:var(--ink)}',
+    '.mz-g.yo .mz-b.crm .mz-q b{color:var(--acc)}',
+    '.mz-g.yo .mz-b.crm .mz-q span{color:var(--mz-meta)}',
+    '.mz-g.yo.fallo .mz-b.crm{background:var(--bad-bg);border-color:color-mix(in srgb,var(--bad) 50%,transparent)}',
+    '.mz-cd{display:grid;gap:8px;min-width:0}',
+    '.mz-cdh{display:flex;align-items:flex-start;gap:10px}',
+    '.mz-cdi{flex:none;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:var(--mz-grad);color:var(--on-acc)}',
+    '.mz-cd.anuncio .mz-cdi{background:linear-gradient(135deg,#b45309,#d97706);color:#fff}',
+    '.mz-cd.anuncio.urg .mz-cdi{background:linear-gradient(135deg,#b3261e,#dc2626);color:#fff}',
+    '.mz-cdt{flex:1;min-width:0;display:grid;gap:1px}',
+    '.mz-cdt small{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--mz-meta)}',
+    '.mz-cdt b{font-size:15px;font-weight:800;line-height:1.25;overflow-wrap:anywhere}',
+    '.mz-cdm{font-size:12.5px;line-height:1.4;color:var(--mz-meta);overflow-wrap:anywhere}',
+    '.mz-cdl{list-style:none;margin:0;padding:0;display:grid;gap:4px}',
+    '.mz-cdl li{display:flex;align-items:center;gap:8px;min-width:0;padding:5px 8px;border-radius:9px;background:var(--mz-tinte);font-size:13px}',
+    '.mz-cdl .p{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.mz-cdl li.mas{padding:0 2px;background:none;color:var(--mz-meta);font-size:12.5px}',
+    '.mz-cl{display:inline-flex;align-items:center;gap:4px;flex:none;max-width:100%;padding:2px 9px;border-radius:99px;border:1px solid transparent;font-size:11.5px;font-weight:700;font-style:normal;line-height:1.5;white-space:nowrap}',
+    '.mz-cl.ACT,.mz-cl.CONFORME{background:var(--ok-bg);color:color-mix(in srgb,var(--ok) 80%,var(--ink));border-color:color-mix(in srgb,var(--ok) 30%,transparent)}',
+    '.mz-cl.TRA,.mz-cl.EN_REVISION{background:var(--info-bg);color:color-mix(in srgb,var(--info) 80%,var(--ink));border-color:color-mix(in srgb,var(--info) 30%,transparent)}',
+    '.mz-cl.INC,.mz-cl.PENDIENTE,.mz-cl.CON_OBSERVACIONES{background:var(--warn-bg);color:color-mix(in srgb,var(--warn) 78%,var(--ink));border-color:color-mix(in srgb,var(--warn) 32%,transparent)}',
+    '.mz-cl.CAI{background:var(--bad-bg);color:color-mix(in srgb,var(--bad) 80%,var(--ink));border-color:color-mix(in srgb,var(--bad) 30%,transparent)}',
+    '.mz-cl.neutro,.mz-cl.CANCELADA{background:var(--mz-tinte);color:var(--mz-meta);border-color:var(--mz-borde-tinte)}',
+    '.mz-cdn{padding:7px 10px;border-radius:10px;border-left:3px solid var(--acc);background:color-mix(in srgb,var(--acc) 8%,var(--card));font-size:13.5px;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}',
+    '.mz-cda{display:flex;flex-wrap:wrap;gap:6px}',
+    '.mz-cb{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:9px;border:1px solid color-mix(in srgb,var(--acc) 40%,var(--line2));background:var(--card);color:color-mix(in srgb,var(--acc) 80%,var(--ink));font-size:12.5px;font-weight:700;white-space:nowrap}',
+    '.mz-cb:hover{background:var(--mz-hover)}',
+    '.mz-cb.pri{background:var(--mz-grad);color:var(--on-acc);border-color:transparent}',
+    '.mz-cb.pri:hover{filter:brightness(1.07)}',
+    '.mz-cb:disabled{opacity:.55;cursor:default}',
+    '.mz-cdk{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.4;color:var(--mz-meta)}',
+    '.mz-cdk .mz-ic{margin-top:1px}',
+    '.mz-cd.lock .mz-cdi{background:var(--mz-tinte);color:var(--mz-meta)}',
+    '.mz-cd.carga .mz-cdi{opacity:.6}',
+    '.mz-cds{display:grid;gap:6px}',
+    '.mz-cds i{display:block;height:11px;border-radius:99px;background:linear-gradient(90deg,var(--line) 25%,color-mix(in srgb,var(--line) 40%,var(--card)) 50%,var(--line) 75%);background-size:200% 100%;animation:mz-brillo 1.4s linear infinite}',
+    '.mz-cds i+i{width:70%}',
+    '.mz-rv{display:grid;gap:7px;padding:8px 10px;border-radius:12px;background:var(--mz-tinte);border:1px solid var(--mz-borde-tinte)}',
+    '.mz-rvh{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px}',
+    '.mz-rvh .q{font-size:12.5px;color:var(--mz-meta)}',
+    '.mz-rvr{font-size:13px;line-height:1.4;overflow-wrap:anywhere}',
+    '.mz-cres{max-height:240px;overflow-y:auto;border:1px solid var(--line);border-radius:14px;background:var(--bg);margin-bottom:12px}',
+    '.mz-cr{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border-bottom:1px solid var(--line);text-align:left}',
+    '.mz-cr:last-child{border-bottom:0}',
+    '.mz-cr:hover{background:var(--mz-hover)}',
+    '.mz-cr[aria-checked=true]{background:color-mix(in srgb,var(--acc) 12%,var(--card));box-shadow:inset 3px 0 0 var(--acc)}',
+    '.mz-cr .n{flex:1;min-width:0;display:grid}',
+    '.mz-cr .n b{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.mz-cr .n small{font-size:12px;color:var(--mz-meta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.mz-cwarn{display:flex;align-items:flex-start;gap:8px;margin:0 0 12px;padding:8px 12px;border-radius:12px;background:var(--warn-bg);color:color-mix(in srgb,var(--warn) 78%,var(--ink));font-size:13px;font-weight:600;line-height:1.4}',
+    '.mz-cwarn .mz-ic{margin-top:1px}',
+    '.mz-chk{display:flex;align-items:flex-start;gap:10px;margin:0 0 12px;font-size:13.5px;line-height:1.4;cursor:pointer}',
+    '.mz-chk input{width:18px;height:18px;accent-color:var(--acc);flex:none;margin-top:1px}',
+    '.mz-cnota{margin:0 0 6px;font-size:12px;line-height:1.45;color:var(--mz-meta)}',
+    '.mz-roles{margin:0 0 10px;padding:10px 12px 2px;border:1px solid var(--line);border-radius:14px}',
+    '.mz-roles legend{padding:0 6px;font-size:12.5px;font-weight:700;color:var(--mz-meta)}',
+    '.mz-hist{list-style:none;margin:6px 0 10px;padding:0;display:grid;gap:8px}',
+    '.mz-hist li{padding:8px 10px;border-radius:10px;background:var(--mz-tinte);font-size:13px;line-height:1.4}',
+    '.mz-hist li span{color:var(--mz-meta)}',
+    '@media(max-width:699px){.mz-b.crm{width:100%}.mz-cb{height:34px}}'
+  ].join('\n');
   var estilo = document.createElement('style'); estilo.id = 'mz57-css';
-  estilo.textContent = CSS_KEYS + CSS_GLOBAL + ambito(CSS_DENTRO);
+  estilo.textContent = CSS_KEYS + CSS_GLOBAL + ambito(CSS_DENTRO + '\n' + CSS_CRM);
   document.head.appendChild(estilo);
 
   /* ================= DATOS ================= */
@@ -10641,6 +10724,7 @@ function ofcCalcular(cat, sel) {
       case 'IMAGEN': return '📷 ' + (m.cuerpo && m.cuerpo !== 'Foto' ? m.cuerpo : 'Foto');
       case 'AUDIO': return '🎤 Nota de voz';
       case 'ARCHIVO': return '📎 ' + (m.cuerpo || 'Archivo');
+      case 'TARJETA': return crmIcono(m) + crmTitulo(m);
       default: return String(m.cuerpo || '');
     }
   }
@@ -10651,6 +10735,7 @@ function ofcCalcular(cat, sel) {
       case 'IMAGEN': return 'Foto';
       case 'AUDIO': return 'Nota de voz';
       case 'ARCHIVO': return 'Archivo: ' + (m.cuerpo || '');
+      case 'TARJETA': return crmTitulo(m);
       default: return String(m.cuerpo || '').replace(/\s+/g, ' ').slice(0, 140);
     }
   }
@@ -10841,6 +10926,7 @@ function ofcCalcular(cat, sel) {
         '<div class="mz-emn" id="mz-emn" role="group" aria-label="Categorías de emojis"></div><div class="mz-emb" id="mz-emb" role="tabpanel" tabindex="-1"></div></div>' +
       '<div class="mz-caja" id="mz-caja"><button type="button" class="mz-ib" id="mz-emob" data-a="emo" aria-label="Emojis y stickers" title="Emojis y stickers" aria-expanded="false" aria-haspopup="true">' + ic(IC.cara) + '</button>' +
       (off ? '' : '<button type="button" class="mz-ib" id="mz-clip" data-a="adjuntar" aria-label="Adjuntar foto o archivo" title="Adjuntar foto o archivo">' + ic(IC.clip) + '</button>') +
+      (off ? '' : btnCrm(k)) +
       (comp || off ? '' : '<button type="button" class="mz-ib mz-bz" id="mz-bz" data-a="zumbido" aria-label="Enviar zumbido" title="Enviar zumbido (llama la atención de ' + esc(nombreDe(k)) + ')">' + ic(IC.campana) + '<span class="cd" id="mz-cd" hidden></span></button>') +
       '<label class="mz-sr" for="mz-in">Escribe un mensaje</label><textarea id="mz-in" rows="1" maxlength="' + MAXLEN + '"' + (off ? ' disabled' : '') + ' data-minus autocomplete="off" placeholder="' + (off ? 'Esta persona ya no está activa' : k === GEN ? 'Escribe a todo el equipo…' : g ? (g.tipo === 'CANAL' ? 'Publica en el canal…' : 'Escribe al grupo…') : 'Escribe un mensaje…') + '"></textarea>' +
       (off ? '' : '<button type="button" class="mz-ib mz-mic" id="mz-mic" data-a="grabar" aria-label="Grabar nota de voz" title="Grabar nota de voz">' + ic(IC.mic) + '</button>') +
@@ -10931,6 +11017,7 @@ function ofcCalcular(cat, sel) {
   function htmlCuerpo(m, q) {
     if (m.tipo === 'STICKER') return htmlSticker(m.cuerpo);
     if (m.tipo === 'IMAGEN' || m.tipo === 'AUDIO' || m.tipo === 'ARCHIVO') return htmlAdjunto(m, q);
+    if (m.tipo === 'TARJETA') return (esCard(m) || esAnuncio(m)) ? htmlTarjeta(m, q) : '<div class="mz-t">' + esc(m.cuerpo || 'Tarjeta') + '</div>';
     return '<div class="mz-t">' + textoHtml(m.cuerpo, q) + '</div>';
   }
   function htmlMsgs() {
@@ -10955,7 +11042,7 @@ function ofcCalcular(cat, sel) {
       var fin = !sig || sig.de !== m.de || sig.tipo === 'ZUMBIDO' || sig.tipo === 'SISTEMA' || Date.parse(sig.created_at) - t > 300000 || !mismoDia(m.created_at, sig.created_at) || C.divisor[k] === sig.id;
       h += '<div class="mz-g ' + (yo ? 'yo' : 'el') + (prim ? ' prim' : '') + (fin ? ' ult' : '') + (m._est === 'error' ? ' fallo' : '') + (C.fresh[m.id] ? ' mz-pop' : '') + '" id="mz-m-' + mid + '"' + (real && !del ? ' data-mid="' + mid + '" tabindex="-1"' : '') + '>';
       if (!yo) h += fin ? av(m.de, nombreDe(m.de), 30, false) : '<span class="mz-sp"></span>';
-      h += '<div class="mz-b' + (del ? ' del' : '') + (m.tipo === 'STICKER' && !del ? ' stk' : '') + '">' + (!yo && comp && prim ? '<span class="mz-nm">' + esc(nombreDe(m.de)) + '</span>' : '');
+      h += '<div class="mz-b' + (del ? ' del' : '') + (m.tipo === 'STICKER' && !del ? ' stk' : '') + (m.tipo === 'TARJETA' && !del ? ' crm' : '') + '">' + (!yo && comp && prim ? '<span class="mz-nm">' + esc(nombreDe(m.de)) + '</span>' : '');
       if (del) h += '<div class="mz-t">' + esc(textoBorrado(m)) + '</div>';
       else h += (m.responde_a ? htmlCita(m) : '') + htmlCuerpo(m, q) + htmlReac(m);
       h += '<div class="mz-mt">' + (m.fijado_at && !del ? '<span class="mz-pinm" title="Mensaje fijado">' + ic(IC.pin, 13) + '<span class="mz-sr">Fijado</span></span>' : '') + (m.editado_at && !del ? '<span class="mz-ed">editado</span>' : '') +
@@ -10981,7 +11068,7 @@ function ofcCalcular(cat, sel) {
       var el = $('mz-m-' + C.resaltar); C.resaltar = null;
       if (el) { try { el.scrollIntoView({ block: 'center' }); } catch (e) { } el.classList.add('mz-flash'); setTimeout(function () { el.classList.remove('mz-flash'); }, 1300); }
     }
-    pintaFijados(); actualizaAbajo(); pintaAudios();
+    pintaFijados(); actualizaAbajo(); pintaAudios(); crmPide();
   }
   function actualizaAbajo() {
     var b = $('mz-ms'), p = $('mz-abajo'); if (!b || !p) return;
@@ -11141,7 +11228,7 @@ function ofcCalcular(cat, sel) {
   function colaAgrega(tmp, key) {
     if (tmp._arch) return;
     var x = { client_id: tmp.client_id, key: key, cuerpo: tmp.cuerpo, created_at: tmp.created_at };
-    if (tmp.tipo && tmp.tipo !== 'TEXTO') x.tp = tmp.tipo;                     // los stickers se reenvían como stickers
+    if (tmp.tipo && tmp.tipo !== 'TEXTO') x.tp = tmp.tipo; if (tmp.crm) x.crm = tmp.crm;                     // los stickers se reenvían como stickers
     if (esGrupo(key)) x.cv = key;                                                  // los de un grupo recuerdan a qué conversación van
     if (tmp.responde_a) { x.ra = tmp.responde_a; x.rd = tmp.responde_de; x.rc = tmp.responde_cuerpo; }
     C.cola.push(x); colaGuarda();
@@ -11153,6 +11240,7 @@ function ofcCalcular(cat, sel) {
     C.cola.forEach(function (x) {
       var tmp = { id: 'tmp-q-' + x.client_id, client_id: x.client_id, de: me.id, para: (x.key === GEN || x.cv) ? null : x.key, conversacion_id: x.cv || null, tipo: CONTENIDO[x.tp] ? x.tp : 'TEXTO', cuerpo: x.cuerpo, leido_at: null, entregado_at: null, created_at: x.created_at, _est: 'error', _red: true, _viejo: true };
       if (x.ra) { tmp.responde_a = x.ra; tmp.responde_de = x.rd || null; tmp.responde_cuerpo = x.rc == null ? null : x.rc; }
+      if (x.crm && typeof x.crm === 'object') tmp.crm = x.crm;
       agrega(x.key, tmp); anotaReciente(tmp);
     });
   }
@@ -11235,6 +11323,7 @@ function ofcCalcular(cat, sel) {
     var args = { p_conversacion: C.convId[key] || (esGrupo(key) ? key : null), p_para: compartida(key) ? null : key, p_cuerpo: tmp.cuerpo, p_client_id: tmp.client_id, p_tipo: tmp.tipo || 'TEXTO' };
     if (tmp.responde_a) args.p_responde_a = tmp.responde_a;                      // solo se manda si es una respuesta: así lo demás funciona aunque falte ejecutar 57b
     if (tmp.adjunto && tmp._arch) args.p_adjunto = adjSrv(tmp.adjunto);
+    if (tmp.tipo === 'TARJETA' && tmp.crm) { args.p_adjunto = { t: tmp.crm.t, ref: tmp.crm.ref }; args.p_cuerpo = tmp.crm.nota || ''; }   // la tarjeta lleva solo la referencia; la nota va como texto
     var r = await llama('chat_enviar', args);
     var l = C.msgs[key] || [], i = -1; for (var k = 0; k < l.length; k++) if (l[k].client_id === tmp.client_id) { i = k; break; }
     var d = r.data && r.data.mensaje;
@@ -11244,6 +11333,7 @@ function ofcCalcular(cat, sel) {
       tmp._est = 'error'; tmp._red = red; tmp._msg = red ? '' : msgE(r.error); tmp._n = (tmp._n || 0) + 1;
       if (!red && tmp.tipo === 'STICKER' && /chat:tipo_invalido/.test(String(r.error && r.error.message))) tmp._msg = 'Falta ejecutar 58_chat_social.sql en Supabase para enviar stickers';
       if (!red && tmp._arch && /chat:tipo_invalido|PGRST202|42883/.test(String(r.error && (r.error.message || r.error.code)))) tmp._msg = 'Falta ejecutar 58_chat_social.sql en Supabase para enviar archivos';
+      if (!red && tmp.tipo === 'TARJETA' && /chat:tipo_invalido|PGRST202|42883/.test(String(r.error && (r.error.message || r.error.code)))) tmp._msg = 'Falta ejecutar 59_chat_crm.sql en Supabase para compartir ventas y clientes';
       if (/chat:respuesta_invalida/.test(String(r.error && r.error.message))) { tmp._msg = 'El mensaje al que respondías ya no está. Al reintentar se envía sin cita.'; tmp.responde_a = null; tmp.responde_de = null; tmp.responde_cuerpo = null; }
       if (red && !tmp._arch) programaCola(Math.min(5000 * Math.pow(2, tmp._n - 1), 60000)); else colaQuita(tmp.client_id);
       if (C.peer === key) pintaMsgs({ fuerza: true });
@@ -11298,7 +11388,7 @@ function ofcCalcular(cat, sel) {
       if (C.pref.sacudir) sacude($('mz'));
       anuncia(quien + ' te envió un zumbido');
     } else if (!pasivo() && !callada) {
-      if (!viendo) {
+      if (!viendo && !esAnuncio(m)) {   // los anuncios ya suenan por la campana del CRM: aquí solo aparece la tarjeta
         sonidoMsg(false, peer);
         aviso('💬 ' + quien + (C.pref.avisoTexto ? ': ' + etiquetaTipo(m).slice(0, 60) : ' te escribió'));
         var f = $('chat23-btn'); if (f && anim('animRecibir')) { f.classList.remove('mz-pulso'); void f.offsetWidth; f.classList.add('mz-pulso'); setTimeout(function () { f.classList.remove('mz-pulso'); }, 2600); }
@@ -11465,6 +11555,8 @@ function ofcCalcular(cat, sel) {
         if (puedeEscribir(k)) h += itemPop('responder', IC.responder, 'Responder', id);
         if (m.tipo === 'TEXTO') h += itemPop('copiar', IC.copiar, 'Copiar texto', id);
         if (m.adjunto && m.adjunto.id && !m._est && !m.borrado_at) h += itemPop('descarga', IC.descarga, 'Descargar', id);
+        if (crmVisible(m) && m.crm.t === 'VENTA' && !m._est) h += itemPop('crm-copiar', IC.copiar, 'Copiar código de la venta', id);
+        if (esRolBack() && (m.tipo === 'TEXTO' || esTarjeta(m)) && !m._est) h += itemPop('atarea', IC.tarea, 'Convertir en tarea', id);
         if (puedeEditar(m)) h += itemPop('editar', IC.lapiz, 'Editar', id);
         if (puedeFijarMsg(k) && m.tipo !== 'STICKER') h += itemPop('fijarmsg', IC.pin, m.fijado_at ? 'Quitar de fijados' : 'Fijar mensaje', id + ' data-v="' + (m.fijado_at ? 0 : 1) + '"');
         if (puedeBorrar(k, m)) h += itemPop('borrar', IC.papelera, 'Eliminar', id, 'peligro');
@@ -11477,6 +11569,9 @@ function ofcCalcular(cat, sel) {
       h += itemPop('conv-aj', IC.mudo, cf.silenciado ? 'Activar avisos y sonidos' : 'Silenciar', at + ' data-campo="silenciado" data-v="' + (cf.silenciado ? 0 : 1) + '"');
       if (n > 0) h += itemPop('conv-leida', IC.ok, 'Marcar como leída', at);
       P.setAttribute('aria-label', 'Opciones de ' + nombreConv(k));
+    } else if (p.tipo === 'crm') {
+      itemsCrm(k).forEach(function (x) { h += itemPop(x[0], x[1], x[2]); });
+      P.setAttribute('aria-label', 'Compartir, ayuda y anuncios');
     } else if (p.tipo === 'miembro') {
       var g = C.grupos[k], mb = (C.miembros[k] || []).filter(function (x) { return x.id === p.id; })[0];
       if (!g || !mb) { C.pop = null; P.hidden = true; P.innerHTML = ''; return; }
@@ -11631,13 +11726,15 @@ function ofcCalcular(cat, sel) {
       cuerpo = '<div class="mz-fld"><label for="mz-gn">Nombre</label><input id="mz-gn" data-minus autocomplete="off" maxlength="60"></div>' +
         '<div class="mz-fld"><label for="mz-gd">Descripción <span class="op">(opcional)</span></label><textarea id="mz-gd" data-minus rows="3" maxlength="200"></textarea></div>';
     } else if (t === 'perfil') { titulo = 'Tu perfil'; ok = 'Guardar'; cuerpo = htmlPerfil(M); }
+    else { var mc = modalCrm(M); if (mc) { titulo = mc.titulo; ok = mc.ok; cuerpo = mc.cuerpo; } }
     O.innerHTML = '<div class="mz-card" role="dialog" aria-modal="true" aria-labelledby="mz-mt1"><div class="hd"><h3 id="mz-mt1">' + esc(titulo) + '</h3><button type="button" class="mz-ib" data-a="mod-cerrar" aria-label="Cerrar" title="Cerrar">' + ic(IC.x) + '</button></div>' +
       '<div class="body">' + cuerpo + '<p class="mz-err2" id="mz-gerr" role="alert" hidden></p></div>' +
-      '<div class="ft"><button type="button" class="mz-btn sec" data-a="mod-cerrar">Cancelar</button><button type="button" class="mz-btn' + (M.peligro ? ' peligro' : '') + '" id="mz-mok" data-a="mod-ok" data-ok="' + esc(ok) + '">' + esc(ok) + '</button></div></div>';
+      '<div class="ft"><button type="button" class="mz-btn sec" data-a="mod-cerrar">' + (M.solo ? 'Cerrar' : 'Cancelar') + '</button>' + (M.solo ? '' : '<button type="button" class="mz-btn' + (M.peligro ? ' peligro' : '') + '" id="mz-mok" data-a="mod-ok" data-ok="' + esc(ok) + '">' + esc(ok) + '</button>') + '</div></div>';
     O.hidden = false;
     var n = $('mz-gn'), d = $('mz-gd'); if (n) n.value = M.nombre || ''; if (d) d.value = M.desc || '';
     if (t === 'grupo' || t === 'miembros') pintaModalPersonas();
     if (t === 'perfil') actualizaPerfil();
+    modalCrmPost(M);
     actualizaModalBtn();
   }
   function actualizaModalBtn() {
@@ -11647,6 +11744,7 @@ function ofcCalcular(cat, sel) {
     else if (M.tipo === 'miembros') { listo = n >= 1; etiqueta = n ? 'Añadir ' + n + (n === 1 ? ' persona' : ' personas') : 'Añadir'; }
     else if (M.tipo === 'editar') { var g = C.grupos[M.key] || {}; listo = nombreOk && ((M.nombre || '').trim() !== g.nombre || (M.desc || '').trim() !== (g.descripcion || '')); }
     if (M.tipo === 'perfil') { var cbp = cambiosPerfil(M); listo = (cbp.av || cbp.msg) && cbp.txt.length <= 80; etiqueta = 'Guardar'; }
+    var mb2 = modalCrmBtn(M); if (mb2) { listo = mb2.listo; etiqueta = mb2.etiqueta; }
     var c = $('mz-gcount'); if (c) c.textContent = n + (n === 1 ? ' persona elegida' : ' personas elegidas');
     b.disabled = !listo || !!M.enviando; b.textContent = M.enviando ? 'Un momento…' : etiqueta;
     var e = $('mz-gerr'); if (e) { var t2 = M.err || aviso2; e.textContent = t2; e.hidden = !t2; }
@@ -11680,6 +11778,7 @@ function ofcCalcular(cat, sel) {
       else if (M.tipo === 'miembros') res = await agregaMiembros(M);
       else if (M.tipo === 'editar') res = await editaGrupo(M);
       else if (M.tipo === 'perfil') res = await guardaPerfil(M);
+      else res = await okModalCrm(M);
     } catch (e) { console.error(e); M.err = 'Error inesperado'; }
     if (C.modal !== M) return;
     M.enviando = false;
@@ -11821,6 +11920,7 @@ function ofcCalcular(cat, sel) {
       var e = await cargaConv(k);
       if (!e && C.peer === k) { if (!document.hidden) marca(k); pintaMsgs(); pintaInfo(); }
     }
+    crmPide();
     pintaLista();
   }
   function suscribir() {
@@ -11906,7 +12006,21 @@ function ofcCalcular(cat, sel) {
     aviso(a && a.falta ? 'Falta ejecutar 58_chat_social.sql en Supabase' : a && a.red ? 'No se pudo comprobar el servicio de archivos. Revisa tu conexión' : 'Los archivos todavía no están activados. El administrador debe pegar la dirección del servicio en Ofertas → Ajustes (es la misma de las ofertas)', true);
     return false;
   }
-  /* Llamada al servicio de Apps Script con la sesión de la persona. Se usa XMLHttpRequest para poder enseñar el avance de la subida. */
+  /* Cuando la llamada al servicio falla sin respuesta no se sabe por qué: se mira si el equipo tiene internet, si Google contesta y si el servicio es público. */
+  function diagnosticaRed(url) {
+    return new Promise(function (res) {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) { res({ codigo: 'RED', red: true, error: 'Tu equipo no tiene internet ahora mismo.' }); return; }
+      var fin = false, ctl = typeof AbortController === 'function' ? new AbortController() : null, t = null;
+      var listo = function (d) { if (fin) return; fin = true; clearTimeout(t); res(d); };
+      t = setTimeout(function () { if (ctl) { try { ctl.abort(); } catch (e) { } } listo({ codigo: 'RED', red: true, error: 'Sin conexión con el servicio de archivos.' }); }, 6000);
+      try {
+        fetch(url, { method: 'GET', mode: 'no-cors', cache: 'no-store', credentials: 'omit', signal: ctl ? ctl.signal : undefined }).then(
+          function () { listo({ codigo: 'SERVICIO', red: false, error: 'Google contestó, pero el CRM no pudo leer la respuesta. El administrador debe revisar la implementación del servicio: acceso «Cualquier persona» y publicada como «Nueva versión».' }); },
+          function () { listo({ codigo: 'RED', red: true, error: 'Sin conexión con el servicio de archivos. Revisa tu internet o si algún bloqueador o antivirus impide entrar a script.google.com.' }); });
+      } catch (e) { listo({ codigo: 'RED', red: true, error: 'Sin conexión con el servicio de archivos.' }); }
+    });
+  }
+  /* Llamada al servicio de Apps Script con la sesión de la persona (XMLHttpRequest, sin oyentes de subida: ver la nota dentro). */
   function llamaArchivo(accion, datos, o) {
     o = o || {};
     return new Promise(async function (res) {
@@ -11918,14 +12032,21 @@ function ofcCalcular(cat, sel) {
       var x = new XMLHttpRequest(), cuerpo;
       try { cuerpo = JSON.stringify(Object.assign({ accion: accion, jwt: jwt }, datos || {})); } catch (e) { res({ ok: false, codigo: 'DATOS', error: 'No se pudo preparar el archivo.' }); return; }
       x.open('POST', cfg.url, true); x.setRequestHeader('Content-Type', 'text/plain;charset=utf-8'); x.timeout = o.ms || 180000;
-      if (o.progreso && x.upload) x.upload.onprogress = function (ev) { if (ev.lengthComputable && ev.total) o.progreso(ev.loaded / ev.total); };
+      // OJO: no se puede escuchar x.upload.onprogress. En una llamada a otro dominio eso obliga al navegador a pedir un «permiso previo» (OPTIONS) que Apps Script no contesta,
+      // y la subida fallaba siempre. El avance que se muestra es una estimación por tiempo (nunca llega al 100 % hasta que Google confirma).
+      var sim = null;
+      if (o.progreso) {
+        var t0 = Date.now(), est = Math.max(2500, cuerpo.length / 250);   // ≈ 250 KB por segundo
+        sim = setInterval(function () { o.progreso(Math.min(0.92, (1 - Math.exp(-(Date.now() - t0) / est)) * 0.92)); }, 300);
+      }
+      x.onloadend = function () { if (sim) { clearInterval(sim); sim = null; } };
       x.onload = function () {
         var j = null; try { j = JSON.parse(x.responseText); } catch (e) { }
         if (x.status >= 500 || x.status === 429) { res({ ok: false, codigo: 'RED', red: true, error: 'El servicio de archivos no está disponible ahora mismo.' }); return; }
         if (!j || typeof j !== 'object') { res({ ok: false, codigo: 'SERVICIO', error: 'El servicio de archivos no respondió como se esperaba. Avisa al administrador: la implementación debe tener acceso «Cualquier persona» y estar publicada como «Nueva versión».' }); return; }
         res(j);
       };
-      x.onerror = function () { res({ ok: false, codigo: 'RED', red: true, error: 'Sin conexión con el servicio de archivos.' }); };
+      x.onerror = function () { diagnosticaRed(cfg.url).then(function (d) { res({ ok: false, codigo: d.codigo, red: d.red, error: d.error }); }); };
       x.ontimeout = function () { res({ ok: false, codigo: 'RED', red: true, error: 'El servicio tardó demasiado.' }); };
       x.onabort = function () { res({ ok: false, codigo: 'RED', red: false, error: 'Cancelado.' }); };
       if (o.id) { C.xhr = C.xhr || {}; C.xhr[o.id] = x; }
@@ -12123,8 +12244,8 @@ function ofcCalcular(cat, sel) {
   function actualizaProgreso(tmp) {
     var el = $('mz-m-' + tmp.id); if (!el) return;
     var p = ringPct(tmp), r = el.querySelector('.mz-up'), b = el.querySelector('.mz-pb');
-    if (r) { r.style.setProperty('--p', p); var t = r.querySelector('b'); if (t) t.textContent = p + '%'; r.setAttribute('aria-valuenow', p); }
-    if (b) { b.style.setProperty('--p', p); b.setAttribute('aria-valuenow', p); var s = b.querySelector('span'); if (s) s.textContent = tmp._subido ? 'Enviando…' : 'Subiendo ' + p + '%'; }
+    if (r) { r.style.setProperty('--p', p); r.setAttribute('aria-valuenow', p); }
+    if (b) { b.style.setProperty('--p', p); b.setAttribute('aria-valuenow', p); var s = b.querySelector('span'); if (s) s.textContent = tmp._subido ? 'Enviando…' : 'Subiendo…'; }
   }
   async function subeArchivo(key, tmp) {
     var it = tmp._arch, b64;
@@ -12148,8 +12269,8 @@ function ofcCalcular(cat, sel) {
     if (!c || c === defectoCuerpo(m.tipo, a.nombre || '')) return '';
     return c;
   }
-  function ringHtml(m) { var p = ringPct(m); return '<span class="mz-up" role="progressbar" aria-label="Subiendo la foto" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + p + '" style="--p:' + p + '"><b>' + p + '%</b></span>'; }
-  function pbHtml(m) { var p = ringPct(m); return '<div class="mz-pb" role="progressbar" aria-label="Subiendo el archivo" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + p + '" style="--p:' + p + '"><i></i><span>' + (m._subido ? 'Enviando…' : 'Subiendo ' + p + '%') + '</span></div>'; }
+  function ringHtml(m) { var p = ringPct(m); return '<span class="mz-up" role="progressbar" aria-label="Subiendo la foto" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + p + '" style="--p:' + p + '"><b></b></span>'; }
+  function pbHtml(m) { var p = ringPct(m); return '<div class="mz-pb" role="progressbar" aria-label="Subiendo el archivo" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + p + '" style="--p:' + p + '"><i></i><span>' + (m._subido ? 'Enviando…' : 'Subiendo…') + '</span></div>'; }
   function onda(a) {
     var pk = Array.isArray(a.peaks) && a.peaks.length ? a.peaks : null, n = pk ? pk.length : 36, h = '';
     for (var i = 0; i < n; i++) h += '<i style="height:' + (pk ? Math.max(10, Math.min(100, +pk[i] || 10)) : 34 + ((i * 37) % 5) * 6) + '%"></i>';
@@ -12465,7 +12586,7 @@ function ofcCalcular(cat, sel) {
     var t = e.target;
     if (C.emo && !t.closest('#mz-emo') && !t.closest('#mz-emob')) cierraEmo();
     if (C.menu && !t.closest('#mz-menu') && !t.closest('#mz-st')) menuEstado(false);
-    if (C.pop && !t.closest('#mz-pop') && !t.closest('[data-a="msgmenu"],[data-a="menuconv"],[data-a="menumiembro"]')) cierraPop();
+    if (C.pop && !t.closest('#mz-pop') && !t.closest('[data-a="msgmenu"],[data-a="menuconv"],[data-a="menumiembro"],[data-a="crmmenu"]')) cierraPop();
     var b = t.closest('[data-a]');
     if (!b) {   // en pantallas táctiles no hay «pasar el ratón»: tocar el globo de un mensaje abre sus acciones
       var gl = t.closest('.mz-b'), fila = gl && gl.closest('.mz-g[data-mid]');
@@ -12474,6 +12595,7 @@ function ofcCalcular(cat, sel) {
     }
     var a = b.getAttribute('data-a'), enPop = !!t.closest('#mz-pop');
     if (enPop && a !== 'reacmas') cierraPop(true);
+    if (clicCrm(a, b)) return;
     switch (a) {
       case 'cerrar': abrirVentana(false); break;
       case 'abrir': abrirConv(b.getAttribute('data-id'), { resaltar: b.getAttribute('data-m') || null }); break;
@@ -12560,7 +12682,7 @@ function ofcCalcular(cat, sel) {
       case 'mod-tipo': if (C.modal && C.modal.tipo === 'grupo') { C.modal.gtipo = b.getAttribute('data-v'); document.querySelectorAll('#mz-modal [data-a="mod-tipo"]').forEach(function (x) { x.setAttribute('aria-checked', String(x === b)); }); actualizaModalBtn(); } break;
       case 'mod-todos': if (C.modal) { var q2 = plano(C.modal.q || ''); candidatos(C.modal).forEach(function (c) { if (!q2 || plano(c.nombre + ' ' + c.rol + ' ' + (DEPTO[c.rol] || '')).indexOf(q2) >= 0) C.modal.sel[c.id] = 1; }); pintaModalPersonas(); } break;
       case 'mod-ninguno': if (C.modal) { C.modal.sel = {}; pintaModalPersonas(); } break;
-      case 'descartar': var lm = C.msgs[C.peer] || [], id2 = b.getAttribute('data-id'); for (var z = 0; z < lm.length; z++) if (lm[z].id === id2) { colaQuita(lm[z].client_id); if (lm[z]._arch) { lm[z]._descartado = true; soltarItem(lm[z]._arch); } else { var inp = $('mz-in'); if (inp && !inp.value) { inp.value = lm[z].cuerpo; autoTam(); actualizaEnvio(); } } lm.splice(z, 1); break; } pintaMsgs(); pintaLista(); break;
+      case 'descartar': var lm = C.msgs[C.peer] || [], id2 = b.getAttribute('data-id'); for (var z = 0; z < lm.length; z++) if (lm[z].id === id2) { colaQuita(lm[z].client_id); if (lm[z]._arch) { lm[z]._descartado = true; soltarItem(lm[z]._arch); } else if (lm[z].tipo !== 'TARJETA') { var inp = $('mz-in'); if (inp && !inp.value) { inp.value = lm[z].cuerpo; autoTam(); actualizaEnvio(); } } lm.splice(z, 1); break; } pintaMsgs(); pintaLista(); break;
     }
   }
   var EMO_IDX = null;
@@ -12741,6 +12863,7 @@ function ofcCalcular(cat, sel) {
     e.preventDefault(); n.focus(); n.click();
   }
   function entrada(e) {
+    if (entradaCrm(e)) return;
     var id = e.target.id;
     if (id === 'mz-q') { C.q = e.target.value; buscaMsgs(); pintaLista(); }
     else if (id === 'mz-in') { autoTam(); actualizaEnvio(); avisaEscribiendo(); guardaBorrador(); }
@@ -12754,6 +12877,7 @@ function ofcCalcular(cat, sel) {
   }
   function cambio(e) {
     var t = e.target, p = t.getAttribute && t.getAttribute('data-p'), q = t.getAttribute && t.getAttribute('data-q');
+    if (cambioCrm(e)) return;
     if (t.id === 'mz-file') { var fl = Array.prototype.slice.call(t.files || []); t.value = ''; preparaArchivos(fl, C.peer); return; }
     if (q === 'vol') { C.pref.vol = Math.max(0, Math.min(100, Math.round(+t.value || 0))); guardaPrefs(); t.setAttribute('aria-valuetext', C.pref.vol + ' por ciento'); C.gesto = true; suena('priv', true); return; }
     if (q && q in PREF_S) { if (SLOT_TONOS[q].indexOf(t.value) >= 0) { C.pref[q] = t.value; guardaPrefs(); C.gesto = true; suena(SLOT_DE[q], true); } return; }
@@ -12821,6 +12945,519 @@ function ofcCalcular(cat, sel) {
   function gesto() { C.gesto = true; }
   function enLineaNav() { resync(); }
   function sinRed() { if (C.conectado && !C.caido) { C.caido = true; banner(true); } }
+
+  /* ================= FASE 5: EL CRM DENTRO DEL CHAT =================
+     Tarjetas de venta y de cliente, revisiones, convertir un mensaje en tarea del back, pedir ayuda y anuncios del administrador.
+     REQUIERE haber ejecutado 59_chat_crm.sql. El chat solo guarda una REFERENCIA (tipo + código); los datos se piden a la base cada vez y SIEMPRE con los permisos
+     de quien mira (chat_crm_tarjeta): si no puedes ver ese registro en el CRM, la tarjeta sale bloqueada. Nunca viajan DNI, IBAN, correo, dirección ni teléfonos. */
+  IC.venta = '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>';
+  IC.cliente = '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>';
+  IC.ayuda = '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="M4.9 4.9l4.2 4.2M14.9 14.9l4.2 4.2M14.9 9.1l4.2-4.2M4.9 19.1l4.2-4.2"/>';
+  IC.candado = '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>';
+  IC.externo = '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6M10 14L21 3"/>';
+  IC.tarea = '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>';
+  IC.ojo = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+  var T_CRM = 45000, MAX_NOTA = 500, MAX_RESP = 300, MAX_TIT_AN = 80, MAX_TXT_AN = 300, MAX_AYUDA = 200;
+  var REV_TXT = { PENDIENTE: ['Pendiente', '⏳'], EN_REVISION: ['Revisando', '👀'], CONFORME: ['Conforme', '✅'], CON_OBSERVACIONES: ['Con observaciones', '📝'], CANCELADA: ['Cancelada', '✖'] };
+  var REV_ABIERTA = { PENDIENTE: 1, EN_REVISION: 1, CON_OBSERVACIONES: 1 };
+  var CLASE_TXT = { ACT: 'Activada', TRA: 'En trámite', INC: 'Con incidencia', CAI: 'Caída' };
+  var CLASE_PL = { ACT: ['activada', 'activadas'], TRA: ['en trámite', 'en trámite'], INC: ['con incidencia', 'con incidencia'], CAI: ['caída', 'caídas'] };
+  var ROLES_ANUNCIO = [['concertador', 'Concertadores'], ['cerrador', 'Cerradores'], ['back', 'Back office'], ['supervisor', 'Supervisión'], ['admin', 'Administración']];
+  var ROLES_AYUDA = { concertador: 1, cerrador: 1, back: 1 };
+
+  function crmClave(t, ref) { return t + ':' + (t === 'LEAD' ? String(ref).toLowerCase() : String(ref)); }
+  function esTarjeta(m) { return !!m && m.tipo === 'TARJETA' && !!m.crm && typeof m.crm === 'object'; }
+  function esCard(m) { return esTarjeta(m) && (m.crm.t === 'VENTA' || m.crm.t === 'LEAD') && typeof m.crm.ref === 'string'; }
+  function esAnuncio(m) { return esTarjeta(m) && m.crm.t === 'ANUNCIO'; }
+  function fechaCorta(f) { var d = new Date(f); return f && !isNaN(d) ? d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/\./g, '') : ''; }
+  function fechaHoraCorta(f) { var d = new Date(f); return f && !isNaN(d) ? d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short' }).replace(/\./g, '') + ', ' + hhmm(f) : ''; }
+  function crmTitulo(m) {   // el texto corto que usan las citas, los fijados y la lista
+    if (!esTarjeta(m)) return 'Tarjeta';
+    return m.crm.t === 'VENTA' ? 'Venta compartida' : m.crm.t === 'LEAD' ? 'Cliente compartido' : m.crm.t === 'ANUNCIO' ? 'Anuncio: ' + String(m.crm.titulo || '').slice(0, 100) : 'Tarjeta';
+  }
+  function crmIcono(m) { return !esTarjeta(m) ? '' : m.crm.t === 'VENTA' ? '💼 ' : m.crm.t === 'LEAD' ? '👤 ' : '📣 '; }
+  function puedeCompartir(k) {
+    if (!k || k === GEN || C.sinCrm) return false;
+    var g = C.grupos[k]; if (g) return g.tipo === 'GRUPO';
+    return !inactivo(k);
+  }
+  function crmVisible(m) { if (!esCard(m)) return false; var c = C.crm[crmClave(m.crm.t, m.crm.ref)]; return !!(c && c.ok); }   // solo se ofrece copiar el código si quien mira puede ver el registro
+  function crmPrivadoOk(k) { return !!k && !compartida(k) && !inactivo(k); }
+  function esRolBack() { return perfil.rol === 'back' || perfil.rol === 'admin'; }
+  /* Lo que ofrece el botón del cuadro de escribir en cada conversación. */
+  function itemsCrm(k) {
+    var l = [];
+    if (puedeCompartir(k)) { l.push(['crm-venta', IC.venta, 'Compartir una venta']); l.push(['crm-lead', IC.cliente, 'Compartir un cliente']); }
+    if (ROLES_AYUDA[perfil.rol]) l.push(['crm-ayuda', IC.ayuda, 'Pedir ayuda al supervisor']);
+    if (perfil.rol === 'admin') l.push(['crm-anuncio', IC.canal, 'Anuncio al equipo']);
+    return l;
+  }
+  function btnCrm(k) {
+    var l = itemsCrm(k); if (!l.length) return '';
+    var t = puedeCompartir(k) ? 'Compartir una venta o un cliente' : perfil.rol === 'admin' ? 'Anuncio al equipo' : 'Pedir ayuda al supervisor';
+    return '<button type="button" class="mz-ib" id="mz-crmb" data-a="crmmenu" aria-label="' + esc(t) + '" title="' + esc(t) + '" aria-haspopup="menu">' + ic(IC.venta) + '</button>';
+  }
+
+  /* ----- Datos en vivo de las tarjetas ----- */
+  function crmPide() {   // pide a la base lo que falta (o está viejo) de las tarjetas de la conversación abierta; lo viejo se sigue mostrando mientras llega lo nuevo
+    if (C.sinCrm || C.cerrando || !C.peer || !C.open) return;
+    var l = C.msgs[C.peer] || [], falta = [], vistos = {}, ahora = Date.now();
+    for (var i = 0; i < l.length; i++) {
+      var m = l[i]; if (!esCard(m) || m.borrado_at) continue;
+      var k = crmClave(m.crm.t, m.crm.ref); if (vistos[k]) continue; vistos[k] = 1;
+      var c = C.crm[k];
+      if (c && (c.pend || (!c.err && ahora - c.t < T_CRM) || (c.err && ahora - c.t < 8000))) continue;
+      falta.push({ t: m.crm.t, ref: m.crm.ref, k: k });
+    }
+    if (!falta.length) return;
+    falta.forEach(function (x) { var c = C.crm[x.k] || (C.crm[x.k] = { t: 0 }); c.pend = true; });
+    for (var j = 0; j < falta.length; j += 40) crmTrae(falta.slice(j, j + 40));
+  }
+  async function crmTrae(items) {
+    var C0 = C, r = await llama('chat_crm_tarjeta', { p_items: items.map(function (x) { return { t: x.t, ref: x.ref }; }) });
+    if (C !== C0 || C.cerrando) return;
+    var ahora = Date.now(), cambiadas = [];
+    var falla = r.error || !r.data || typeof r.data !== 'object' || Array.isArray(r.data);
+    if (falla && r.error && /PGRST202|42883/.test(String(r.error.code || '') + ' ' + String(r.error.message || ''))) C.sinCrm = true;
+    items.forEach(function (x) {
+      var c = C.crm[x.k] || (C.crm[x.k] = {}), antes = c.j;
+      c.pend = false; c.t = ahora;
+      if (falla) { c.err = true; c.j = 'err'; }
+      else {
+        var d = r.data[x.k]; c.err = false;
+        if (d && d.ok) { c.ok = true; c.d = d; } else { c.ok = false; c.d = null; }
+        c.j = c.ok ? JSON.stringify(c.d) : 'bloqueada';
+      }
+      if (c.j !== antes) cambiadas.push(x.k);
+    });
+    if (cambiadas.length) crmRepinta(cambiadas);
+  }
+  /* Repinta solo las tarjetas que cambiaron (sin tocar el resto de la conversación ni mover el desplazamiento). */
+  function crmRepinta(keys) {
+    var b = $('mz-ms'); if (!b || !C.peer || !C.open) return;
+    var set = {}; keys.forEach(function (k) { set[k] = 1; });
+    var cerca = b.scrollHeight - b.scrollTop - b.clientHeight < 90, q = C.busq.on ? C.busq.q.trim() : '';
+    Array.prototype.slice.call(b.querySelectorAll('.mz-cd[data-ck]')).forEach(function (el) {
+      if (!set[el.getAttribute('data-ck')]) return;
+      var m = msgPorId(C.peer, el.getAttribute('data-mid')); if (m && esCard(m)) el.outerHTML = htmlTarjeta(m, q);
+    });
+    if (cerca) b.scrollTop = b.scrollHeight;
+    actualizaAbajo();
+  }
+  function crmRepintaMsg(k, m) {   // una sola tarjeta (por ejemplo, mientras un botón espera la respuesta de la base)
+    if (C.peer !== k) return;
+    var b = $('mz-ms'); if (!b || !m) return;
+    var el = b.querySelector('.mz-cd[data-mid="' + String(m.id).replace(/"/g, '') + '"]'); if (!el) return;
+    var cerca = b.scrollHeight - b.scrollTop - b.clientHeight < 90;
+    el.outerHTML = htmlTarjeta(m, C.busq.on ? C.busq.q.trim() : '');
+    if (cerca) b.scrollTop = b.scrollHeight;
+  }
+
+  /* ----- La tarjeta ----- */
+  function chipClase(c) { return c && CLASE_TXT[c] ? '<span class="mz-cl ' + c + '">' + CLASE_TXT[c] + '</span>' : ''; }
+  function btnCard(a, icono, texto, id, extra) { return '<button type="button" class="mz-cb' + (extra && extra.pri ? ' pri' : '') + '" data-a="' + a + '" data-id="' + esc(id) + '"' + (extra && extra.dis ? ' disabled' : '') + '>' + ic(icono, 15) + '<span>' + texto + '</span></button>'; }
+  function htmlTarjeta(m, q) {
+    var cr = m.crm;
+    if (cr.t === 'ANUNCIO') return htmlAnuncio(m, q);
+    var k = crmClave(cr.t, cr.ref), c = C.crm[k], venta = cr.t === 'VENTA', cab = venta ? 'Venta compartida' : 'Cliente compartido', real = !m._est;
+    var raiz = function (clase, inner, aria) { return '<div class="mz-cd ' + clase + '" role="group" aria-label="' + esc(aria || cab) + '" data-mid="' + esc(m.id) + '" data-ck="' + esc(k) + '">' + inner + '</div>'; };
+    var nota = cr.nota ? '<div class="mz-cdn">' + textoHtml(cr.nota, q) + '</div>' : '';
+    var rev = htmlRev(m);
+    var cabeza = function (titulo, chip) { return '<div class="mz-cdh"><span class="mz-cdi" aria-hidden="true">' + ic(venta ? IC.venta : IC.cliente, 20) + '</span><div class="mz-cdt"><small>' + cab + '</small><b>' + esc(titulo) + '</b></div>' + (chip || '') + '</div>'; };
+    if (C.sinCrm) return raiz('lock', cabeza('No disponible') + '<div class="mz-cdk">' + ic(IC.alerta, 16) + '<span>Falta ejecutar 59_chat_crm.sql en Supabase.</span></div>' + nota);
+    if (!c || (c.ok == null && !c.err)) return raiz('carga', cabeza('Cargando…') + '<div class="mz-cds" aria-hidden="true"><i></i><i></i></div>' + nota + rev, cab + ': cargando');
+    if (c.err && c.ok == null) return raiz('lock', cabeza('No se pudo cargar') + '<div class="mz-cdk">' + ic(IC.alerta, 16) + '<span>Sin conexión con el servidor.</span></div>' + nota + rev + '<div class="mz-cda">' + btnCard('crm-reint', IC.otra, 'Reintentar', m.id) + '</div>');
+    if (!c.ok) return raiz('lock', cabeza('Sin acceso') + '<div class="mz-cdk">' + ic(IC.candado, 16) + '<span>No tienes acceso a este registro o ya no existe.</span></div>' + nota + rev);
+    var d = c.d || {}, nombre = bonito(d.cliente) || 'Sin nombre', h = '';
+    if (venta) {
+      var cu = d.cuenta || {}, resumen = ['ACT', 'TRA', 'INC', 'CAI'].filter(function (x) { return cu[x] > 0; }).map(function (x) { return cu[x] + ' ' + CLASE_PL[x][cu[x] === 1 ? 0 : 1]; }).join(' · ');
+      h += cabeza(nombre, chipClase(d.clase));
+      h += '<div class="mz-cdm">' + esc([cr.ref, d.campana, d.agente ? 'Agente ' + bonito(d.agente) : '', fechaCorta(d.fecha)].filter(Boolean).join(' · ')) + '</div>';
+      var ls = Array.isArray(d.lineas) ? d.lineas : [], vis = ls.slice(0, 4);
+      if (vis.length) {
+        h += '<ul class="mz-cdl" aria-label="Líneas de la venta">' + vis.map(function (z) { return '<li><span class="p">' + esc(z.p || 'Servicio') + '</span>' + (z.e ? '<em class="mz-cl ' + esc(z.c) + '">' + esc(z.e) + '</em>' : '') + '</li>'; }).join('');
+        if ((d.n || ls.length) > vis.length) h += '<li class="mas">y ' + ((d.n || ls.length) - vis.length) + (((d.n || ls.length) - vis.length) === 1 ? ' línea más' : ' líneas más') + '</li>';
+        h += '</ul>';
+      }
+      if (resumen) h += '<div class="mz-cdm">' + esc((d.n || ls.length) + ((d.n || ls.length) === 1 ? ' línea: ' : ' líneas: ') + resumen) + '</div>';
+    } else {
+      h += cabeza(nombre, d.estado ? '<span class="mz-cl neutro">' + esc(String(d.estado).replace(/_/g, ' ').toLowerCase()) + '</span>' : '');
+      var ub = [d.localidad, d.provincia].filter(Boolean).join(', '), cita = d.tipo_cita ? 'Cita ' + String(d.tipo_cita).replace(/_/g, ' ').toLowerCase() + (d.fecha_cita ? ' · ' + fechaHoraCorta(d.fecha_cita) : '') : '';
+      var l1 = [ub, d.operador ? 'Operador ' + d.operador : '', cita].filter(Boolean).join(' · '), l2 = [d.concertador ? 'Concertador ' + bonito(d.concertador) : '', d.cerrador ? 'Cerrador ' + bonito(d.cerrador) : '', d.ventas ? d.ventas + (d.ventas === 1 ? ' venta' : ' ventas') : ''].filter(Boolean).join(' · ');
+      if (l1) h += '<div class="mz-cdm">' + esc(l1) + '</div>';
+      if (l2) h += '<div class="mz-cdm">' + esc(l2) + '</div>';
+    }
+    h += nota + rev;
+    if (real) {
+      var ac = btnCard('crm-abrir', IC.externo, venta ? 'Abrir en el CRM' : 'Abrir ficha', m.id, { pri: true });
+      if (venta && perfil.rol !== 'concertador' && window.inc54) ac += btnCard('crm-inc', IC.alerta, 'Reportar incidencia', m.id);
+      if (venta) ac += btnCard('crm-copiar', IC.copiar, 'Copiar código', m.id);
+      h += '<div class="mz-cda">' + ac + '</div>';
+    }
+    return raiz(venta ? 'venta' : 'lead', h, cab + ': ' + nombre);
+  }
+  function htmlAnuncio(m, q) {
+    var cr = m.crm, urg = !!cr.urgente;
+    return '<div class="mz-cd anuncio' + (urg ? ' urg' : '') + '" role="group" aria-label="Anuncio' + (urg ? ' urgente' : '') + ': ' + esc(cr.titulo || '') + '" data-mid="' + esc(m.id) + '">' +
+      '<div class="mz-cdh"><span class="mz-cdi" aria-hidden="true">' + ic(IC.canal, 20) + '</span><div class="mz-cdt"><small>Anuncio' + (urg ? ' urgente' : '') + ' · ' + esc(nombreDe(m.de)) + '</small><b>' + textoHtml(cr.titulo || '', q) + '</b></div></div>' +
+      (cr.texto ? '<div class="mz-cdn">' + textoHtml(cr.texto, q) + '</div>' : '') + '</div>';
+  }
+  /* ----- Revisión: estado, respuesta y botones que corresponden a cada persona ----- */
+  function htmlRev(m) {
+    var rv = m.crm && m.crm.rev; if (!rv || typeof rv !== 'object' || !rv.id) return '';
+    var E = REV_TXT[rv.estado] || [String(rv.estado), '•'], soyRev = rv.revisor === me.id, soySol = rv.solicitante === me.id, real = !m._est, bz = !!m._rb;
+    var quien = soyRev ? nombreDe(rv.solicitante) + ' te pidió revisarlo' : soySol ? 'Pediste la revisión a ' + nombreDe(rv.revisor) : nombreDe(rv.solicitante) + ' pidió revisión a ' + nombreDe(rv.revisor);
+    var h = '<div class="mz-rv" role="group" aria-label="Revisión: ' + esc(E[0]) + '"><div class="mz-rvh"><span class="mz-cl ' + esc(rv.estado) + '">' + E[1] + ' ' + esc(E[0]) + '</span><span class="q">' + esc(quien) + '</span></div>';
+    if (rv.resp) h += '<div class="mz-rvr"><b>' + (rv.estado === 'CON_OBSERVACIONES' ? 'Observaciones' : 'Respuesta') + ':</b> ' + esc(rv.resp) + '</div>';
+    if (real) {
+      var a = '', dis = { dis: bz };
+      if (soyRev && rv.estado === 'PENDIENTE') a += btnCard('rev-ir', IC.ojo, 'Empezar a revisar', m.id, dis);
+      if (soyRev && (rv.estado === 'PENDIENTE' || rv.estado === 'EN_REVISION')) a += btnCard('rev-ok', IC.ok, 'Conforme', m.id, { pri: true, dis: bz }) + btnCard('rev-obs', IC.lapiz, 'Con observaciones', m.id, dis);
+      if (soySol && rv.estado === 'CON_OBSERVACIONES') a += btnCard('rev-otra', IC.otra, 'Volver a pedir revisión', m.id, { pri: true, dis: bz });
+      if (soySol && REV_ABIERTA[rv.estado]) a += btnCard('rev-cancela', IC.x, 'Cancelar revisión', m.id, dis);
+      if (soyRev || soySol) a += btnCard('rev-hist', IC.reloj, 'Historial', m.id);
+      if (a) h += '<div class="mz-cda">' + a + '</div>';
+    }
+    return h + '</div>';
+  }
+  function aplicaRev(m, rv) {   // la revisión que devolvió la base se refleja en la tarjeta (la base también actualiza la tarjeta y avisa a la otra persona)
+    if (!m.crm) m.crm = {};
+    m.crm.rev = { id: rv.id, estado: rv.estado, solicitante: rv.solicitante, revisor: rv.revisor, at: rv.creada_at, upd: rv.actualizada_at };
+    if (rv.respuesta) m.crm.rev.resp = rv.respuesta;
+  }
+  async function cambiaRev(id, estado, nota) {
+    var k = C.peer, m = msgPorId(k, id), rv = m && m.crm && m.crm.rev; if (!rv || m._rb) return false;
+    m._rb = true; crmRepintaMsg(k, m);
+    var args = { p_id: rv.id, p_estado: estado }; if (nota) args.p_nota = nota;
+    var r = await llama('chat_revision_estado', args), m2 = msgPorId(k, id);
+    if (m2) m2._rb = false;
+    if (r.error || !r.data || !r.data.revision) {
+      var cod = String((r.error && r.error.message) || '');
+      aviso(msgE(r.error), true);
+      if (/revision_transicion_invalida|sin_permiso/.test(cod) && m2) refrescaRev(k, m2);   // alguien la cambió antes: se muestra cómo quedó
+      else if (m2) crmRepintaMsg(k, m2);
+      return false;
+    }
+    if (m2) { aplicaRev(m2, r.data.revision); crmRepintaMsg(k, m2); }
+    var txt = { EN_REVISION: 'Marcada como «Revisando»', CONFORME: 'Marcada como «Conforme»', CON_OBSERVACIONES: 'Observaciones enviadas', CANCELADA: 'Revisión cancelada', PENDIENTE: 'Revisión pedida otra vez' }[estado];
+    if (txt && !r.data.sin_cambios) aviso(txt);
+    return true;
+  }
+  async function refrescaRev(k, m) {
+    var rv = m.crm && m.crm.rev; if (!rv) return;
+    var r = await llama('chat_revision_ver', { p_id: rv.id });
+    if (!r.error && r.data && r.data.estado) { aplicaRev(m, { id: r.data.id, estado: r.data.estado, solicitante: r.data.solicitante, revisor: r.data.revisor, creada_at: r.data.creada_at, actualizada_at: r.data.actualizada_at, respuesta: r.data.respuesta }); }
+    crmRepintaMsg(k, m);
+  }
+
+  /* ----- Abrir lo compartido en el CRM ----- */
+  /* La pestaña tarda un momento en pintarse (y se vuelve a pintar al llegar los datos): se insiste hasta que el código quede escrito en su buscador. */
+  function llenarBuscador(sel, ref) {
+    var n = 0, firme = 0, t = setInterval(function () {
+      var i = document.querySelector(sel); n++;
+      if (i) { if (i.value !== ref) { i.value = ref; i.dispatchEvent(new Event('input', { bubbles: true })); firme = 0; } else firme++; }
+      if (firme >= 3 || n >= 25) clearInterval(t);
+    }, 200);
+  }
+  function irVentaCrm(ref) {
+    var rol = perfil.rol, ok = false;
+    if (rol === 'supervisor') {
+      var tb = document.querySelector('#s46-tabs .s46-t[data-k="seg"]');
+      if (tb) { abrirVentana(false, true); tb.click(); ok = true; llenarBuscador('#s46-q', ref); }
+    } else {
+      var bt = document.querySelector('#tabs15 .t15[data-k="ven"]');
+      if (bt) { abrirVentana(false, true); if (typeof window.abrir45 === 'function') window.abrir45('ven'); else bt.click(); ok = true; llenarBuscador('#p15-ven [data-f="q"], #v15q', ref); }
+    }
+    if (!ok) { copiar(ref); aviso('No encontré dónde abrirla con tu usuario. Copié el código para que la busques en el CRM', true); }
+  }
+  async function abrirLeadCrm(ref) {
+    if (typeof window.fichaLead !== 'function') { aviso('No pude abrir la ficha desde aquí. Búscala en el CRM por el nombre', true); return; }
+    var r; try { r = await sb.from('leads').select('*').eq('id', ref).maybeSingle(); } catch (e) { r = { error: e }; }
+    if (!r || r.error || !r.data) { aviso('No pude abrir la ficha desde aquí. Búscala en el CRM por el nombre', true); return; }
+    abrirVentana(false, true); window.fichaLead(r.data, [r.data], 0);
+  }
+
+  /* ----- Ventana «Compartir una venta / un cliente» ----- */
+  function abrirCompartir(t) {
+    var k = C.peer; if (!puedeCompartir(k) || !puedeEscribir(k)) { aviso(ERR_CHAT.crm_destino_invalido, true); return; }
+    abreModal({ tipo: 'crm', t: t, key: k, q: '', nota: '', rev: false, res: null, item: null, cargando: false, errBusca: '', tok: 0, bt: null, cid: null, err: '', enviando: false, enfoque: '#mz-cq' });
+  }
+  function htmlCompartir(M) {
+    var priv = crmPrivadoOk(M.key), nom = priv ? bonito(nombreDe(M.key)).split(' ')[0] : '';
+    return '<div class="mz-seg" role="radiogroup" aria-label="Qué compartir">' +
+      '<button type="button" role="radio" aria-checked="' + (M.t === 'VENTA') + '" data-a="crm-tipo" data-v="VENTA"><b>Una venta</b><small>Con su estado y sus líneas.</small></button>' +
+      '<button type="button" role="radio" aria-checked="' + (M.t === 'LEAD') + '" data-a="crm-tipo" data-v="LEAD"><b>Un cliente</b><small>Con su estado y su cita.</small></button></div>' +
+      '<div class="mz-fld"><label for="mz-cq">Buscar</label><input id="mz-cq" type="search" data-minus autocomplete="off" placeholder="Nombre, DNI, teléfono o código"></div>' +
+      '<div class="mz-cres" id="mz-cres" role="radiogroup" aria-label="Resultados de la búsqueda" aria-live="polite"></div>' +
+      '<div class="mz-cwarn" id="mz-cwarn" role="status" hidden></div>' +
+      '<div class="mz-fld"><label for="mz-cn">Nota <span class="op">(opcional)</span></label><textarea id="mz-cn" data-minus rows="2" maxlength="' + MAX_NOTA + '" placeholder="Qué quieres que sepa o revise quien la reciba"></textarea></div>' +
+      (priv ? '<label class="mz-chk" id="mz-crevl"><input type="checkbox" id="mz-crev"><span>Pedir que <b>' + esc(nom) + '</b> lo revise y responda «Conforme» o «Con observaciones»</span></label>' : '') +
+      '<p class="mz-cnota">Solo se comparte el acceso: cada persona ve los datos que su usuario ya puede ver en el CRM. Nunca se muestran DNI, IBAN, correo ni dirección.</p>';
+  }
+  function crmBusca(M, ya) {
+    clearTimeout(M.bt); M.res = M.res || null; M.cargando = true;
+    M.bt = setTimeout(async function () {
+      var tok = ++M.tok, cid = idConv(M.key) || null;
+      var r = await llama('chat_crm_buscar', { p_tipo: M.t, p_q: M.q.trim(), p_conversacion: cid, p_limite: 12 });
+      if (C.modal !== M || tok !== M.tok) return;
+      M.cargando = false;
+      if (r.error || !Array.isArray(r.data)) { M.res = []; M.errBusca = msgE(r.error || new Error('Failed to fetch')); }
+      else { M.res = r.data; M.errBusca = ''; }
+      pintaCompartir();
+    }, ya ? 0 : 280);
+  }
+  function pintaCompartir() {
+    var M = C.modal, L = $('mz-cres'); if (!M || M.tipo !== 'crm' || !L) return;
+    var h = '';
+    if (M.res === null) h = '<div class="mz-buscando" role="status">Buscando…</div>';
+    else if (M.errBusca) h = '<div class="mz-buscando" role="alert">' + esc(M.errBusca) + '</div>';
+    else if (!M.res.length) h = '<div class="mz-buscando" role="status">' + (M.q.trim() ? 'No encuentro nada con eso entre lo que puedes ver.' : 'Todavía no tienes ' + (M.t === 'VENTA' ? 'ventas' : 'clientes') + ' para compartir.') + '</div>';
+    else {
+      var hay = M.item && M.res.some(function (r) { return r.ref === M.item.ref; });
+      h = M.res.map(function (r, i) {
+        var sel = !!(M.item && M.item.ref === r.ref), tab = sel || (!hay && i === 0) ? 0 : -1, venta = M.t === 'VENTA';
+        var sub = venta ? [r.ref, r.campana, r.n ? r.n + (r.n === 1 ? ' línea' : ' líneas') : '', fechaCorta(r.fecha)] : [r.estado ? String(r.estado).replace(/_/g, ' ').toLowerCase() : '', r.tipo_cita ? 'cita ' + String(r.tipo_cita).replace(/_/g, ' ').toLowerCase() : '', r.localidad];
+        return '<button type="button" role="radio" class="mz-cr" aria-checked="' + sel + '" tabindex="' + tab + '" data-a="crm-sel" data-i="' + i + '"><span class="n"><b>' + esc(bonito(r.cliente) || 'Sin nombre') + '</b><small>' + esc(sub.filter(Boolean).join(' · ')) + '</small></span>' + (venta ? chipClase(r.clase) : '') + '</button>';
+      }).join('');
+    }
+    L.innerHTML = h; crmAviso(); actualizaModalBtn();
+  }
+  function crmAviso() {
+    var M = C.modal, w = $('mz-cwarn'); if (!M || M.tipo !== 'crm' || !w) return;
+    var n = M.item ? (+M.item.sin_acceso || 0) : 0, txt = '', priv = crmPrivadoOk(M.key);
+    if (n > 0) txt = priv ? bonito(nombreDe(M.key)).split(' ')[0] + ' no podrá ver los datos de este registro con su usuario: le saldrá bloqueada y no se le puede pedir revisión.'
+      : (n === 1 ? 'Una persona del grupo no podrá ver los datos: le saldrá bloqueada.' : n + ' personas del grupo no podrán ver los datos: les saldrá bloqueada.');
+    w.hidden = !txt; w.innerHTML = txt ? ic(IC.alerta, 16) + '<span>' + esc(txt) + '</span>' : '';
+    var rv = $('mz-crev'); if (rv) { rv.disabled = n > 0; if (n > 0) { rv.checked = false; M.rev = false; } }
+  }
+  function crmElige(i) {
+    var M = C.modal; if (!M || M.tipo !== 'crm' || !M.res || !M.res[i]) return;
+    M.item = M.res[i]; M.err = '';
+    document.querySelectorAll('#mz-cres [data-a="crm-sel"]').forEach(function (x) { var on = +x.getAttribute('data-i') === i; x.setAttribute('aria-checked', String(on)); x.tabIndex = on ? 0 : -1; });
+    crmAviso(); actualizaModalBtn();
+  }
+  async function enviaCompartir(M) {
+    var it = M.item; if (!it) return false;
+    var peer = M.key, nota = (M.nota || '').trim();
+    if (nota.length > MAX_NOTA) { M.err = 'La nota pasa de ' + MAX_NOTA + ' caracteres'; return false; }
+    if (!puedeEscribir(peer)) { M.err = ERR_CHAT.solo_lectura; return false; }
+    if (M.rev && crmPrivadoOk(peer)) return crmPideRevision(M, it, nota);
+    var crm = { t: it.t, ref: it.ref }; if (nota) crm.nota = nota;
+    C.modal = null; pintaModal();   // la ventana se cierra y la tarjeta aparece «enviando» en la conversación (con reintento automático si falla la red)
+    await mandaTmp(peer, 'TARJETA', nota || (it.t === 'VENTA' ? 'Venta compartida' : 'Cliente compartido'), { crm: crm });
+    return true;
+  }
+  async function crmPideRevision(M, it, nota) {
+    var peer = M.key; if (!M.cid) M.cid = uuid();   // el mismo identificador en cada reintento: si se cortó la red a mitad, no se pide dos veces
+    var r = await llama('chat_revision_pedir', { p_conversacion: C.convId[peer] || null, p_tipo: it.t, p_ref: it.ref, p_nota: nota || null, p_client_id: M.cid, p_para: peer });
+    var d = r.data && r.data.mensaje;
+    if (r.error || !d) { M.err = msgE(r.error) + (esRed(r.error) ? '. Puedes volver a pulsar: no se duplicará.' : ''); return false; }
+    if (d.conversacion_id) C.convId[peer] = d.conversacion_id;
+    var l = C.msgs[peer] = C.msgs[peer] || [];
+    if (!l.some(function (x) { return x.id === d.id; })) { l.push(d); ordena(l); }
+    anotaReciente(d);
+    if (C.peer === peer) pintaMsgs({ fuerza: true }); pintaLista();
+    aviso('Revisión pedida a ' + bonito(nombreDe(peer)).split(' ')[0]);
+    return true;
+  }
+
+  /* ----- Pedir ayuda, anuncio, convertir en tarea, observaciones, historial ----- */
+  function abrirAyuda() { abreModal({ tipo: 'ayuda', texto: '', err: '', enviando: false, enfoque: '#mz-ayt' }); }
+  async function enviaAyuda(M) {
+    var r = await llama('pedir_ayuda', { p_texto: (M.texto || '').trim() || null });
+    if (r.error || !r.data) { M.err = msgE(r.error); return false; }
+    aviso(r.data.avisados ? 'Aviso enviado a tu supervisor y al administrador' : 'No hay nadie a quien avisar ahora. Escribe por el chat.'); return true;
+  }
+  function abrirAnuncio() {
+    if (perfil.rol !== 'admin') return;
+    var rs = {}; ROLES_ANUNCIO.forEach(function (x) { rs[x[0]] = 1; });
+    abreModal({ tipo: 'anuncio', tt: '', tx: '', urg: false, roles: rs, err: '', enviando: false, enfoque: '#mz-ant' });
+  }
+  async function enviaAnuncio(M) {
+    var todos = ROLES_ANUNCIO.every(function (x) { return M.roles[x[0]]; }), roles = ROLES_ANUNCIO.map(function (x) { return x[0]; }).filter(function (x) { return M.roles[x]; });
+    var r = await llama('chat_anunciar', { p_titulo: M.tt.trim(), p_texto: M.tx.trim() || null, p_roles: todos ? null : roles, p_urgente: !!M.urg });
+    var d = r.data;
+    if (r.error || !d) { M.err = msgE(r.error); return false; }
+    if (d.mensaje && d.mensaje.id) {   // tarjeta en la Sala general (el tiempo real la traerá igual: no se duplica)
+      var l = C.msgs[GEN] = C.msgs[GEN] || [];
+      if (!l.some(function (x) { return x.id === d.mensaje.id; })) { l.push(d.mensaje); ordena(l); }
+      if (d.mensaje.conversacion_id) C.convId[GEN] = d.mensaje.conversacion_id;
+      anotaReciente(d.mensaje); if (C.peer === GEN) pintaMsgs({ fuerza: true }); pintaLista();
+    }
+    aviso('Anuncio enviado' + (d.enviados != null ? ' a ' + d.enviados + (d.enviados === 1 ? ' persona' : ' personas') : '') + (d.en_sala ? ' y publicado en la Sala general' : ''));
+    return true;
+  }
+  function abrirTarea(id) {
+    var k = C.peer, m = msgPorId(k, id); if (!m || m._est || m.borrado_at || !esRolBack()) return;
+    if (C.tarea[id]) { aviso(ERR_CHAT.tarea_ya_creada, true); return; }
+    var base = esTarjeta(m) ? (m.crm.nota || m.crm.titulo || crmTitulo(m)) : String(m.cuerpo || '');
+    var man = new Date(); man.setDate(man.getDate() + 1); man.setHours(10, 0, 0, 0);
+    var p = function (n) { return (n < 10 ? '0' : '') + n; }, val = man.getFullYear() + '-' + p(man.getMonth() + 1) + '-' + p(man.getDate()) + 'T10:00';
+    abreModal({ tipo: 'tarea', id: id, key: k, tt: base.replace(/\s+/g, ' ').trim().slice(0, 120), vence: val, asig: me.id, err: '', enviando: false, intentos: 0, enfoque: '#mz-tat' });
+    if (!C.backs) llama('back_lista_backs').then(function (r) { C.backs = (!r.error && Array.isArray(r.data)) ? r.data : []; if (C.modal && C.modal.tipo === 'tarea') pintaTareaAsig(); });
+  }
+  function pintaTareaAsig() {
+    var M = C.modal, s = $('mz-taa'); if (!M || M.tipo !== 'tarea' || !s) return;
+    var o = '<option value="">Sin asignar (la toma cualquiera)</option><option value="' + esc(me.id) + '">Yo</option>' + (C.backs || []).filter(function (b) { return b.id !== me.id; }).map(function (b) { return '<option value="' + esc(b.id) + '">' + esc(bonito(b.nombre)) + '</option>'; }).join('');
+    s.innerHTML = o; s.value = M.asig || '';
+  }
+  async function creaTarea(M) {
+    var tt = (M.tt || '').trim(), d = new Date(M.vence);
+    if (!tt) { M.err = 'Escribe el título de la tarea'; return false; }
+    if (!M.vence || isNaN(d)) { M.err = 'Elige la fecha límite'; return false; }
+    M.intentos++;
+    var r = await llama('chat_mensaje_a_tarea', { p_mensaje: M.id, p_titulo: tt, p_vence: d.toISOString(), p_asignado: M.asig || null });
+    var ya = /chat:tarea_ya_creada/.test(String((r.error && r.error.message) || ''));
+    if (r.error && !(ya && M.intentos > 1 && M.red)) {
+      M.red = esRed(r.error); M.err = msgE(r.error) + (M.red ? '. Puedes volver a pulsar: no se duplicará.' : '');
+      if (ya) C.tarea[M.id] = true;
+      return false;
+    }
+    C.tarea[M.id] = true; aviso('Tarea creada. La ves en la pestaña «Tareas»'); return true;
+  }
+  function pideObservaciones(id) {
+    var m = msgPorId(C.peer, id), rv = m && m.crm && m.crm.rev; if (!rv) return;
+    abreModal({ tipo: 'revision', id: id, key: C.peer, nota: '', err: '', enviando: false, enfoque: '#mz-rvt' });
+  }
+  async function enviaObservaciones(M) {
+    var n = (M.nota || '').trim();
+    if (n.length < 3) { M.err = 'Cuéntale qué debe corregir (mínimo 3 letras)'; return false; }
+    var ok = await cambiaRev(M.id, 'CON_OBSERVACIONES', n);
+    if (!ok) { M.err = 'No se pudo enviar. Revisa el aviso e inténtalo de nuevo.'; return false; }
+    return true;
+  }
+  function pideCancelarRev(id) {
+    abreModal({ tipo: 'confirmar', titulo: 'Cancelar la revisión', ok: 'Cancelar revisión', peligro: true, key: C.peer, texto: 'La otra persona dejará de verla como pendiente. Podrás pedirla otra vez más tarde.', accion: function () { return cambiaRev(id, 'CANCELADA'); } });
+  }
+  async function abrirHistorial(id) {
+    var m = msgPorId(C.peer, id), rv = m && m.crm && m.crm.rev; if (!rv) return;
+    var M = { tipo: 'revhist', solo: true, id: id, key: C.peer, h: null, err: '', enviando: false, enfoque: 'button' };
+    abreModal(M);
+    var r = await llama('chat_revision_ver', { p_id: rv.id });
+    if (C.modal !== M) return;
+    M.h = (r.error || !r.data) ? 'err:' + msgE(r.error) : r.data; pintaModal();
+  }
+  function modalCrm(M) {
+    var t = M.tipo;
+    if (t === 'crm') return { titulo: M.t === 'VENTA' ? 'Compartir una venta' : 'Compartir un cliente', ok: 'Compartir', cuerpo: htmlCompartir(M) };
+    if (t === 'ayuda') return { titulo: 'Pedir ayuda al supervisor', ok: 'Enviar aviso', cuerpo: '<p class="mz-mtexto">Le llega un aviso urgente a tu supervisor y al administrador. Puedes pedir ayuda una vez cada 2 minutos.</p>' +
+      '<div class="mz-fld"><label for="mz-ayt">¿Qué necesitas? <span class="op">(opcional)</span></label><textarea id="mz-ayt" data-minus rows="3" maxlength="' + MAX_AYUDA + '" placeholder="Ej.: Cliente con prisa, necesito que alguien llame al operador"></textarea></div>' };
+    if (t === 'anuncio') return { titulo: 'Anuncio al equipo', ok: 'Enviar anuncio', cuerpo: '<p class="mz-mtexto">Llega a la campana de cada persona. Si eliges a todo el equipo, además queda una tarjeta en la Sala general.</p>' +
+      '<div class="mz-fld"><label for="mz-ant">Título</label><input id="mz-ant" data-minus autocomplete="off" maxlength="' + MAX_TIT_AN + '" placeholder="Ej.: Cambio de horario del viernes"></div>' +
+      '<div class="mz-fld"><label for="mz-anx">Mensaje <span class="op">(opcional)</span></label><textarea id="mz-anx" data-minus rows="3" maxlength="' + MAX_TXT_AN + '" placeholder="Los detalles que necesita el equipo"></textarea></div>' +
+      '<fieldset class="mz-roles"><legend>Para quién</legend>' + ROLES_ANUNCIO.map(function (x) { return '<label class="mz-chk"><input type="checkbox" data-anrol="' + x[0] + '"' + (M.roles[x[0]] ? ' checked' : '') + '><span>' + x[1] + '</span></label>'; }).join('') + '</fieldset>' +
+      '<label class="mz-chk"><input type="checkbox" id="mz-anu"' + (M.urg ? ' checked' : '') + '><span><b>Urgente</b>: suena con más fuerza y no se puede silenciar</span></label>' };
+    if (t === 'tarea') return { titulo: 'Convertir en tarea', ok: 'Crear tarea', cuerpo: '<p class="mz-mtexto">Se guarda en la pestaña «Tareas» con el texto del mensaje y quién lo escribió.</p>' +
+      '<div class="mz-fld"><label for="mz-tat">Título</label><input id="mz-tat" data-minus autocomplete="off" maxlength="120"></div>' +
+      '<div class="mz-fld"><label for="mz-taf">Fecha límite</label><input id="mz-taf" type="datetime-local"></div>' +
+      '<div class="mz-fld"><label for="mz-taa">Asignar a</label><select id="mz-taa"></select></div>' };
+    if (t === 'revision') return { titulo: 'Responder con observaciones', ok: 'Enviar observaciones', cuerpo: '<p class="mz-mtexto">Explica qué debe corregir. La otra persona lo verá en la tarjeta y podrá pedirte otra revisión.</p>' +
+      '<div class="mz-fld"><label for="mz-rvt">Observaciones</label><textarea id="mz-rvt" data-minus rows="4" maxlength="' + MAX_RESP + '" placeholder="Ej.: Falta confirmar la dirección de instalación"></textarea></div>' };
+    if (t === 'revhist') {
+      var h = M.h, cuerpo;
+      if (h == null) cuerpo = '<div class="mz-buscando" role="status">Cargando…</div>';
+      else if (typeof h === 'string') cuerpo = '<div class="mz-buscando" role="alert">' + esc(h.slice(4)) + '</div>';
+      else {
+        var nom = function (u, n) { return u === me.id ? 'Tú' : bonito(n || nombreDe(u)); };
+        cuerpo = '<ul class="mz-hist">' + (h.historial || []).map(function (x) {
+          var E = REV_TXT[x.estado] || [String(x.estado), '•'];
+          return '<li><b>' + E[1] + ' ' + esc(E[0]) + '</b> · ' + esc(nom(x.por, x.nombre)) + ' · ' + esc(fechaHoraCorta(x.at)) + (x.nota ? '<br><span>' + esc(x.nota) + '</span>' : '') + '</li>';
+        }).join('') + '</ul>' + (h.nota ? '<p class="mz-mtexto"><b>Nota inicial:</b> ' + esc(h.nota) + '</p>' : '');
+      }
+      return { titulo: 'Historial de la revisión', ok: 'Cerrar', cuerpo: cuerpo };
+    }
+    return null;
+  }
+  function modalCrmPost(M) {
+    var t = M.tipo;
+    if (t === 'crm') {
+      var q = $('mz-cq'), n = $('mz-cn'), rv = $('mz-crev'); if (q) q.value = M.q || ''; if (n) n.value = M.nota || ''; if (rv) rv.checked = !!M.rev;
+      pintaCompartir(); if (M.res === null && !M.cargando) crmBusca(M, true);
+    } else if (t === 'ayuda') { var a = $('mz-ayt'); if (a) a.value = M.texto || ''; }
+    else if (t === 'anuncio') { var x = $('mz-ant'), y = $('mz-anx'); if (x) x.value = M.tt || ''; if (y) y.value = M.tx || ''; }
+    else if (t === 'tarea') { var a1 = $('mz-tat'), a2 = $('mz-taf'); if (a1) a1.value = M.tt || ''; if (a2) a2.value = M.vence || ''; pintaTareaAsig(); }
+    else if (t === 'revision') { var r1 = $('mz-rvt'); if (r1) r1.value = M.nota || ''; }
+  }
+  /* ¿Se puede pulsar el botón principal de la ventana? Devuelve {listo, etiqueta, aviso} o null si no es una ventana de este bloque. */
+  function modalCrmBtn(M) {
+    var t = M.tipo;
+    if (t === 'crm') return { listo: !!M.item && (M.nota || '').length <= MAX_NOTA, etiqueta: M.rev && crmPrivadoOk(M.key) ? 'Pedir revisión' : 'Compartir' };
+    if (t === 'ayuda') return { listo: (M.texto || '').length <= MAX_AYUDA, etiqueta: 'Enviar aviso' };
+    if (t === 'anuncio') return { listo: M.tt.trim().length >= 1 && M.tt.length <= MAX_TIT_AN && M.tx.length <= MAX_TXT_AN && ROLES_ANUNCIO.some(function (x) { return M.roles[x[0]]; }), etiqueta: 'Enviar anuncio' };
+    if (t === 'tarea') return { listo: M.tt.trim().length >= 1 && !!M.vence, etiqueta: 'Crear tarea' };
+    if (t === 'revision') return { listo: (M.nota || '').trim().length >= 3 && M.nota.length <= MAX_RESP, etiqueta: 'Enviar observaciones' };
+    if (t === 'revhist') return { listo: true, etiqueta: 'Cerrar' };
+    return null;
+  }
+  async function okModalCrm(M) {
+    var t = M.tipo;
+    if (t === 'crm') return enviaCompartir(M);
+    if (t === 'ayuda') return enviaAyuda(M);
+    if (t === 'anuncio') return enviaAnuncio(M);
+    if (t === 'tarea') return creaTarea(M);
+    if (t === 'revision') return enviaObservaciones(M);
+    return true;
+  }
+  /* Lo que se escribe en los campos de las ventanas de este bloque. Devuelve true si el campo era de aquí. */
+  function entradaCrm(e) {
+    var id = e.target.id, M = C.modal; if (!M) return false;
+    if (id === 'mz-cq' && M.tipo === 'crm') { M.q = e.target.value; crmBusca(M, false); return true; }
+    if (id === 'mz-cn' && M.tipo === 'crm') { M.nota = e.target.value; M.err = ''; actualizaModalBtn(); return true; }
+    if (id === 'mz-ayt' && M.tipo === 'ayuda') { M.texto = e.target.value; M.err = ''; actualizaModalBtn(); return true; }
+    if (id === 'mz-ant' && M.tipo === 'anuncio') { M.tt = e.target.value; M.err = ''; actualizaModalBtn(); return true; }
+    if (id === 'mz-anx' && M.tipo === 'anuncio') { M.tx = e.target.value; M.err = ''; actualizaModalBtn(); return true; }
+    if (id === 'mz-tat' && M.tipo === 'tarea') { M.tt = e.target.value; M.err = ''; actualizaModalBtn(); return true; }
+    if (id === 'mz-rvt' && M.tipo === 'revision') { M.nota = e.target.value; M.err = ''; actualizaModalBtn(); return true; }
+    return false;
+  }
+  function cambioCrm(e) {
+    var t = e.target, M = C.modal; if (!M) return false;
+    if (t.id === 'mz-crev' && M.tipo === 'crm') { M.rev = t.checked; actualizaModalBtn(); return true; }
+    if (t.id === 'mz-anu' && M.tipo === 'anuncio') { M.urg = t.checked; return true; }
+    var r = t.getAttribute && t.getAttribute('data-anrol');
+    if (r && M.tipo === 'anuncio') { M.roles[r] = t.checked ? 1 : 0; M.err = ''; actualizaModalBtn(); return true; }
+    if (t.id === 'mz-taf' && M.tipo === 'tarea') { M.vence = t.value; actualizaModalBtn(); return true; }
+    if (t.id === 'mz-taa' && M.tipo === 'tarea') { M.asig = t.value; return true; }
+    return false;
+  }
+  /* Todas las pulsaciones de este bloque. Devuelve true si la acción era de aquí. */
+  function clicCrm(a, b) {
+    var id = b.getAttribute('data-id');
+    switch (a) {
+      case 'crmmenu': if (C.pop && C.pop.tipo === 'crm') cierraPop(true); else abrePop({ tipo: 'crm', key: C.peer }, b); return true;
+      case 'crm-venta': abrirCompartir('VENTA'); return true;
+      case 'crm-lead': abrirCompartir('LEAD'); return true;
+      case 'crm-ayuda': abrirAyuda(); return true;
+      case 'crm-anuncio': abrirAnuncio(); return true;
+      case 'crm-tipo': if (C.modal && C.modal.tipo === 'crm' && C.modal.t !== b.getAttribute('data-v')) {
+          var M = C.modal; M.t = b.getAttribute('data-v'); M.item = null; M.res = null; M.err = '';
+          document.querySelectorAll('#mz-modal [data-a="crm-tipo"]').forEach(function (x) { x.setAttribute('aria-checked', String(x === b)); });
+          var tt = document.querySelector('#mz-modal h3'); if (tt) tt.textContent = M.t === 'VENTA' ? 'Compartir una venta' : 'Compartir un cliente';
+          pintaCompartir(); crmBusca(M, true);
+        } return true;
+      case 'crm-sel': crmElige(+b.getAttribute('data-i')); return true;
+      case 'crm-abrir': { var m = msgPorId(C.peer, id); if (esCard(m)) { if (m.crm.t === 'VENTA') irVentaCrm(m.crm.ref); else abrirLeadCrm(m.crm.ref); } return true; }
+      case 'crm-inc': { var m2 = msgPorId(C.peer, id); if (esCard(m2) && window.inc54 && window.inc54.reportar) window.inc54.reportar(m2.crm.ref); return true; }
+      case 'crm-copiar': { var m3 = msgPorId(C.peer, id); if (esCard(m3)) copiar(m3.crm.ref); return true; }
+      case 'crm-reint': { var m4 = msgPorId(C.peer, id); if (esCard(m4)) { var c4 = C.crm[crmClave(m4.crm.t, m4.crm.ref)]; if (c4) { c4.t = 0; c4.err = false; c4.pend = false; } C.sinCrm = false; crmPide(); } return true; }
+      case 'rev-ir': cambiaRev(id, 'EN_REVISION'); return true;
+      case 'rev-ok': cambiaRev(id, 'CONFORME'); return true;
+      case 'rev-obs': pideObservaciones(id); return true;
+      case 'rev-otra': cambiaRev(id, 'PENDIENTE'); return true;
+      case 'rev-cancela': pideCancelarRev(id); return true;
+      case 'rev-hist': abrirHistorial(id); return true;
+      case 'atarea': abrirTarea(id); return true;
+    }
+    return false;
+  }
+  /* Desde un aviso de la campana («te pidió revisar…», «pide ayuda»): abre la conversación con esa persona. */
+  async function abrirCon(uid) {
+    if (!uid || uid === me.id || C.cerrando) return false;
+    for (var i = 0; i < 40 && !C.cargadoEn; i++) await new Promise(function (r) { setTimeout(r, 100); });
+    if (!contacto(uid) && !C.convId[uid]) return false;
+    if (!C.open) abrirVentana(true, true);
+    await abrirConv(uid); return true;
+  }
 
   /* ================= MONTAJE ================= */
   function montar() {
@@ -12894,7 +13531,7 @@ function ofcCalcular(cat, sel) {
   });
   var oL = window.loginView;
   if (typeof oL === 'function') window.loginView = function () { quitar(); return oL.apply(this, arguments); };
-  window.mz57 = { montar: montar, quitar: quitar, abrir: function (v) { abrirVentana(v !== false); }, estado: function () { return C; }, latir: latir };
+  window.mz57 = { montar: montar, quitar: quitar, abrir: function (v) { abrirVentana(v !== false); }, estado: function () { return C; }, latir: latir, abrirCon: abrirCon };
 })();
 
  </script>
