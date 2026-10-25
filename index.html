@@ -5130,15 +5130,19 @@ function ventaForm(l) {
     var host = $('s37'); if (!host || AD.busy) return; AD.busy = true;
     var R = await Promise.all([sb.from('back_campos_editables').select('*').order('orden'), sb.from('back_estados').select('*').order('grupo').order('estado'),
       sb.from('matriz_cambios').select('*').order('created_at', { ascending: false }).limit(60), sb.from('back_config').select('*'),
-      sb.from('perfiles').select('id,nombre,activo,hace_contraoferta').eq('rol', 'back').order('nombre')]);
+      sb.from('perfiles').select('id,nombre,activo,hace_contraoferta,hace_incidencias,hace_seguimiento').eq('rol', 'back').order('nombre')]);
+    var sin54 = false;
+    if (R[4].error) { var R4 = await sb.from('perfiles').select('id,nombre,activo,hace_contraoferta').eq('rol', 'back').order('nombre'); if (!R4.error) { R[4] = R4; sin54 = true; } }
     AD.busy = false;
     var er = R[0].error || R[1].error || R[2].error || R[3].error; if (er) { host.innerHTML = '<div class="d15-vacio">' + esc(msg(er)) + '</div>'; return; }
     var cfg = {}; (R[3].data || []).forEach(function (x) { cfg[x.clave] = x.valor; });
     var G = { EN_CURSO: 'En curso (sigue en seguimiento)', CERRADO: 'Cerrado (cancelado, fraude…)', ACTIVO: 'Activo / OK (servicio terminado)' };
-    var h = '<div class="d15-sec"><div class="d15-sh"><h3>Backs que atienden contraofertas</h3><span class="meta">Todos los backs hacen seguimiento. Marca a quién le sale además el modo «💬 Contraoferta».</span></div>' +
-      (R[4].error ? '<div class="d15-vacio">' + esc(msg(R[4].error)) + '</div>' : ((R[4].data || []).length ? (R[4].data || []).map(function (p) {
-        return '<label class="p37-ck"><input type="checkbox" data-k37="contra" data-id="' + esc(p.id) + '"' + (p.hace_contraoferta ? ' checked' : '') + '>' + esc(p.nombre) + (p.activo === false ? ' <small>(inactivo)</small>' : '') + '</label>';
-      }).join('') : '<div class="d15-vacio">No hay usuarios con rol Back.</div>')) + '</div>';
+    var tp = function (p, col, etq, on) { return '<label class="p37-ck" style="margin:0"><input type="checkbox" data-k37="tipoback" data-c="' + col + '" data-id="' + esc(p.id) + '" aria-label="' + esc(etq + ' de ' + p.nombre) + '"' + (on ? ' checked' : '') + (sin54 && col !== 'hace_contraoferta' ? ' disabled' : '') + '></label>'; };
+    var h = '<div class="d15-sec"><div class="d15-sh"><h3>Tipo de back</h3><span class="meta">Marca qué hace cada back: a cada uno le salen solo las pantallas de sus tipos. Puede tener uno, dos o los tres.</span></div>' +
+      (R[4].error ? '<div class="d15-vacio">' + esc(msg(R[4].error)) + '</div>' : ((R[4].data || []).length ? '<div class="p37-sc"><table class="d15-tbl"><thead><tr><th>Back</th><th>📋 Seguimiento</th><th>💬 Contraoferta</th><th>🛠️ Incidencias</th></tr></thead><tbody>' + (R[4].data || []).map(function (p) {
+        return '<tr><td><b>' + esc(p.nombre) + '</b>' + (p.activo === false ? ' <small>(inactivo)</small>' : '') + '</td><td>' + tp(p, 'hace_seguimiento', 'Seguimiento', sin54 ? true : p.hace_seguimiento !== false) + '</td><td>' + tp(p, 'hace_contraoferta', 'Contraoferta', !!p.hace_contraoferta) + '</td><td>' + tp(p, 'hace_incidencias', 'Incidencias', !!p.hace_incidencias) + '</td></tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="d15-vacio">No hay usuarios con rol Back.</div>')) +
+      (sin54 ? '<p class="meta">Para activar «Seguimiento» e «Incidencias» ejecuta antes 54_incidencias.sql en Supabase.</p>' : '<p class="meta"><b>Seguimiento</b> = lista de ventas en curso. <b>Contraoferta</b> = conversación con el comercial. <b>Incidencias</b> = problemas con las ventas que reportan los comerciales (cita cancelada, móvil, TV, facturación, bajas…). Un back sin ningún tipo solo ve su resumen y su pago.</p>') + '</div>';
     h += '<div class="d15-sec"><div class="d15-sh"><h3>Qué puede editar el back</h3><span class="meta">Marca o desmarca. El cambio vale al instante.</span></div><div style="display:flex;flex-wrap:wrap;gap:8px 18px">' +
       (R[0].data || []).map(function (c) { return '<label class="p37-ck"><input type="checkbox" data-k37="campo" data-id="' + esc(c.campo) + '"' + (c.activo ? ' checked' : '') + '>' + esc(c.etiqueta) + '</label>'; }).join('') + '</div></div>';
     h += '<div class="d15-sec"><div class="d15-sh"><h3>Alertas y lista de cerrados</h3></div><div class="d15-form">' +
@@ -5170,6 +5174,11 @@ function ventaForm(l) {
       var k = e.target.getAttribute('data-k37'), r; if (!k) return;
       if (k === 'campo') r = await sb.from('back_campos_editables').update({ activo: e.target.checked }).eq('campo', e.target.getAttribute('data-id'));
       else if (k === 'contra') r = await sb.from('perfiles').update({ hace_contraoferta: e.target.checked }).eq('id', e.target.getAttribute('data-id'));
+      else if (k === 'tipoback') {
+        var col = e.target.getAttribute('data-c'); if (['hace_seguimiento', 'hace_contraoferta', 'hace_incidencias'].indexOf(col) < 0) return;
+        var upd = {}; upd[col] = e.target.checked;
+        r = await sb.from('perfiles').update(upd).eq('id', e.target.getAttribute('data-id'));
+      }
       else if (k === 'grupo') r = await sb.from('back_estados').update({ grupo: e.target.value }).eq('estado', e.target.getAttribute('data-id'));
       else if (k === 'color') r = await sb.from('back_estados').update({ color: e.target.value }).eq('estado', e.target.getAttribute('data-id'));
       else return;
@@ -5341,7 +5350,7 @@ function ventaForm(l) {
     var v = venc(t.vence_at, ST.d.por_vencer_horas), mia = t.asignado_a === me.id, libre = !t.asignado_a, man = t.origen === 'MANUAL';
     var ir = (t.lead_id || t.id_venta) ? '<button type="button" class="p36-mini" data-a="ir" data-lead="' + esc(t.lead_id || '') + '" data-venta="' + esc(t.id_venta || '') + '">Gestionar →</button>' : '';
     return '<div class="p38-t ' + (v.k === 'V' ? 'rojo' : v.k === 'P' ? 'amar' : '') + '"><div class="p38-i"><b>' + esc(t.titulo) + '</b> <span class="badge ' + v.c + '">' + v.t + '</span>' +
-      (t.grupo === 'CONTRAOFERTA' ? ' <span class="badge b-info">Contraoferta</span>' : '') +
+      (t.grupo === 'CONTRAOFERTA' ? ' <span class="badge b-info">Contraoferta</span>' : '') + (t.grupo === 'INCIDENCIAS' ? ' <span class="badge b-warn">Incidencia</span>' : '') +
       '<div class="meta">' + esc(t.cliente || '—') + (t.detalle ? ' · ' + esc(t.detalle) : '') + '</div>' +
       '<div class="meta">Plazo: ' + cuando(t.vence_at) + ' · ' + (libre ? 'Sin asignar' : (mia ? 'Asignada a ti' : 'De otro back')) + '</div></div>' +
       '<div class="p38-a">' + (libre ? '<button type="button" class="sec p36-mini" data-a="tomar" data-id="' + esc(t.id) + '">Tomar</button>' : '') + ir +
@@ -6195,16 +6204,18 @@ function ventaForm(l) {
   // [id, icono, título, pantallas, modo de la pantalla «pa» (solo back/admin)]
   var GR = {
     admin: [
-      ['pan', '🏠', 'Panel', ['res', 'kpi', 'ana', 'ate']],
+      ['pan', '🏠', 'Panel', ['res', 'kpi', 'rep', 'ana', 'ate']],
       ['ven', '💰', 'Ventas y leads', ['ven', 'der', 'cor']],
       ['bk', '🗂️', 'Back office', ['pa', 'tz', 'au'], 'SEG'],
       ['con', '💬', 'Contraoferta', ['pa'], 'CONTRA'],
+      ['inc', '🛠️', 'Incidencias', ['inc']],
       ['pag', '💳', 'Pagos', ['liq', 'pe']],
       ['cfg', '⚙️', 'Configuración', ['cfg', 'svo', 'equ', 'pb', 'in', 'sue', 'com', 'reg', 'nt', 'sa']]
     ],
     cerrador: [
       ['res', '🏠', 'Resumen', ['res']],
       ['cli', '🗂️', 'Mis clientes', ['tab', 'bol', 'cof']],
+      ['inc', '🛠️', 'Incidencias', ['inc']],
       ['pag', '💰', 'Ventas y pagos', ['ven', 'liq']]
     ],
     back: [
@@ -6212,6 +6223,7 @@ function ventaForm(l) {
       ['tra', '✅', 'Mi trabajo', ['ta', 'au']],
       ['seg', '📋', 'Seguimiento', ['pa', 'ven'], 'SEG'],
       ['con', '💬', 'Contraoferta', ['pa'], 'CONTRA'],
+      ['inc', '🛠️', 'Incidencias', ['inc']],
       ['lea', '🔥', 'Leads por calentar', ['col', 'tab', 'hec']],
       ['pag', '💳', 'Mi pago', ['mp', 'ic']]
     ],
@@ -6229,6 +6241,8 @@ function ventaForm(l) {
   function seg() { try { return window.seg37 ? window.seg37.info() : null; } catch (e) { return null; } }
   function modoPa() { var s = seg(); return (s && s.modo) || 'SEG'; }
   function contraOk() { var s = seg(); return !!(s && s.contra); }
+  // el administrador marca qué tipo de back es cada persona (Seguimiento · Contraoferta · Incidencias): el que no hace seguimiento no ve ese grupo
+  function segOk() { try { return !window.inc54 || window.inc54.info().seguimiento !== false; } catch (e) { return true; } }
   function btns() {
     var m = {};
     Array.prototype.forEach.call(document.querySelectorAll('#tabs15 .t15'), function (b) { m[b.getAttribute('data-k')] = b; });
@@ -6239,6 +6253,7 @@ function ventaForm(l) {
     var out = [], usados = {};
     (GR[rol()] || []).forEach(function (g) {
       if (g[4] === 'CONTRA' && !contraOk()) return;          // el back sin permiso de contraoferta no ve esta opción
+      if (g[4] === 'SEG' && rol() === 'back' && !segOk()) { g[3].forEach(function (k) { usados[k] = 1; }); return; }   // ni el seguimiento si no le toca
       var t = g[3].filter(function (k) { return m[k]; });
       t.forEach(function (k) { usados[k] = 1; });
       if (t.length) out.push({ id: g[0], ico: g[1], t: g[2], tabs: t, modo: g[4] || null });
@@ -6341,6 +6356,7 @@ function ventaForm(l) {
 
   // el bloque 37 avisa cuando sabe si este back atiende contraofertas y cuántos mensajes tiene sin leer
   document.addEventListener('seg37', function () { clearTimeout(deb); deb = setTimeout(function () { acciones(); sync(); }, 60); });
+  document.addEventListener('inc54', function () { clearTimeout(deb); deb = setTimeout(function () { acciones(); sync(); }, 60); });
 
   /* ================= ADMIN · AJUSTES GENERALES ================= */
   // [clave en la base, tipo, título, explicación, ¿puede quedar vacío?]
@@ -6811,11 +6827,44 @@ function ventaForm(l) {
     return '<div class="s46-cm"><textarea maxlength="500" rows="2" data-k="txt" data-c="' + esc(clave) + '" placeholder="' + esc(ayuda) + '" aria-label="' + esc(ayuda) + '">' + esc(borrador || '') + '</textarea>' +
       '<div class="fila"><button type="button" data-k="' + accion + '" data-c="' + esc(clave) + '">' + boton + '</button></div></div>';
   }
+  /* ---- contraoferta (solo lectura): lo que el back de contraofertas habla con el comercial. Necesita el SQL 53 ---- */
+  var CONTRA = {}, CR = {};
+  function repintaVentas() {
+    var a = $('s46-p-seg'), c = $('s46-p-cli');
+    if (a && !a.hidden) pintaSeg();
+    if (c && !c.hidden && typeof pintaCl === 'function') pintaCl();
+  }
+  async function cargaContra(id, forzar) {
+    if (CONTRA[id] !== undefined && !forzar) return;
+    CONTRA[id] = 'carga';
+    var r = await sb.rpc('sup_notas_contra', { p_id_venta: id });
+    CONTRA[id] = r.error ? (/PGRST202|42883/.test(String((r.error.code || '') + (r.error.message || ''))) ? 'sin53' : 'err') : (r.data || []);
+    repintaVentas();
+  }
+  function bloqueContra(id) {
+    var n = CONTRA[id];
+    if (n === undefined) { cargaContra(id); return ''; }
+    if (n === 'carga' || (Array.isArray(n) && !n.length)) return '';
+    if (n === 'sin53') return '<div class="meta" style="margin-top:10px">Para ver aquí la conversación de contraoferta falta ejecutar <b>53_reporte_agentes_y_contraoferta.sql</b> en Supabase.</div>';
+    if (n === 'err') return '<div class="meta" style="margin-top:10px">No se pudo cargar la conversación de contraoferta.</div>';
+    return '<div class="s46-h4">💬 Contraoferta · lo que habla el back con el comercial <span class="s46-ro" title="Solo lectura: la conversación la llevan el back de contraofertas y el comercial">👁 solo lectura</span></div>' + n.map(notaHtml).join('');
+  }
+  function chipContra(id) {
+    var x = CR[id]; if (!x || !x.n) return '';
+    return '<span class="badge b-info" title="' + esc((x.autor || '') + ': ' + (x.texto || '')) + '">💬 Contraoferta · ' + x.n + (x.n === 1 ? ' mensaje' : ' mensajes') + '</span>';
+  }
+  async function cargaResumenContra(ventas) {
+    var ids = (ventas || []).map(function (v) { return v.id_venta; }).filter(Boolean); if (!ids.length) return;
+    var r = await sb.rpc('sup_contra_resumen', { p_ids: ids });
+    if (r.error || !r.data) return;
+    ids.forEach(function (i) { delete CR[i]; }); Object.keys(r.data).forEach(function (k) { CR[k] = r.data[k]; });
+    var a = $('s46-p-seg'); if (a && !a.hidden) pintaSeg();
+  }
   function bloqueNotas(id) {
     var n = NOTAS[id];
     var lista = n === undefined ? '<div class="meta">Cargando notas…</div>' : n === 'err' ? '<div class="meta">No se pudieron cargar las notas.</div>' : n.length ? n.map(notaHtml).join('') : '<div class="meta">Todavía no hay notas.</div>';
     return '<div class="s46-h4">Notas del seguimiento</div>' + lista +
-      cajaComentario('v:' + id, BORR['v:' + id], 'Escribe una nota para el back y el cerrador… (se guarda en MATRIZ como las del back)', 'Comentar la venta', 'cmv');
+      cajaComentario('v:' + id, BORR['v:' + id], 'Escribe una nota para el back y el cerrador… (se guarda en MATRIZ como las del back)', 'Comentar la venta', 'cmv') + bloqueContra(id);
   }
   /* gestos comunes a las dos pantallas: escribir un borrador y enviar un comentario de venta o de cliente */
   function ganchosComun(sec, refresca) {
@@ -6852,7 +6901,7 @@ function ventaForm(l) {
     }
     return '<div class="s46-v"><button type="button" class="s46-vh" data-k="abre" data-id="' + esc(v.id_venta) + '" aria-expanded="' + ab + '"><div class="d15-av" style="flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:.8em;background:var(--acc2);color:var(--acc)">' + esc(ini(v.cliente)) + '</div>' +
       '<div class="s46-vt"><b>' + esc(v.cliente || '(sin nombre)') + '</b><small>' + esc(v.id_venta) + ' · ' + esc(v.campana || '') + ' · ' + esc(v.agente || '') + ' · ' + fdia(v.fecha) + '</small></div><span aria-hidden="true">' + (ab ? '▾' : '▸') + '</span></button>' +
-      '<div class="s46-ch">' + chipSt('Internet', v.internet) + chipSt('Móviles', v.moviles) + chipSt('TV', v.tv) + alert + '</div>' + det + '</div>';
+      '<div class="s46-ch">' + chipSt('Internet', v.internet) + chipSt('Móviles', v.moviles) + chipSt('TV', v.tv) + chipContra(v.id_venta) + alert + '</div>' + det + '</div>';
   }
   function pintaSeg() {
     var host = $('s46-seg'); if (!host) return;
@@ -6880,6 +6929,7 @@ function ventaForm(l) {
     SG.busy = false;
     if (r.error) { SG.err = msg(r.error); SG.d = SG.d || {}; } else SG.d = r.data;
     pintaSeg();
+    if (!r.error && r.data) cargaResumenContra(r.data.ventas);
   }
   function ganchosSeg(sec) {
     sec.addEventListener('click', function (e) {
@@ -7099,7 +7149,7 @@ function ventaForm(l) {
   }
 
   /* ================= PANTALLA DEL SUPERVISOR ================= */
-  var TABS = [['pan', '📊', 'Panel de KPIs'], ['cli', '👥', 'Clientes'], ['tar', '✅', 'Tareas del equipo'], ['seg', '👁', 'Seguimiento']];
+  var TABS = [['pan', '📊', 'Panel de KPIs'], ['rep', '📈', 'Agentes'], ['cli', '👥', 'Clientes'], ['tar', '✅', 'Tareas del equipo'], ['seg', '👁', 'Seguimiento'], ['inc', '🛠️', 'Incidencias']];
   var tmr = null;
   /* cuando alguien cambia el botón 🧩: el panel se vuelve a pedir y las fichas de clientes se repintan (sin volver a pedir nada) */
   function alCambiarSvc() {
@@ -7113,6 +7163,8 @@ function ventaForm(l) {
     Array.prototype.forEach.call(document.querySelectorAll('#s46-tabs .s46-t'), function (b) { var on = b.getAttribute('data-k') === k; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
     Array.prototype.forEach.call(document.querySelectorAll('#s46 > section'), function (s) { s.hidden = s.id !== 's46-p-' + k; });
     if (k === 'pan') cargarPanel(); else if (k === 'cli') cargarCl(); else if (k === 'tar') cargarTz(); else if (k === 'seg') cargarSeg();
+    else if (k === 'rep') { if (window.rep53) window.rep53.monta($('s46-rep')); else if ($('s46-rep')) $('s46-rep').innerHTML = '<div class="s46-vacio">Falta pegar el bloque 53 en index.html</div>'; }
+    else if (k === 'inc') { if (window.inc54) window.inc54.monta($('s46-inc')); else if ($('s46-inc')) $('s46-inc').innerHTML = '<div class="s46-vacio">Falta pegar el bloque 54 en index.html</div>'; }
   }
   window.supervisorView = function () {
     var main = $('main'); if (!main) return;
@@ -7122,10 +7174,10 @@ function ventaForm(l) {
     SG = { q: '', alertas: false, agente: '', pag: 0, d: null, busy: false, abierto: {}, tq: null, err: null };
     TZ = { dias: 7, d: null, busy: false, err: null };
     CL = { q: '', etapa: '', conc: '', cerr: '', dias: 30, pag: 0, d: null, busy: false, otra: false, err: null, eq: null, abierto: {}, det: {}, re: {}, tq: null };
-    NOTAS = {}; BORR = {};
+    NOTAS = {}; BORR = {}; CONTRA = {}; CR = {};
     main.innerHTML = '<div class="s46" id="s46"><div class="s46-hero"><small style="opacity:.85;text-transform:capitalize">' + esc(hoy) + '</small><h2>Hola, ' + esc(nombre) + '</h2><p>Supervisor · ves cómo va el grupo y lo que suben los concertadores, comentas, llamas, pasas clientes de un cerrador a otro y repartes las tareas del back. No editas estados ni ves comisiones.</p></div>' +
-      '<div class="s46-tabs" id="s46-tabs" role="tablist">' + TABS.map(function (t) { return '<button type="button" class="s46-t" role="tab" data-k="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div>' +
-      '<section id="s46-p-pan"></section><section id="s46-p-cli" hidden><div class="s46-sec"><div class="s46-sh"><h3>Clientes de los concertadores</h3><span class="meta">Con su historial: puedes llamar, comentar y cambiar de cerrador</span></div><div id="s46-cl"></div></div></section><section id="s46-p-tar" hidden><div id="s46-tz"></div></section><section id="s46-p-seg" hidden><div class="s46-sec"><div class="s46-sh"><h3>Seguimiento de clientes</h3><span class="meta">Clientes con algún servicio sin OK</span></div><div id="s46-seg"></div></div></section></div>';
+      '<div class="s46-tabs" id="s46-tabs" role="tablist">' + TABS.map(function (t) { return '<button type="button" class="s46-t" role="tab" data-k="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + (t[0] === 'inc' ? '<b class="p37-nb" style="display:none;margin-left:6px;min-width:18px;padding:0 6px;border-radius:99px;background:var(--bad);color:#fff;font-size:.72em;text-align:center;font-weight:800"></b>' : '') + '</button>'; }).join('') + '</div>' +
+      '<section id="s46-p-pan"></section><section id="s46-p-rep" hidden><div id="s46-rep"></div></section><section id="s46-p-inc" hidden><div id="s46-inc"></div></section><section id="s46-p-cli" hidden><div class="s46-sec"><div class="s46-sh"><h3>Clientes de los concertadores</h3><span class="meta">Con su historial: puedes llamar, comentar y cambiar de cerrador</span></div><div id="s46-cl"></div></div></section><section id="s46-p-tar" hidden><div id="s46-tz"></div></section><section id="s46-p-seg" hidden><div class="s46-sec"><div class="s46-sh"><h3>Seguimiento de clientes</h3><span class="meta">Clientes con algún servicio sin OK</span></div><div id="s46-seg"></div></div></section></div>';
     KP.host = $('s46-p-pan'); ganchosPanel(KP.host); ganchosTz($('s46-p-tar')); ganchosSeg($('s46-p-seg')); ganchosComun($('s46-p-seg'), pintaSeg); ganchosCl($('s46-p-cli'));
     alCambiarSvc();
     $('s46-tabs').addEventListener('click', function (e) { var b = e.target.closest('.s46-t'); if (b) irSup(b.getAttribute('data-k')); });
@@ -7211,7 +7263,8 @@ function ventaForm(l) {
     tareas:      { back: ['ta'], admin: ['tz'], supervisor: ['s:tar'] },
     comision:    { concertador: ['mp'], cerrador: ['liq'], back: ['mp'], admin: ['liq'] },
     salud:       { admin: ['sa'] },
-    kpi:         { admin: ['kpi'], supervisor: ['s:pan'] }
+    kpi:         { admin: ['kpi'], supervisor: ['s:pan'] },
+    incidencias: { cerrador: ['inc'], back: ['inc'], admin: ['inc'], supervisor: ['s:inc'] }
   };
   var S = nuevo(), T0 = document.title, listos = false;
 
@@ -7607,7 +7660,10 @@ function ventaForm(l) {
     else { if (k === 'pa' && modo && window.seg37) window.seg37.modo(modo); btn.click(); }
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e2) { }
   }
-  function ir(it) { if (!it) return; if (!it.leida) marcar([it.id]); cerrar(); quitarPops(); navegar(it.destino); }
+  function ir(it) {
+    if (!it) return; if (!it.leida) marcar([it.id]); cerrar(); quitarPops(); navegar(it.destino);
+    if (it.destino === 'incidencias' && it.ref && window.inc54) setTimeout(function () { window.inc54.abrir(it.ref); }, 150);   // abre la incidencia concreta
+  }
   function porId(id) { id = Number(id); for (var i = 0; i < S.items.length; i++) if (S.items[i].id === id) return S.items[i]; return null; }
 
   /* ---------- aviso de llegada: sonido, ventanita, aviso del navegador ---------- */
@@ -8348,6 +8404,767 @@ function ventaForm(l) {
   });
   var oL = window.loginView;
   if (typeof oL === 'function') window.loginView = function () { reinicia(); clearInterval(OB.tm); if (OB.obs) OB.obs.disconnect(); OB.d = null; return oL.apply(this, arguments); };
+})();
+
+  /* 53 · «Agentes»: cómo va cada agente en los últimos 6 meses (con porcentajes) y sus ventas por estado
+   PEGAR al final del script de index.html, DESPUÉS del bloque 49 y antes del cierre del script. Antes ejecuta 53_reporte_agentes_y_contraoferta.sql.
+   Lo ven el supervisor (pestaña «Agentes» de su panel) y el administrador (Panel → «Agentes»). Nadie más: la función de la base lo comprueba.
+   Cómo se cuenta (igual que la hoja de seguimiento de ventas):
+   - INGRESADAS = líneas vendidas en el mes. ACTIVAS / CANCELADAS / EN TRÁMITE = cómo están HOY esas mismas líneas.
+   - % activas = activas ÷ ingresadas.   % canceladas = canceladas ÷ ingresadas.
+   - ACTIVADAS EN EL MES = lo que se activó ese mes por FECHA DE ACTIVACIÓN, aunque la venta sea de un mes anterior.
+   - Se cuenta un servicio a la vez (botón 🧩 de arriba): Internet y Móvil nunca se suman. */
+(function () {
+  if (window.rep53) return;
+  function $(i) { return document.getElementById(i); }
+  function falta(e) { return /PGRST202|42883|42P01|sup_reporte_agentes/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 53_reporte_agentes_y_contraoferta.sql en Supabase' : limpio((e && e.message) || ''); }
+  function n0(n) { return Number(n || 0).toLocaleString('es-PE'); }
+  function pct(a, b) { return b ? Math.round(a * 100 / b) : null; }
+  function pt(a, b) { var p = pct(a, b); return p === null ? '—' : p + ' %'; }
+  var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  var MCORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  function mesLargo(k) { var p = String(k).split('-'); return MESES[+p[1] - 1] + ' ' + p[0]; }
+  function mesCorto(k) { var p = String(k).split('-'); return MCORTO[+p[1] - 1] + ' ' + String(p[0]).slice(2); }
+  function ultimosMeses() {
+    var h = new Date(), out = [];
+    for (var i = 0; i < 12; i++) { var d = new Date(h.getFullYear(), h.getMonth() - i, 1); out.push(d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2)); }
+    return out;
+  }
+  var VISTAS = [['act', '% activas'], ['can', '% canceladas'], ['ing', 'Ingresadas'], ['actm', 'Activadas en el mes']];
+  var R = { host: null, mes: null, vista: 'act', d: null, busy: false, err: null, otra: false, hora: null };
+
+  var css = document.createElement('style');
+  css.textContent = [
+    '.r53 .r53-sec{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--sh);margin-bottom:16px}',
+    '.r53 .r53-sh{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}.r53 .r53-sh h3{margin:0;font-size:1.05em}.r53 .r53-sh .meta{margin:0}',
+    '.r53 .r53-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.r53 .r53-bar select{width:auto;margin:0;min-width:170px}.r53 .r53-bar button{width:auto}',
+    '.r53 .r53-pills{display:flex;gap:6px;flex-wrap:wrap}',
+    '.r53 .r53-pill{background:var(--bg);color:var(--ink);border:1px solid var(--line);box-shadow:none;border-radius:99px;padding:6px 13px;font-size:.82em;font-weight:700;width:auto}',
+    '.r53 .r53-pill:hover{background:var(--acc2)}.r53 .r53-pill.on{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}',
+    '.r53 .r53-sc{overflow-x:auto;-webkit-overflow-scrolling:touch}',
+    '.r53 table{border-collapse:separate;border-spacing:0;width:100%;font-size:.88em}.r53 th{text-align:right;color:var(--mut);font-size:.74em;text-transform:uppercase;letter-spacing:.04em;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--card)}',
+    '.r53 th:first-child,.r53 td:first-child{text-align:left;position:sticky;left:0;z-index:1;background:var(--card);min-width:112px}',
+    '.r53 td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}',
+    '.r53 tr.tot td{font-weight:800;border-top:2px solid var(--line2);background:var(--bg)}.r53 tr.tot td:first-child{background:var(--bg)}',
+    '.r53 tr.gr td{font-weight:800;background:var(--acc2)}.r53 tr.gr td:first-child{background:var(--acc2)}',
+    '.r53 td small{display:block;color:var(--mut);font-size:.72em;font-weight:500}',
+    '.r53 td.h{border-radius:0}.r53 td.g{background:var(--ok-bg);color:var(--ok);font-weight:700}.r53 td.a{background:var(--warn-bg);color:var(--warn);font-weight:700}.r53 td.r{background:var(--bad-bg);color:var(--bad);font-weight:700}',
+    '.r53 td.z{color:var(--mut)}.r53 td.cero{color:var(--line2)}',
+    '.r53 th.c-act{border-bottom:3px solid var(--c-act)}.r53 th.c-tra{border-bottom:3px solid var(--c-tra)}.r53 th.c-cai{border-bottom:3px solid var(--c-cai)}',
+    '.r53 .r53-lg{display:flex;gap:16px;flex-wrap:wrap;margin:8px 0 0;font-size:.82em;color:var(--mut)}.r53 .r53-lg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}',
+    '.r53 .r53-ch svg{width:100%;max-width:640px;height:auto;display:block;margin:0 auto;overflow:visible}.r53 .r53-ch text{font:13px Inter,system-ui,sans-serif;fill:var(--mut)}.r53 .r53-ch text.v{fill:var(--ink);font-weight:700;font-size:14px}',
+    '.r53 .r53-vacio{padding:24px 12px;text-align:center;color:var(--mut)}'
+  ].join('');
+  document.head.appendChild(css);
+
+  function clasePct(v, vista) {
+    if (v === null) return 'z';
+    if (vista === 'can') return v <= 10 ? 'g' : v <= 20 ? 'a' : 'r';
+    return v >= 70 ? 'g' : v >= 50 ? 'a' : 'r';
+  }
+  function celda(m, vista) {
+    if (!m || !m.ing) return vista === 'actm' && m && m.actm ? '<td>' + n0(m.actm) + '</td>' : '<td class="z">—</td>';
+    if (vista === 'ing') return '<td>' + n0(m.ing) + '</td>';
+    if (vista === 'actm') return '<td>' + (m.actm ? n0(m.actm) : '<span class="cero">0</span>') + '</td>';
+    var a = vista === 'act' ? m.act : m.can, p = pct(a, m.ing);
+    return '<td class="' + clasePct(p, vista) + '">' + p + ' %<small>' + a + ' de ' + m.ing + '</small></td>';
+  }
+  function sumaMeses(ms) {
+    var t = { ing: 0, act: 0, can: 0, tra: 0, actm: 0 };
+    ms.forEach(function (m) { t.ing += m.ing; t.act += m.act; t.can += m.can; t.tra += m.tra; t.actm += m.actm; });
+    return t;
+  }
+
+  /* ---- gráfico: cómo se reparten las ventas de cada mes (todo el grupo) ---- */
+  function grafico(cron) {
+    var W = 480, H = 210, pl = 6, pr = 6, pt0 = 40, pb = 30, n = cron.length, bw = Math.min(58, (W - pl - pr) / n * 0.62), paso = (W - pl - pr) / n;
+    var mx = 0; cron.forEach(function (m) { mx = Math.max(mx, m.ing); }); if (!mx) return '<div class="r53-vacio">Todavía no hay ventas en estos meses.</div>';
+    var ay = H - pb - pt0, s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Ventas de cada mes: activas, en trámite y canceladas">';
+    s += '<line x1="0" x2="' + W + '" y1="' + (H - pb) + '" y2="' + (H - pb) + '" stroke="var(--line2)"/>';
+    cron.forEach(function (m, i) {
+      var x = pl + paso * i + (paso - bw) / 2, y = H - pb, partes = [[m.act, 'var(--c-act)', 'Activas'], [m.tra, 'var(--c-tra)', 'En trámite'], [m.can, 'var(--c-cai)', 'Canceladas']];
+      partes.forEach(function (p) {
+        var h = p[0] / mx * ay; if (!p[0]) return;
+        y -= h; s += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(1, h).toFixed(1) + '" rx="3" fill="' + p[1] + '"><title>' + mesLargo(m.k) + ' · ' + p[2] + ': ' + p[0] + '</title></rect>';
+      });
+      s += '<text class="v" x="' + (x + bw / 2).toFixed(1) + '" y="' + (y - 19).toFixed(1) + '" text-anchor="middle">' + n0(m.ing) + '</text>';
+      s += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (y - 5).toFixed(1) + '" text-anchor="middle">' + (m.ing ? pct(m.act, m.ing) + ' % act.' : '') + '</text>';
+      s += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - 12) + '" text-anchor="middle">' + mesCorto(m.k) + '</text>';
+    });
+    return s + '</svg>';
+  }
+
+  function tablaSeis(d) {
+    var ks = (d.meses || []).slice().reverse();                         // de más antiguo a más reciente, como en la hoja
+    var gmap = {}; (d.grupo || []).forEach(function (g) { gmap[g.k] = g; });
+    var sinSeis = !(d.seis || []).length;
+    var th = '<tr><th>Agente</th>' + ks.map(function (k) { return '<th>' + esc(mesCorto(k)) + '</th>'; }).join('') + '<th>6 meses</th></tr>';
+    var cron = ks.map(function (k) { return gmap[k] || { k: k, ing: 0, act: 0, can: 0, tra: 0, actm: 0 }; });
+    var filaG = '<tr class="gr"><td>👥 Todo el grupo</td>' + cron.map(function (m) { return celda(m, R.vista); }).join('') + totalCelda(sumaMeses(cron)) + '</tr>';
+    var filas = (d.seis || []).map(function (a) {
+      var por = {}; (a.m || []).forEach(function (m) { por[m.k] = m; });
+      var ms = ks.map(function (k) { return por[k] || { k: k, ing: 0, act: 0, can: 0, tra: 0, actm: 0 }; });
+      return '<tr><td><b>' + esc(a.agente) + '</b></td>' + ms.map(function (m) { return celda(m, R.vista); }).join('') + totalCelda(sumaMeses(ms)) + '</tr>';
+    }).join('');
+    return '<div class="r53-sc"><table><thead>' + th + '</thead><tbody>' + filaG + (sinSeis ? '' : filas) + '</tbody></table></div>' + (sinSeis ? '<div class="r53-vacio">No hay cerradores activos.</div>' : '');
+  }
+  function totalCelda(t) {
+    if (R.vista === 'ing') return '<td><b>' + n0(t.ing) + '</b></td>';
+    if (R.vista === 'actm') return '<td><b>' + n0(t.actm) + '</b></td>';
+    var a = R.vista === 'act' ? t.act : t.can, p = pct(a, t.ing);
+    return t.ing ? '<td class="' + clasePct(p, R.vista) + '">' + p + ' %<small>' + a + ' de ' + t.ing + '</small></td>' : '<td class="z">—</td>';
+  }
+
+  function tablaEstados(d) {
+    var ag = d.agentes || [], es = d.estados || [];
+    if (!ag.length) return '<div class="r53-vacio">No hay agentes para mostrar.</div>';
+    var tot = { ing: 0, act: 0, tra: 0, can: 0, actm: 0, est: {} };
+    ag.forEach(function (a) { tot.ing += a.ing; tot.act += a.act; tot.tra += a.tra; tot.can += a.can; tot.actm += a.actm; Object.keys(a.est || {}).forEach(function (k) { tot.est[k] = (tot.est[k] || 0) + a.est[k]; }); });
+    function fila(a, cls) {
+      var pa = pct(a.act, a.ing), pc = pct(a.can, a.ing);
+      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td>' + (cls ? '<b>Total</b>' : '<b>' + esc(a.agente) + '</b>') + '</td><td>' + n0(a.ing) + '</td><td>' + n0(a.act) + '</td><td>' + n0(a.tra) + '</td><td>' + n0(a.can) + '</td>' +
+        (a.ing ? '<td class="' + clasePct(pa, 'act') + '">' + pa + ' %</td><td class="' + clasePct(pc, 'can') + '">' + pc + ' %</td>' : '<td class="z">—</td><td class="z">—</td>') + '<td>' + n0(a.actm) + '</td>' +
+        es.map(function (e) { var v = (a.est || {})[e.e] || 0; return '<td' + (v ? '' : ' class="cero"') + '>' + (v ? n0(v) : '·') + '</td>'; }).join('') + '</tr>';
+    }
+    return '<div class="r53-sc"><table><thead><tr><th>Agente</th><th>Ingres.</th><th class="c-act">Activas</th><th class="c-tra">Trámite</th><th class="c-cai">Cancel.</th><th>% activas</th><th>% cancel.</th><th title="Por fecha de activación, aunque la venta sea de otro mes">Activadas en el mes</th>' +
+      es.map(function (e) { return '<th class="c-' + (e.c === 'ACT' ? 'act' : e.c === 'CAI' ? 'cai' : 'tra') + '" title="' + esc(e.e) + '">' + esc(e.e) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      ag.map(function (a) { return fila(a); }).join('') + fila(tot, 'tot') + '</tbody></table></div>';
+  }
+
+  function pinta() {
+    var host = R.host; if (!host) return;
+    var d = R.d, ms = ultimosMeses(), actual = d ? String(d.mes).slice(0, 7) : (R.mes || ms[0]);
+    var barra = '<div class="r53-sec"><div class="r53-bar"><label style="margin:0;font-weight:700">Mes</label><select id="r53-m" aria-label="Mes">' +
+      ms.map(function (k) { return '<option value="' + k + '"' + (k === actual ? ' selected' : '') + '>' + esc(mesLargo(k)) + '</option>'; }).join('') + '</select>' +
+      '<button type="button" class="sec" data-r="ref">↻ Actualizar</button><span class="meta" style="margin-left:auto">' + (R.hora ? 'Actualizado a las ' + R.hora.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' }) : '') + '</span></div>' +
+      '<div data-svc49 class="svc49-fila" style="margin:12px 0 0"></div></div>';
+    if (R.err) { host.innerHTML = '<div class="r53 s46">' + barra + '<div class="r53-sec"><div class="r53-vacio">' + esc(R.err) + '</div></div></div>'; return; }
+    if (!d) { host.innerHTML = '<div class="r53 s46">' + barra + '<div class="r53-sec"><div class="r53-vacio">Calculando…</div></div></div>'; return; }
+    var ks = (d.meses || []).slice().reverse(), gmap = {}; (d.grupo || []).forEach(function (g) { gmap[g.k] = g; });
+    var cron = ks.map(function (k) { return gmap[k] || { k: k, ing: 0, act: 0, can: 0, tra: 0, actm: 0 }; });
+    var sv = window.svc49, nombre = sv && d.clases && d.clases[0] ? sv.nombre(d.clases[0]) : 'servicios';
+    var h = barra +
+      '<div class="r53-sec"><div class="r53-sh"><h3>📈 Cómo van los agentes · últimos 6 meses</h3><span class="r53-pills">' + VISTAS.map(function (v) { return '<button type="button" class="r53-pill' + (R.vista === v[0] ? ' on' : '') + '" data-r="vista" data-v="' + v[0] + '">' + v[1] + '</button>'; }).join('') + '</span></div>' +
+      '<div class="r53-ch">' + grafico(cron) + '</div>' +
+      '<div class="r53-lg"><span><i style="background:var(--c-act)"></i>Activas hoy</span><span><i style="background:var(--c-tra)"></i>En trámite</span><span><i style="background:var(--c-cai)"></i>Canceladas</span><span>Sobre cada barra: ventas ingresadas y % activas</span></div></div>' +
+      '<div class="r53-sec"><div class="r53-sh"><h3>' + (R.vista === 'act' ? '% de ventas activas por agente' : R.vista === 'can' ? '% de ventas canceladas por agente' : R.vista === 'ing' ? 'Ventas ingresadas por agente' : 'Activadas en el mes por agente') + '</h3><span class="meta">' + esc(nombre) + ' · cada columna es un mes</span></div>' +
+      tablaSeis(d) +
+      '<p class="meta" style="margin:10px 0 0">' + (R.vista === 'actm' ? '<b>Activadas en el mes</b>: lo que se activó ese mes por <b>fecha de activación</b>, aunque la venta sea de un mes anterior.' : '<b>Ingresadas</b> = vendidas ese mes. <b>' + (R.vista === 'can' ? '% canceladas' : '% activas') + '</b> = ' + (R.vista === 'can' ? 'canceladas' : 'activas') + ' hoy ÷ ingresadas de ese mes. Los meses recientes todavía pueden cambiar: hay ventas en trámite.') + ' Verde ≥ 70 % activas (o ≤ 10 % canceladas), ámbar intermedio, rojo por debajo.</p></div>' +
+      '<div class="r53-sec"><div class="r53-sh"><h3>Ventas de cada agente por estado · ' + esc(mesLargo(actual)) + '</h3><span class="meta">Estado actual de las líneas vendidas ese mes</span></div>' + tablaEstados(d) +
+      '<p class="meta" style="margin:10px 0 0">Los estados están agrupados por color: <b style="color:var(--c-act)">activos</b>, <b style="color:var(--c-tra)">en trámite</b> y <b style="color:var(--c-cai)">cancelados</b>. «·» = ninguna línea. Los códigos históricos (TRIBU, APROOP…) no se cuentan.</p></div>';
+    var y = window.scrollY;
+    host.innerHTML = '<div class="r53 s46">' + h + '</div>';
+    if (Math.abs(window.scrollY - y) > 2) window.scrollTo(0, y);
+  }
+
+  async function carga(forzar) {
+    if (!R.host) return;
+    if (R.busy) { R.otra = true; return; }
+    R.busy = true; if (forzar) R.d = null; if (!R.d) pinta();
+    var sv = window.svc49, cl = sv ? sv.sel() : null;
+    var a = { p_mes: R.mes ? R.mes + '-01' : null, p_clases: cl && sv.ok() !== false ? cl : null };
+    var r = await sb.rpc('sup_reporte_agentes', a);
+    R.busy = false;
+    if (r.error) { R.err = msg(r.error); R.d = null; } else { R.err = null; R.d = r.data; R.hora = new Date(); }
+    pinta();
+    if (R.otra) { R.otra = false; carga(); }
+  }
+
+  function ganchos(host) {
+    if (host.__r53) return; host.__r53 = true;
+    host.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-r]'); if (!b || !host.contains(b)) return; var k = b.getAttribute('data-r');
+      if (k === 'ref') carga(true);
+      else if (k === 'vista') { R.vista = b.getAttribute('data-v'); pinta(); }
+    });
+    host.addEventListener('change', function (e) {
+      if (e.target.id === 'r53-m') { R.mes = e.target.value; R.d = null; carga(); }
+    });
+  }
+  function monta(host) {
+    if (!host) return;
+    R.host = host; ganchos(host);
+    if (window.svc49) window.svc49.alCambiar('r53', function () { if (R.host && document.body.contains(R.host) && R.host.offsetParent !== null) carga(true); });
+    carga(!R.d);
+  }
+
+  /* ---- Administrador: pestaña «Agentes» dentro del grupo «Panel» ---- */
+  function montarAdmin() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-rep')) return;
+    var s = document.createElement('section'); s.className = 'p15 s46'; s.id = 'p15-rep'; s.hidden = true; s.innerHTML = '<div id="r53-adm"><div class="r53-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'rep'); bt.innerHTML = '<span>📈</span>Agentes';
+    var ref = bar.querySelector('[data-k="kpi"]') || bar.querySelector('[data-k="res"]'); if (ref) ref.insertAdjacentElement('afterend', bt); else bar.appendChild(bt);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'rep') monta($('r53-adm')); });
+  }
+  var oA = window.adminView;
+  if (typeof oA === 'function') window.adminView = function () { var r = oA.apply(this, arguments); try { R = { host: null, mes: null, vista: 'act', d: null, busy: false, err: null, otra: false, hora: null }; montarAdmin(); } catch (e) { console.error(e); } return r; };
+  var oS = window.supervisorView;
+  if (typeof oS === 'function') window.supervisorView = function () { R = { host: null, mes: null, vista: 'act', d: null, busy: false, err: null, otra: false, hora: null }; return oS.apply(this, arguments); };
+
+  window.rep53 = { monta: monta };
+})();
+
+  /* 54 · INCIDENCIAS de ventas (comercial → back)   Requiere el SQL 54_incidencias.sql (ejecutarlo ANTES de usar esta pantalla).
+   PEGAR al final del script de index.html, DESPUÉS del bloque 49 y antes del cierre del script.
+   Qué es: algo que le pasa a una venta y que el comercial no puede resolver solo (se cancela la cita de instalación, un problema con
+   el móvil, la televisión, la facturación, un cliente que quiere darse de baja…). El comercial lo REPORTA; le llega al back que atiende
+   «Incidencias», que lo toma, escribe lo que va haciendo y lo resuelve. El hilo lo ven el comercial, el supervisor y el administrador.
+   Quién ve qué:
+   - Comercial (cerrador): pestaña «Incidencias» con las suyas, botón «Reportar», comentar, retirar y reabrir.
+   - Back con el permiso «Incidencias» (Configuración → Permisos del back): cola de todas, tomar, comentar, pedir datos, resolver.
+   - Supervisor: pestaña «Incidencias» dentro de su panel: ve todas, comenta, reporta, reparte y reabre. No resuelve.
+   - Administrador: todo lo anterior + tipos y plazos.
+   Cada incidencia crea una tarea en «Mis tareas» del back (con plazo); se cierra sola al resolverla.
+   Todo pasa por funciones de la base que comprueban el rol: aunque alguien abra la consola del navegador, no puede ver ni tocar lo ajeno. */
+(function () {
+  if (window.inc54) return;
+  function $(i) { return document.getElementById(i); }
+  function rol() { try { return perfil && perfil.rol; } catch (e) { return null; } }
+  function uid() { try { return me && me.id; } catch (e) { return null; } }
+  function falta(e) { var t = String(e && ((e.code || '') + ' ' + (e.message || ''))); return /PGRST202|PGRST205|42883|42P01/.test(t) || /Could not find the function public\.inc_|Could not find the table public\.incidencia/.test(t); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 54_incidencias.sql en Supabase' : limpio((e && e.message) || ''); }
+  function fh(s) { if (!s) return ''; var d = new Date(s); return isNaN(d) ? '' : d.toLocaleString('es-PE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' }); }
+  function fdia(s) { var p = String(s || '').slice(0, 10).split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : '—'; }
+  function hace(s) {
+    var m = Math.max(0, Math.round((Date.now() - new Date(s)) / 60000)); if (isNaN(m)) return '';
+    if (m < 2) return 'ahora'; if (m < 60) return 'hace ' + m + ' min'; if (m < 1440) return 'hace ' + Math.floor(m / 60) + ' h';
+    var d = Math.floor(m / 1440); return 'hace ' + d + (d === 1 ? ' día' : ' días');
+  }
+  function dur(ms) { var m = Math.max(1, Math.round(Math.abs(ms) / 60000)); if (m < 60) return m + ' min'; if (m < 1440) return Math.floor(m / 60) + ' h'; var d = Math.floor(m / 1440); return d + (d === 1 ? ' día' : ' días'); }
+  function telHref(t) { var d = String(t || '').replace(/[^\d+]/g, ''); return d.length >= 6 ? 'tel:' + d : ''; }
+  function waNum(t) { var d = String(t || '').replace(/\D/g, ''); if (d.length === 9) d = '34' + d; return d.length >= 9 ? d : ''; }
+  function contacto(t) {
+    var h = telHref(t), w = waNum(t); if (!h) return esc(t || '—');
+    return '<a class="i54-lk" href="' + esc(h) + '">📞 ' + esc(t) + '</a> <a class="i54-lk" href="https://wa.me/' + esc(w) + '" target="_blank" rel="noopener">💬 WhatsApp</a>';
+  }
+
+  var ESTADO = { ABIERTA: ['Nueva', 'b-warn'], EN_GESTION: ['En gestión', 'b-info'], ESPERANDO_COMERCIAL: ['Esperando al comercial', 'b-warn'], RESUELTA: ['Resuelta', 'b-ok'], CANCELADA: ['Cerrada sin resolver', ''] };
+  var ROL_T = { concertador: 'concertador', cerrador: 'comercial', back: 'back', admin: 'admin', supervisor: 'supervisor', sistema: 'sistema' };
+
+  var CFG = null, S = nuevo(), tBadge = null, tDet = null;
+  function nuevo() { return { host: null, vista: 'ABIERTAS', q: '', tipo: '', d: null, busy: false, err: null, sel: null, det: null, borr: {}, tq: null, ajustes: false, ult: 0 }; }
+  function abierta(e) { return e === 'ABIERTA' || e === 'EN_GESTION' || e === 'ESPERANDO_COMERCIAL'; }
+  function esAdm() { return rol() === 'admin'; }
+  function tipoDe(c) { var t = ((CFG && CFG.tipos) || []).filter(function (x) { return x.codigo === c; })[0]; return t || { codigo: c, nombre: c, icono: '❓' }; }
+
+  /* ================= ESTILOS ================= */
+  var css = document.createElement('style');
+  css.textContent = [
+    '.i54{--i-urg:#d9381e}',
+    '.i54 .i54-sec{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--sh);margin-bottom:16px}',
+    '.i54 .i54-sh{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}.i54 .i54-sh h3{margin:0;font-size:1.05em}.i54 .i54-sh .meta{margin:0}',
+    '.i54 .i54-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 12px}.i54 .i54-bar input[type=search]{flex:1 1 220px;min-width:0;margin:0}.i54 .i54-bar select{flex:0 1 200px;margin:0;width:auto}',
+    '.i54 .i54-pills{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}',
+    '.i54 .i54-pill{background:var(--bg);color:var(--ink);border:1px solid var(--line);box-shadow:none;border-radius:99px;padding:6px 13px;font-size:.82em;font-weight:700;width:auto}',
+    '.i54 .i54-pill b{margin-left:6px;font-weight:800;color:var(--mut)}.i54 .i54-pill:hover{background:var(--acc2)}',
+    '.i54 .i54-pill.on{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}.i54 .i54-pill.on b{color:inherit}',
+    '.i54 .i54-vacio{padding:26px 12px;text-align:center;color:var(--mut)}',
+    '.i54 .i54-c{display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;background:var(--card);color:var(--ink);border:1px solid var(--line);border-left:4px solid var(--line2);box-shadow:none;border-radius:14px;padding:12px 14px;margin:0 0 10px;font-weight:400;cursor:pointer}',
+    '.i54 .i54-c:hover{background:var(--acc2)}.i54 .i54-c.urg{border-left-color:var(--i-urg)}.i54 .i54-c.venc{border-left-color:var(--bad);background:color-mix(in srgb,var(--bad) 5%,var(--card))}',
+    '.i54 .i54-c.res{opacity:.78}.i54 .i54-c.esp{border-left-color:var(--warn)}.i54 .i54-c.mia{border-left-color:var(--acc)}',
+    '.i54 .i54-ic{flex:none;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:1.3em;background:var(--acc2)}',
+    '.i54 .i54-cb{min-width:0;flex:1 1 auto}.i54 .i54-t{display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center;margin:0 0 2px}.i54 .i54-t b{font-size:.95em}',
+    '.i54 .i54-s{color:var(--mut);font-size:.84em}.i54 .i54-d{margin:4px 0;font-size:.92em;overflow-wrap:anywhere}',
+    '.i54 .i54-u{font-size:.82em;color:var(--mut);background:var(--bg);border-radius:8px;padding:5px 9px;margin:4px 0;overflow-wrap:anywhere}.i54 .i54-m{font-size:.78em;color:var(--mut)}',
+    '.i54 .i54-urg{background:var(--i-urg);color:#fff}',
+    '.i54 .i54-back{width:auto;margin:0 0 12px}',
+    '.i54 .i54-hd{display:flex;gap:12px;align-items:center;margin:0 0 10px}.i54 .i54-hd h3{margin:0;font-size:1.15em}.i54 .i54-hd .badge{margin-left:2px}',
+    '.i54 .i54-fi{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 16px;margin:10px 0}.i54 .i54-fi div{min-width:0;overflow-wrap:anywhere}',
+    '.i54 .i54-fi small{display:block;color:var(--mut);font-size:.72em;text-transform:uppercase;letter-spacing:.05em;font-weight:700}',
+    '.i54 .i54-que{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0;overflow-wrap:anywhere;white-space:pre-wrap}',
+    '.i54 .i54-lk{display:inline-block;margin-right:8px;font-weight:700;color:var(--acc);text-decoration:none}',
+    '.i54 .i54-tb{overflow-x:auto}.i54 .i54-tb table{width:100%;border-collapse:collapse;font-size:.86em}.i54 .i54-tb th{text-align:left;color:var(--mut);font-size:.74em;text-transform:uppercase;padding:5px 8px;border-bottom:1px solid var(--line)}.i54 .i54-tb td{padding:7px 8px;border-bottom:1px solid var(--line)}',
+    '.i54 .i54-h4{margin:14px 0 6px;font-size:.8em;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);font-weight:800}',
+    '.i54 .i54-hilo{display:flex;flex-direction:column;gap:8px;margin:0 0 12px}',
+    '.i54 .i54-n{max-width:86%;border:1px solid var(--line);background:var(--bg);border-radius:14px;padding:8px 12px;align-self:flex-start;overflow-wrap:anywhere}',
+    '.i54 .i54-n.mio{align-self:flex-end;background:var(--acc2);border-color:color-mix(in srgb,var(--acc) 30%,var(--line))}',
+    '.i54 .i54-n small{display:block;color:var(--mut);font-size:.74em;margin:0 0 2px}.i54 .i54-n small b{color:var(--ink)}.i54 .i54-n div{white-space:pre-wrap}',
+    '.i54 .i54-sis{align-self:center;text-align:center;font-size:.78em;color:var(--mut);background:var(--bg);border-radius:99px;padding:3px 12px}',
+    '.i54 .i54-ac textarea{width:100%;min-height:84px;resize:vertical}',
+    '.i54 .i54-bt{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 0}.i54 .i54-bt button{width:auto}',
+    '.i54 .i54-as{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 0}.i54 .i54-as select{width:auto;flex:1 1 200px;margin:0}.i54 .i54-as button{width:auto}',
+    '.i54 .i54-res{border:1px solid color-mix(in srgb,var(--ok) 40%,var(--line));background:var(--ok-bg);color:var(--ink);border-radius:12px;padding:10px 12px;margin:10px 0}',
+    '.i54 .i54-cnt{float:right;font-size:.74em;color:var(--mut)}',
+    '.i54 details{margin-top:8px}.i54 summary{cursor:pointer;font-weight:800}',
+    '.i54 .i54-tt{display:grid;grid-template-columns:50px minmax(0,1fr) 90px auto auto;gap:8px;align-items:center;margin:6px 0}.i54 .i54-tt input{margin:0}.i54 .i54-tt button{width:auto}',
+    '.i54 .i54-tt .ck{display:flex;gap:6px;align-items:center;margin:0}.i54 .i54-tt .ck input{width:auto}',
+    '@media(max-width:640px){.i54 .i54-n{max-width:96%}.i54 .i54-tt{grid-template-columns:44px minmax(0,1fr) 78px}.i54 .i54-tt .ck,.i54 .i54-tt button{grid-column:span 3}}',
+    /* ventana de «Reportar» */
+    '.i54m .k-bus{max-width:640px}.i54m h3{margin:0 0 4px}.i54m label{display:block;margin:12px 0 4px;font-weight:700;font-size:.86em}',
+    '.i54m .i54-vl{max-height:230px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;margin:6px 0 0}',
+    '.i54m .i54-v{display:block;width:100%;text-align:left;background:var(--card);color:var(--ink);box-shadow:none;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:9px 12px;font-weight:400}',
+    '.i54m .i54-v:last-child{border-bottom:0}.i54m .i54-v:hover{background:var(--acc2)}.i54m .i54-v.on{background:var(--acc2);box-shadow:inset 3px 0 0 var(--acc)}',
+    '.i54m .i54-v small{display:block;color:var(--mut)}.i54m .i54-tp{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}',
+    '.i54m .i54-tpb{display:flex;gap:8px;align-items:center;text-align:left;background:var(--bg);color:var(--ink);border:1px solid var(--line);box-shadow:none;border-radius:12px;padding:9px 11px;font-weight:600;font-size:.88em}',
+    '.i54m .i54-tpb.on{background:var(--acc2);border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc)}.i54m .i54-tpb span{font-size:1.3em}',
+    '.i54m textarea{width:100%;min-height:96px;resize:vertical}.i54m .i54-urgl{display:flex;gap:8px;align-items:flex-start;font-weight:400;margin-top:10px}.i54m .i54-urgl input{width:auto;margin-top:4px}',
+    '.i54m .i54-aviso{background:var(--warn-bg);color:var(--ink);border-radius:10px;padding:8px 12px;margin:8px 0;font-size:.86em}',
+    '.i54m .i54-fn{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}.i54m .i54-fn button{width:auto}'
+  ].join('');
+  document.head.appendChild(css);
+
+  /* ================= CONFIGURACIÓN (qué puede hacer esta persona) ================= */
+  async function cargaCfg() {
+    var r = await sb.rpc('inc_config');
+    if (r.error) { CFG = { ok: false, err: msg(r.error), falta: falta(r.error) }; return CFG; }
+    CFG = r.data || {}; CFG.ok = true;
+    return CFG;
+  }
+
+  /* ================= LISTA ================= */
+  function pillsDe() {
+    var r = rol();
+    if (r === 'cerrador') return [['ABIERTAS', 'Abiertas', 'abiertas'], ['ESPERANDO', 'Esperan mi respuesta', 'esperando'], ['RESUELTAS', 'Cerradas', 'resueltas'], ['TODAS', 'Todas', 'todas']];
+    if (r === 'supervisor') return [['ABIERTAS', 'Abiertas', 'abiertas'], ['SIN_ASIGNAR', 'Sin asignar', 'sin_asignar'], ['ESPERANDO', 'Esperando al comercial', 'esperando'], ['RESUELTAS', 'Cerradas', 'resueltas']];
+    return [['ABIERTAS', 'Abiertas', 'abiertas'], ['MIAS', 'Mías', 'mias'], ['SIN_ASIGNAR', 'Sin asignar', 'sin_asignar'], ['ESPERANDO', 'Esperando al comercial', 'esperando'], ['RESUELTAS', 'Cerradas', 'resueltas']];
+  }
+  function badgeEstado(e) {
+    var x = ESTADO[e] || [e, '']; var t = x[0], c = x[1];
+    if (e === 'ESPERANDO_COMERCIAL' && rol() === 'cerrador') { t = 'Te están esperando'; c = 'b-bad'; }
+    return '<span class="badge ' + c + '">' + esc(t) + '</span>';
+  }
+  function badgePlazo(x) {
+    if (!abierta(x.estado)) return '';
+    var ms = new Date(x.vence_at) - Date.now();
+    if (isNaN(ms)) return '';
+    if (x.estado === 'ESPERANDO_COMERCIAL') return '';
+    return ms < 0 ? '<span class="badge b-bad">⏰ Vencida hace ' + dur(ms) + '</span>' : '<span class="badge ' + (ms < 3600000 * 2 ? 'b-warn' : '') + '">Plazo: ' + dur(ms) + '</span>';
+  }
+  function tarjeta(x) {
+    var esp = x.estado === 'ESPERANDO_COMERCIAL', cerr = rol() === 'cerrador';
+    var cls = 'i54-c' + (x.urgente && abierta(x.estado) ? ' urg' : '') + (x.vencida ? ' venc' : '') + (!abierta(x.estado) ? ' res' : '') + (esp ? ' esp' : '') + (x.asignado_a && x.asignado_a === uid() ? ' mia' : '');
+    var ult = x.ult ? '<div class="i54-u">💬 <b>' + esc(x.ult.autor) + '</b>: ' + esc(x.ult.texto) + ' <span class="meta">· ' + esc(hace(x.ult.fecha)) + '</span></div>' : '';
+    var quien = (x.asignado_nombre ? 'Atiende: ' + esc(x.asignado_nombre) : (abierta(x.estado) ? 'Sin asignar' : '')) + ' · Reportó ' + esc(x.reportada_nombre || '—') + ' ' + esc(hace(x.created_at));
+    return '<button type="button" class="' + cls + '" data-a="abre" data-id="' + esc(x.id) + '"><div class="i54-ic" aria-hidden="true">' + esc(x.icono || '❓') + '</div><div class="i54-cb">' +
+      '<div class="i54-t"><b>INC-' + x.num + '</b><span>' + esc(x.tipo_nombre || x.tipo) + '</span>' + (x.urgente && abierta(x.estado) ? '<span class="badge i54-urg">🚨 Urgente</span>' : '') + badgeEstado(x.estado) + badgePlazo(x) + '</div>' +
+      '<div class="i54-s">' + esc(x.cliente || '(sin nombre)') + ' · ' + esc(x.id_venta) + (x.campana ? ' · ' + esc(x.campana) : '') + (x.agente && !cerr ? ' · ' + esc(x.agente) : '') + '</div>' +
+      '<div class="i54-d">' + esc(x.descripcion) + '</div>' + ult + '<div class="i54-m">' + quien + '</div></div></button>';
+  }
+  function ayudaVacia() {
+    var r = rol();
+    if (S.vista === 'ESPERANDO') return r === 'cerrador' ? 'Nadie está esperando una respuesta tuya. 👍' : 'Ninguna incidencia está esperando al comercial.';
+    if (S.vista === 'RESUELTAS') return 'Todavía no hay incidencias cerradas.';
+    if (S.vista === 'MIAS') return 'No tienes incidencias asignadas. Mira «Sin asignar» para tomar una.';
+    if (S.vista === 'SIN_ASIGNAR') return 'Todas tienen quien las atienda. 🎉';
+    return r === 'cerrador' ? 'No tienes incidencias abiertas. Si una venta tiene un problema (cita cancelada, móvil, TV, facturación, baja…), pulsa «Reportar incidencia».' : 'No hay incidencias abiertas. 🎉';
+  }
+  function ajustesHtml() {
+    if (!esAdm() || !CFG) return '';
+    var f = (CFG.tipos || []).map(function (t) {
+      return '<div class="i54-tt" data-c="' + esc(t.codigo) + '"><input data-f="ic" value="' + esc(t.icono || '') + '" maxlength="4" aria-label="Icono"><input data-f="nom" value="' + esc(t.nombre) + '" maxlength="80" aria-label="Nombre">' +
+        '<input data-f="sla" type="number" min="1" max="720" step="any" value="' + esc(t.sla_horas) + '" aria-label="Plazo en horas" title="Plazo en horas">' +
+        '<label class="ck"><input data-f="act" type="checkbox"' + (t.activo ? ' checked' : '') + '> Activo</label><button type="button" class="sec" data-a="tipo-g">Guardar</button></div>';
+    }).join('');
+    return '<details class="i54-sec"' + (S.ajustes ? ' open' : '') + ' id="i54-aj"><summary>⚙️ Tipos de incidencia y plazos (administrador)</summary>' +
+      '<p class="meta" style="margin:8px 0">El plazo (en horas) es lo que tiene el back para atenderla; si la marcan como urgente se reduce a la mitad. Un tipo desactivado deja de aparecer al reportar, pero las incidencias ya creadas se mantienen.</p>' + f +
+      '<div class="i54-tt" data-c=""><input data-f="ic" placeholder="🆕" maxlength="4" aria-label="Icono"><input data-f="nom" placeholder="Nuevo tipo (ej. Portabilidad)" maxlength="80" aria-label="Nombre del nuevo tipo"><input data-f="sla" type="number" min="1" max="720" step="any" value="24" aria-label="Plazo en horas"><span></span><button type="button" data-a="tipo-g">Agregar tipo</button></div></details>';
+  }
+  function pintaLista() {
+    var host = S.host; if (!host) return;
+    var d = S.d, c = (d && d.cont) || {}, cerr = rol() === 'cerrador', puedeRep = !!(CFG && CFG.puede_reportar);
+    var cab = '<div class="i54-sec"><div class="i54-sh"><div><h3>🛠️ Incidencias</h3><span class="meta">' +
+      (cerr ? 'Lo que le pasa a tus ventas y cómo lo va resolviendo el back' : rol() === 'supervisor' ? 'Todas las incidencias del equipo: puedes comentar, repartir y reportar' : 'Cola de incidencias de ventas: toma una, escribe lo que haces y resuélvela') + '</span></div>' +
+      (puedeRep ? '<button type="button" data-a="rep" style="width:auto">➕ Reportar incidencia</button>' : '') + '</div>' +
+      '<div class="i54-pills">' + pillsDe().map(function (p) { return '<button type="button" class="i54-pill' + (p[0] === S.vista ? ' on' : '') + '" data-a="vista" data-v="' + p[0] + '">' + p[1] + (d ? '<b>' + (c[p[2]] || 0) + '</b>' : '') + '</button>'; }).join('') +
+      (c.vencidas ? '<span class="badge b-bad" style="align-self:center">⏰ ' + c.vencidas + ' vencida' + (c.vencidas === 1 ? '' : 's') + '</span>' : '') + '</div>' +
+      '<div class="i54-bar"><input type="search" id="i54-q" placeholder="Buscar por cliente, DNI, teléfono, venta o INC-…" value="' + esc(S.q) + '" autocomplete="off">' +
+      '<select id="i54-tp" aria-label="Tipo"><option value="">Todos los tipos</option>' + ((CFG && CFG.tipos) || []).map(function (t) { return '<option value="' + esc(t.codigo) + '"' + (t.codigo === S.tipo ? ' selected' : '') + '>' + esc((t.icono || '') + ' ' + t.nombre) + '</option>'; }).join('') + '</select>' +
+      '<button type="button" class="sec" data-a="ref" style="width:auto">↻</button></div>';
+    var cuerpo;
+    if (!d) cuerpo = '<div class="i54-vacio">' + (S.err ? esc(S.err) : 'Cargando…') + '</div>';
+    else if (S.err) cuerpo = '<div class="i54-vacio">' + esc(S.err) + '</div>';
+    else cuerpo = (d.items || []).length ? d.items.map(tarjeta).join('') + (d.total > d.items.length ? '<p class="meta" style="text-align:center">Mostrando ' + d.items.length + ' de ' + d.total + '. Usa el buscador para acotar.</p>' : '') : '<div class="i54-vacio">' + esc(ayudaVacia()) + '</div>';
+    var enfoque = document.activeElement && document.activeElement.id === 'i54-q';
+    host.innerHTML = '<div class="i54">' + cab + cuerpo + '</div>' + ajustesHtml() + '</div>';
+    if (enfoque) { var q = $('i54-q'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+  }
+  async function cargaLista(silencioso) {
+    if (S.busy) return; S.busy = true; S.err = null;
+    if (!silencioso && !S.sel) pintaLista();
+    var r = await sb.rpc('inc_listar', { p_vista: S.vista, p_texto: S.q || null, p_tipo: S.tipo || null, p_limit: 40, p_offset: 0 });
+    S.busy = false;
+    if (r.error) { S.err = msg(r.error); if (!S.d) S.d = null; } else { S.d = r.data; actualizaInsignia(r.data.cont); }
+    if (!S.sel) pintaLista();
+  }
+
+  /* ================= DETALLE ================= */
+  function fichaHtml(d) {
+    var i = d.incidencia, ab = abierta(i.estado), t = tipoDe(i.tipo);
+    return '<div class="i54-hd"><div class="i54-ic" style="width:46px;height:46px;font-size:1.5em;border-radius:12px;display:grid;place-items:center;background:var(--acc2)" aria-hidden="true">' + esc(i.icono || t.icono || '❓') + '</div>' +
+      '<div style="min-width:0"><h3>INC-' + i.num + ' · ' + esc(i.tipo_nombre || t.nombre) + '</h3><div class="i54-t" style="margin-top:4px">' + (i.urgente && ab ? '<span class="badge i54-urg">🚨 Urgente</span>' : '') + badgeEstado(i.estado) + badgePlazo(i) + '</div></div></div>' +
+      '<div class="i54-fi"><div><small>Cliente</small><b>' + esc(i.cliente || '(sin nombre)') + '</b></div><div><small>DNI</small>' + esc(i.dni || '—') + '</div><div><small>Teléfono</small>' + contacto(i.telefono) + '</div>' +
+      '<div><small>Venta</small>' + esc(i.id_venta) + (i.campana ? ' · ' + esc(i.campana) : '') + '</div><div><small>Comercial</small>' + esc(i.agente || '—') + '</div>' +
+      '<div><small>Reportada por</small>' + esc(i.reportada_nombre || '—') + ' (' + esc(ROL_T[i.reportada_rol] || i.reportada_rol || '') + ') · ' + esc(fh(i.created_at)) + '</div>' +
+      '<div><small>La atiende</small>' + (i.asignado_nombre ? '<b>' + esc(i.asignado_nombre) + '</b>' : '<span class="meta">Sin asignar</span>') + '</div>' +
+      (ab ? '<div><small>Plazo</small>' + esc(fh(i.vence_at)) + '</div>' : '') + '</div>' +
+      '<div class="i54-h4">Qué pasó</div><div class="i54-que">' + esc(i.descripcion) + '</div>' +
+      (!ab && i.resolucion ? '<div class="i54-res"><b>' + (i.estado === 'RESUELTA' ? '✅ Resuelta' : '🚫 Cerrada') + ' por ' + esc(i.resuelta_nombre || '—') + ' · ' + esc(fh(i.resuelta_at)) + '</b><div style="margin-top:4px;white-space:pre-wrap">' + esc(i.resolucion) + '</div></div>' : '') +
+      ((d.lineas || []).length ? '<details><summary>Líneas de la venta (' + d.lineas.length + ')</summary><div class="i54-tb"><table><thead><tr><th>Servicio</th><th>Número</th><th>Estado</th><th>Desde</th></tr></thead><tbody>' +
+        d.lineas.map(function (l) { return '<tr><td>' + esc(l.producto || l.tipo || '') + '</td><td>' + esc(l.numero || '') + '</td><td><b>' + esc(l.estado || '—') + '</b></td><td>' + fdia(l.fecha_estado) + '</td></tr>'; }).join('') + '</tbody></table></div></details>' : '');
+  }
+  function hiloHtml(d) {
+    var n = d.notas || [];
+    return '<div class="i54-h4">Conversación y avances</div><div class="i54-hilo" id="i54-hilo-in">' + (n.length ? n.map(function (x) {
+      if (x.tipo === 'SISTEMA') return '<div class="i54-sis">' + esc(x.texto) + ' · ' + esc(fh(x.fecha)) + '</div>';
+      return '<div class="i54-n' + (x.mio ? ' mio' : '') + '"><small><b>' + esc(x.autor || '—') + '</b> · ' + esc(ROL_T[x.rol] || x.rol || '') + ' · ' + esc(fh(x.fecha)) + '</small><div>' + esc(x.texto) + '</div></div>';
+    }).join('') : '<div class="meta">Todavía no hay comentarios.</div>') + '</div>';
+  }
+  function accionesHtml(d) {
+    var i = d.incidencia, p = d.permisos || {}, r = rol(), id = i.id, borr = S.borr[id] || '', b = [];
+    if (!p.comentar && !p.reabrir) return '';
+    var ayuda = !abierta(i.estado) ? 'Cuenta por qué la reabres…' : r === 'cerrador' ? 'Escribe aquí para responder al back o dar más datos…' : 'Escribe lo que has hecho o lo que necesitas…';
+    if (abierta(i.estado) && p.comentar) b.push('<button type="button" data-a="com">💬 Enviar comentario</button>');
+    if (p.tomar) b.push('<button type="button" data-a="tom">✋ ' + (i.asignado_a && i.asignado_a !== uid() ? 'Quedármela' : 'Tomarla') + '</button>');
+    if (p.estado) {
+      if (i.estado === 'ESPERANDO_COMERCIAL') b.push('<button type="button" class="sec" data-a="ges">▶ Seguir gestionándola</button>');
+      else b.push('<button type="button" class="sec" data-a="esp" title="Pasa a «esperando al comercial» y le avisa. Escribe qué necesitas.">⏳ Pedir datos al comercial</button>');
+      b.push('<button type="button" data-a="res">✅ Marcar resuelta</button>');
+      b.push('<button type="button" class="sec" data-a="nop" title="Se cierra sin resolver. Escribe el motivo.">🚫 No procede</button>');
+    }
+    if (p.retirar) b.push('<button type="button" class="sec" data-a="ret" title="Cierras la incidencia porque ya no hace falta. Escribe el motivo.">↩ Retirarla</button>');
+    if (p.reabrir) b.push('<button type="button" data-a="reab">🔄 Reabrir</button>');
+    var asig = '';
+    if (p.asignar) {
+      asig = '<div class="i54-as"><span class="meta">Repartir a:</span><select id="i54-as" aria-label="Asignar a"><option value="">— Sin asignar (a la cola) —</option>' +
+        (d.backs || []).map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === i.asignado_a ? ' selected' : '') + '>' + esc(x.nombre) + '</option>'; }).join('') + '</select><button type="button" class="sec" data-a="asig">Asignar</button></div>' +
+        ((d.backs || []).length ? '' : '<p class="meta">No hay ningún back con el permiso «Incidencias». Actívalo en Configuración → Permisos del back.</p>');
+    }
+    return '<div class="i54-h4">' + (abierta(i.estado) ? 'Tu respuesta' : 'Reabrir') + '</div><textarea id="i54-tx" maxlength="1000" placeholder="' + esc(ayuda) + '" aria-label="' + esc(ayuda) + '">' + esc(borr) + '</textarea>' +
+      '<div class="i54-bt">' + b.join('') + '</div>' + (r === 'supervisor' && abierta(i.estado) ? '<p class="meta" style="margin:8px 0 0">Como supervisor comentas y repartes; quien la resuelve es el back.</p>' : '') + asig;
+  }
+  function pintaDetalle() {
+    var host = S.host, d = S.det; if (!host || !d) return;
+    host.innerHTML = '<div class="i54"><button type="button" class="sec i54-back" data-a="vol">← Volver a la lista</button><div class="i54-sec"><div id="i54-ficha">' + fichaHtml(d) + '</div><div id="i54-hilo">' + hiloHtml(d) + '</div><div id="i54-ac" class="i54-ac">' + accionesHtml(d) + '</div></div></div>';
+  }
+  async function abreDetalle(id, silencioso) {
+    if (!silencioso) { S.sel = id; S.det = null; S.host && (S.host.innerHTML = '<div class="i54"><button type="button" class="sec i54-back" data-a="vol">← Volver a la lista</button><div class="i54-sec"><div class="i54-vacio">Cargando…</div></div></div>'); }
+    var r = await sb.rpc('inc_detalle', { p_id: id });
+    if (S.sel !== id) return;
+    if (r.error) { toast(msg(r.error), true); S.sel = null; S.det = null; return cargaLista(); }
+    var ant = S.det; S.det = r.data;
+    if (silencioso && ant && $('i54-hilo') && $('i54-ac')) {
+      // refresco silencioso: no se pisa lo que la persona está escribiendo
+      var tx = $('i54-tx'), enfoque = tx && document.activeElement === tx;
+      if (tx) S.borr[id] = tx.value;
+      var cambio = ant.incidencia.estado !== r.data.incidencia.estado || ant.incidencia.asignado_a !== r.data.incidencia.asignado_a;
+      if ((r.data.notas || []).length === (ant.notas || []).length && !cambio) return;
+      $('i54-ficha').innerHTML = fichaHtml(r.data); $('i54-hilo').innerHTML = hiloHtml(r.data);
+      if (!enfoque) $('i54-ac').innerHTML = accionesHtml(r.data);
+      return;
+    }
+    pintaDetalle();
+  }
+  function cierraDetalle() { S.sel = null; S.det = null; cargaLista(); }
+
+  /* ================= ACCIONES ================= */
+  function texto() { var t = $('i54-tx'); return t ? t.value.trim() : ''; }
+  async function accion(a, btn) {
+    var id = S.sel; if (!id || !S.det) return;
+    var tx = texto(), r;
+    if (btn) btn.disabled = true;
+    try {
+      if (a === 'com') { if (!tx) return toast('Escribe el comentario', true); r = await sb.rpc('inc_comentar', { p_id: id, p_texto: tx }); }
+      else if (a === 'tom') r = await sb.rpc('inc_tomar', { p_id: id });
+      else if (a === 'ges') r = await sb.rpc('inc_estado', { p_id: id, p_estado: 'EN_GESTION', p_texto: tx || null });
+      else if (a === 'esp') { if (tx.length < 3) return toast('Escribe qué necesitas que haga o aporte el comercial', true); r = await sb.rpc('inc_estado', { p_id: id, p_estado: 'ESPERANDO_COMERCIAL', p_texto: tx }); }
+      else if (a === 'res') { if (tx.length < 3) return toast('Escribe cómo se resolvió', true); r = await sb.rpc('inc_estado', { p_id: id, p_estado: 'RESUELTA', p_texto: tx }); }
+      else if (a === 'nop') { if (tx.length < 3) return toast('Escribe el motivo', true); if (!confirm('¿Cerrar esta incidencia como «No procede»?\n\nSe avisará al comercial con tu motivo.')) return; r = await sb.rpc('inc_estado', { p_id: id, p_estado: 'CANCELADA', p_texto: tx }); }
+      else if (a === 'ret') { if (tx.length < 3) return toast('Escribe el motivo', true); if (!confirm('¿Retirar esta incidencia?\n\nSe cierra y el back deja de verla como pendiente.')) return; r = await sb.rpc('inc_estado', { p_id: id, p_estado: 'CANCELADA', p_texto: tx }); }
+      else if (a === 'reab') { if (tx.length < 3) return toast('Cuenta por qué la reabres', true); r = await sb.rpc('inc_reabrir', { p_id: id, p_texto: tx }); }
+      else if (a === 'asig') { var s = $('i54-as'); r = await sb.rpc('inc_asignar', { p_id: id, p_back: s && s.value ? s.value : null }); }
+      else return;
+    } finally { if (btn) btn.disabled = false; }
+    if (r.error) return toast(msg(r.error), true);
+    if (a === 'com' || a === 'esp' || a === 'res' || a === 'nop' || a === 'ret' || a === 'reab' || a === 'ges') S.borr[id] = '';
+    toast(a === 'com' ? 'Comentario enviado' : a === 'res' ? 'Incidencia resuelta ✅' : a === 'esp' ? 'Le pediste datos al comercial' : a === 'reab' ? 'Incidencia reabierta' : a === 'asig' ? 'Asignada' : a === 'tom' ? 'La tomaste' : a === 'ret' ? 'Incidencia retirada' : 'Guardado');
+    await abreDetalle(id);
+    cargaLista(true);
+  }
+
+  /* ================= VENTANA «REPORTAR» ================= */
+  var RP = null;
+  function abrirReporte(idVenta) {
+    if ($('i54m')) return;
+    if (!CFG || !CFG.puede_reportar) return toast('No puedes reportar incidencias con este usuario', true);
+    RP = { v: null, tipo: '', q: '', lista: null, busy: false, tq: null, pre: idVenta || null };
+    var ov = document.createElement('div'); ov.className = 'k-ov i54m'; ov.id = 'i54m'; ov.style.zIndex = 9100;
+    ov.innerHTML = '<div class="k-bus" role="dialog" aria-label="Reportar incidencia"><h3>Reportar una incidencia</h3><div class="meta">Cuéntale al back qué pasa con la venta. Le llegará con aviso y tendrá un plazo para atenderla.</div>' +
+      '<label for="i54-vq">1 · ¿De qué venta o cliente?</label><input type="search" id="i54-vq" placeholder="Nombre, DNI, teléfono o código de venta" autocomplete="off"><div class="i54-vl" id="i54-vl"><div class="i54-vacio">Cargando tus ventas…</div></div><div id="i54-vs"></div>' +
+      '<label>2 · ¿Qué tipo de problema es?</label><div class="i54-tp" id="i54-tp2">' + ((CFG.tipos || []).filter(function (t) { return t.activo !== false; }).map(function (t) { return '<button type="button" class="i54-tpb" data-t="' + esc(t.codigo) + '"><span aria-hidden="true">' + esc(t.icono || '❓') + '</span>' + esc(t.nombre) + '</button>'; }).join('')) + '</div>' +
+      '<label for="i54-rt">3 · ¿Qué pasó? <span class="i54-cnt" id="i54-rc">0/1000</span></label><textarea id="i54-rt" maxlength="1000" placeholder="Ej.: El técnico canceló la cita del jueves y el cliente no puede otro día. Necesita instalación el sábado por la mañana."></textarea>' +
+      '<label class="i54-urgl"><input type="checkbox" id="i54-ru"><span>🚨 <b>Urgente</b>: el cliente está esperando o hay riesgo de baja. Se atiende en la mitad del plazo y se avisa también al supervisor.</span></label>' +
+      '<div class="i54-fn"><button type="button" class="sec" id="i54-rx">Cancelar</button><button type="button" id="i54-ro" disabled>Reportar al back</button></div></div>';
+    document.body.appendChild(ov);
+    var q = function (s) { return ov.querySelector(s); };
+    function valida() { q('#i54-ro').disabled = !(RP.v && RP.tipo && q('#i54-rt').value.trim().length >= 5); }
+    function pintaVentas() {
+      var l = RP.lista, h = $('i54-vl'); if (!h) return;
+      if (l === null) { h.innerHTML = '<div class="i54-vacio">Buscando…</div>'; return; }
+      if (l === 'err') { h.innerHTML = '<div class="i54-vacio">No se pudieron cargar las ventas.</div>'; return; }
+      h.innerHTML = l.length ? l.map(function (v) {
+        return '<button type="button" class="i54-v' + (RP.v && RP.v.id_venta === v.id_venta ? ' on' : '') + '" data-id="' + esc(v.id_venta) + '"><b>' + esc(v.cliente || '(sin nombre)') + '</b> <span class="meta">· ' + esc(v.id_venta) + (v.campana ? ' · ' + esc(v.campana) : '') + '</span>' +
+          '<small>' + esc([v.dni ? 'DNI ' + v.dni : '', v.telefono, v.agente && rol() !== 'cerrador' ? 'Comercial ' + v.agente : '', fdia(v.fecha), (v.estados || []).slice(0, 3).join(' / ')].filter(Boolean).join(' · ')) + (v.abiertas ? ' · <b>' + v.abiertas + ' incidencia' + (v.abiertas === 1 ? '' : 's') + ' abierta' + (v.abiertas === 1 ? '' : 's') + '</b>' : '') + '</small></button>';
+      }).join('') : '<div class="i54-vacio">' + (RP.q ? 'No encuentro ninguna venta con eso.' : 'No tienes ventas registradas todavía.') + '</div>';
+    }
+    async function busca() {
+      RP.lista = null; pintaVentas();
+      var r = await sb.rpc('inc_buscar_ventas', { p_q: RP.q || null });
+      if (!$('i54m')) return;
+      RP.lista = r.error ? 'err' : (r.data || []); if (r.error) toast(msg(r.error), true);
+      if (RP.pre && RP.lista !== 'err') { var m = RP.lista.filter(function (v) { return v.id_venta === RP.pre; })[0]; if (m) elige(m); RP.pre = null; }
+      pintaVentas();
+    }
+    function elige(v) {
+      RP.v = v;
+      $('i54-vs').innerHTML = '<div class="meta" style="margin-top:6px">✔ Elegida: <b>' + esc(v.cliente || v.id_venta) + '</b> (' + esc(v.id_venta) + ')</div>' + (v.abiertas ? '<div class="i54-aviso">⚠ Esta venta ya tiene ' + v.abiertas + ' incidencia' + (v.abiertas === 1 ? '' : 's') + ' abierta' + (v.abiertas === 1 ? '' : 's') + '. Si es el mismo problema, mejor escribe en la que ya existe.</div>' : '');
+      valida();
+    }
+    q('#i54-vq').addEventListener('input', function () { RP.q = this.value.trim(); clearTimeout(RP.tq); RP.tq = setTimeout(busca, 350); });
+    q('#i54-vl').addEventListener('click', function (e) {
+      var b = e.target.closest('.i54-v'); if (!b) return;
+      var v = (RP.lista || []).filter(function (x) { return x.id_venta === b.getAttribute('data-id'); })[0]; if (v) { elige(v); pintaVentas(); }
+    });
+    q('#i54-tp2').addEventListener('click', function (e) {
+      var b = e.target.closest('.i54-tpb'); if (!b) return; RP.tipo = b.getAttribute('data-t');
+      Array.prototype.forEach.call(this.querySelectorAll('.i54-tpb'), function (x) { x.classList.toggle('on', x === b); }); valida();
+    });
+    q('#i54-rt').addEventListener('input', function () { q('#i54-rc').textContent = this.value.length + '/1000'; valida(); });
+    q('#i54-rx').onclick = function () { ov.remove(); };
+    ov.addEventListener('mousedown', function (e) { if (e.target === ov) ov.remove(); });
+    q('#i54-ro').onclick = async function () {
+      var b = this; b.disabled = true;
+      var r = await sb.rpc('inc_reportar', { p_id_venta: RP.v.id_venta, p_tipo: RP.tipo, p_texto: q('#i54-rt').value.trim(), p_urgente: q('#i54-ru').checked });
+      if (r.error) { b.disabled = false; return toast(msg(r.error), true); }
+      ov.remove(); toast('Incidencia INC-' + r.data.num + ' enviada al back'); irAPantalla();
+      S.vista = 'ABIERTAS'; S.q = ''; S.tipo = ''; await abreDetalle(r.data.id); cargaLista(true);
+    };
+    busca();
+  }
+
+  /* ================= NAVEGACIÓN ================= */
+  function irAPantalla() {
+    var r = rol();
+    if (r === 'supervisor') { var s = document.querySelector('#s46-tabs .s46-t[data-k="inc"]'); if (s && !s.classList.contains('on')) s.click(); return; }
+    var bt = document.querySelector('#tabs15 .t15[data-k="inc"]'); if (!bt) return;
+    if (typeof window.abrir45 === 'function') window.abrir45('inc'); else bt.click();
+  }
+  async function abrirId(id) {
+    if (!id) return; irAPantalla();
+    await esperaHost();
+    if (!S.host) return;
+    await abreDetalle(id);
+  }
+  function esperaHost() { return new Promise(function (ok) { var n = 0; (function t() { if (S.host && document.body.contains(S.host) || ++n > 20) return ok(); setTimeout(t, 100); })(); }); }
+  async function abrirNum(n) {
+    var r = await sb.rpc('inc_listar', { p_vista: 'TODAS', p_texto: 'INC-' + n, p_tipo: null, p_limit: 5, p_offset: 0 });
+    var x = !r.error && r.data && (r.data.items || []).filter(function (i) { return i.num === Number(n); })[0];
+    if (!x) return toast('No encuentro esa incidencia', true);
+    abrirId(x.id);
+  }
+
+  /* ================= MONTAJE ================= */
+  function ganchos(host) {
+    if (host.__i54) return; host.__i54 = true;
+    host.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-a]'); if (!b || !host.contains(b)) return; var a = b.getAttribute('data-a');
+      if (a === 'abre') abreDetalle(b.getAttribute('data-id'));
+      else if (a === 'vol') cierraDetalle();
+      else if (a === 'vista') { S.vista = b.getAttribute('data-v'); S.d = null; cargaLista(); }
+      else if (a === 'ref') cargaLista();
+      else if (a === 'rep') abrirReporte();
+      else if (a === 'tipo-g') guardaTipo(b);
+      else accion(a, b);
+    });
+    host.addEventListener('input', function (e) {
+      if (e.target.id === 'i54-q') { S.q = e.target.value.trim(); clearTimeout(S.tq); S.tq = setTimeout(function () { S.d = null; cargaLista(); }, 400); }
+      else if (e.target.id === 'i54-tx' && S.sel) S.borr[S.sel] = e.target.value;
+    });
+    host.addEventListener('change', function (e) {
+      if (e.target.id === 'i54-tp') { S.tipo = e.target.value; S.d = null; cargaLista(); }
+    });
+    host.addEventListener('toggle', function (e) { if (e.target.id === 'i54-aj') S.ajustes = e.target.open; }, true);
+  }
+  async function guardaTipo(b) {
+    var f = b.closest('.i54-tt'); if (!f) return;
+    var q = function (k) { return f.querySelector('[data-f="' + k + '"]'); };
+    var cod = f.getAttribute('data-c') || '', nom = q('nom').value.trim(), sla = parseFloat(q('sla').value);
+    if (!nom) return toast('Escribe el nombre del tipo', true);
+    if (!(sla > 0 && sla <= 720)) return toast('El plazo va de 1 a 720 horas', true);
+    b.disabled = true;
+    var r = await sb.rpc('inc_tipo_guardar', { p_codigo: cod || null, p_nombre: nom, p_sla: sla, p_activo: q('act') ? q('act').checked : true, p_icono: q('ic').value.trim() || null });
+    b.disabled = false;
+    if (r.error) return toast(msg(r.error), true);
+    toast(cod ? 'Tipo guardado' : 'Tipo agregado'); S.ajustes = true;
+    await cargaCfg(); cargaLista();
+  }
+
+  async function monta(host) {
+    if (!host) return;
+    S.host = host; ganchos(host);
+    if (!CFG || !CFG.ok) { host.innerHTML = '<div class="i54"><div class="i54-sec"><div class="i54-vacio">Cargando…</div></div></div>'; await cargaCfg(); }
+    if (!CFG.ok) { host.innerHTML = '<div class="i54"><div class="i54-sec"><div class="i54-vacio">' + esc(CFG.err || 'No se pudo cargar') + '</div></div></div>'; return; }
+    if (!CFG.puede_ver) { host.innerHTML = '<div class="i54"><div class="i54-sec"><div class="i54-vacio">No tienes habilitadas las incidencias. Pídeselo al administrador (Configuración → Permisos del back).</div></div></div>'; return; }
+    if (S.sel && S.det) { abreDetalle(S.sel, true).then(function () { if (!$('i54-hilo')) pintaDetalle(); }); pintaDetalle(); return; }
+    S.sel = null; cargaLista();
+  }
+
+  function actualizaInsignia(c) {
+    if (!c) return;
+    var r = rol(), n = r === 'cerrador' ? c.esperando : r === 'back' ? (c.sin_asignar || 0) + (c.mias || 0) : c.sin_asignar;
+    n = n || 0;
+    var b = document.querySelector('#tabs15 [data-k="inc"] .p37-nb'); if (b) { b.textContent = n; b.style.display = n ? '' : 'none'; }
+    var s = document.querySelector('#s46-tabs .s46-t[data-k="inc"] .p37-nb'); if (s) { s.textContent = n; s.style.display = n ? '' : 'none'; }
+  }
+  async function sondea() {
+    if (document.hidden || !CFG || !CFG.ok || !CFG.puede_ver) return;
+    var r = await sb.rpc('inc_listar', { p_vista: 'ABIERTAS', p_texto: null, p_tipo: null, p_limit: 1, p_offset: 0 });
+    if (r.error || !r.data) return;
+    actualizaInsignia(r.data.cont);
+    var vis = S.host && document.body.contains(S.host) && S.host.offsetParent;
+    if (!vis) return;
+    if (S.sel) abreDetalle(S.sel, true);
+    else if (!S.busy && !(document.activeElement && document.activeElement.id === 'i54-q')) cargaLista(true);
+  }
+
+  function montarTab() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-inc')) return;
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-inc'; s.hidden = true; s.innerHTML = '<div id="i54-raiz"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'inc'); bt.innerHTML = '<span>🛠️</span>Incidencias<b class="p37-nb" style="display:none;margin-left:6px;min-width:18px;padding:0 6px;border-radius:99px;background:var(--bad);color:#fff;font-size:.72em;text-align:center;font-weight:800"></b>';
+    var ref = bar.querySelector('[data-k="res"]'); if (ref) ref.insertAdjacentElement('afterend', bt); else bar.appendChild(bt);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'inc') monta($('i54-raiz')); });
+  }
+
+  async function iniciar(r) {
+    S = nuevo(); CFG = null;
+    await cargaCfg();
+    document.dispatchEvent(new Event('inc54'));            // el bloque 45 decide si muestra «Seguimiento» según el permiso
+    if (!CFG.ok || !CFG.puede_ver) return;
+    if (r === 'back' && !CFG.gestiona) return;               // un back sin el permiso «Incidencias» no ve la pestaña
+    if (r === 'cerrador' || r === 'back' || r === 'admin') montarTab();
+    clearInterval(tBadge);
+    sondea();
+    tBadge = setInterval(sondea, 45000);
+  }
+
+  [['cerradorView', 'cerrador'], ['backView', 'back'], ['adminView', 'admin'], ['supervisorView', 'supervisor']].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () { var x = o.apply(this, arguments); try { iniciar(p[1]); } catch (e) { console.error(e); } return x; };
+  });
+  var oL = window.loginView;
+  if (typeof oL === 'function') window.loginView = function () { clearInterval(tBadge); S = nuevo(); CFG = null; return oL.apply(this, arguments); };
+
+  // «Gestionar →» en una tarea de incidencia abre la incidencia (no la ficha de seguimiento)
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('#p15-ta [data-a="ir"], #p15-tz [data-a="ir"]'); if (!b) return;
+    var card = b.closest('.p38-t'); var m = card && /INC-(\d+)/.exec(card.textContent || ''); if (!m) return;
+    e.stopImmediatePropagation(); e.preventDefault(); abrirNum(m[1]);
+  }, true);
+
+  window.inc54 = {
+    monta: monta, abrir: abrirId, abrirNum: abrirNum, reportar: abrirReporte,
+    info: function () { return { listo: !!CFG, ok: !!(CFG && CFG.ok), gestiona: !!(CFG && CFG.gestiona), seguimiento: !(CFG && CFG.ok && CFG.seguimiento === false), puede_ver: !!(CFG && CFG.puede_ver) }; }
+  };
+})();
+
+  /* 55 · «Operador» como desplegable (concertador, «Subir cliente al back» y edición del back)
+   PEGAR al final del script de index.html, DESPUÉS del último bloque y antes del cierre del script. No requiere SQL.
+   Para qué: el concertador escribía el operador a mano («movistar», «Movistar », «Telefonica»…) y luego, al pasar la venta a la
+   matriz, no coincidía con el desplegable «OPERADOR DONANTE» de la hoja. Ahora elige de la MISMA lista que usa el formulario de
+   venta (tabla `catalogo`, categoría OPERADOR, la que se sincroniza desde la matriz), así lo que se guarda ya viene bien escrito.
+   Cómo funciona: igual que el bloque 41 (provincia). Vigila la pantalla y cambia la casilla de texto «Operador actual» /
+   «Operador donante» por un desplegable con el MISMO id, así el código que ya existe lee el valor igual que antes.
+   Seguridad: si el catálogo no trae operadores (vacío, sin permiso o con error), NO se toca la casilla: sigue funcionando como antes.
+   Si un cliente antiguo trae un operador que no está en la lista, se agrega solo como opción para no perder el dato. */
+(function () {
+  if (window.__op55) return; window.__op55 = true;
+
+  var lista = null, cargando = null, cargadoEn = 0;
+  function norm(s) { return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toUpperCase(); }
+
+  function cargarLista() {
+    if (lista && Date.now() - cargadoEn < (lista.length ? 300000 : 30000)) return Promise.resolve(lista);
+    if (cargando) return cargando;
+    cargando = Promise.resolve().then(function () {
+      if (typeof sb === 'undefined') return null;
+      return sb.from('catalogo').select('valor,orden').eq('categoria', 'OPERADOR').order('orden', { ascending: true }).limit(500);
+    }).then(function (r) {
+      var vistos = {}, out = [];
+      ((r && r.data) || []).forEach(function (x) {
+        var v = String(x.valor || '').replace(/\s+/g, ' ').trim(), k = norm(v);
+        if (v && !vistos[k]) { vistos[k] = true; out.push(v); }
+      });
+      lista = out; cargadoEn = Date.now(); cargando = null; return lista;
+    }).catch(function () { lista = []; cargadoEn = Date.now(); cargando = null; return lista; });
+    return cargando;
+  }
+
+  function textoEtiqueta(el) {
+    var t = '';
+    try { if (el.labels && el.labels.length) t = Array.prototype.map.call(el.labels, function (l) { return l.textContent; }).join(' '); } catch (e) { }
+    if (!t) { var p = el.previousElementSibling; if (p && /^(LABEL|SPAN|DIV|B)$/.test(p.tagName) && p.textContent.length < 40) t = p.textContent; }
+    return t;
+  }
+
+  // Solo las casillas de operador del cliente: el actual (donde está hoy) o el donante (de dónde viene). Nada más.
+  function esOperador(el) {
+    if (el.tagName !== 'INPUT' || el.dataset.o55) return false;
+    var tipo = (el.getAttribute('type') || 'text').toLowerCase();
+    if (tipo !== 'text' && tipo !== 'search') return false;
+    if (el.getAttribute('list')) return false;                         // las que ya traen sugerencias propias se dejan igual
+    if (el.closest('[data-o55-skip]')) return false;
+    if (/^(op|c28-o|v_op)$/.test(el.id || '')) return true;
+    return /^\s*operador\s+(actual|donante|de origen)\b/i.test(textoEtiqueta(el));
+  }
+
+  function opcion(sel, texto) { var o = document.createElement('option'); o.value = texto; o.textContent = texto || '— Elige operador —'; sel.appendChild(o); return o; }
+
+  function convertir(inp, ops) {
+    if (!inp.parentNode) return;
+    var actual = String(inp.value || '').replace(/\s+/g, ' ').trim();
+    var sel = document.createElement('select');
+    Array.prototype.forEach.call(inp.attributes, function (a) {
+      if (/^(type|value|placeholder|inputmode|maxlength|autocomplete|list|pattern|size)$/i.test(a.name)) return;
+      try { sel.setAttribute(a.name, a.value); } catch (e) { }
+    });
+    sel.dataset.o55 = '1';
+    opcion(sel, '');
+    ops.forEach(function (p) { opcion(sel, p); });
+
+    var proto = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+    function poner(v) {
+      var t = String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+      if (t) {
+        var k = norm(t), m = Array.prototype.filter.call(sel.options, function (o) { return o.value && norm(o.value) === k; })[0];
+        if (m) t = m.value;                                              // equivalencia sin mayúsculas ni tildes
+        else { t = t.toUpperCase(); opcion(sel, t); }                   // si no existe en la lista, se agrega para no perder el dato
+      }
+      proto.set.call(sel, t);
+    }
+    // el código existente hace «campo.value = ...» al cargar un cliente (y «reset()» al guardar): que nunca se pierda un valor
+    Object.defineProperty(sel, 'value', { configurable: true, get: function () { return proto.get.call(sel); }, set: poner });
+
+    inp.parentNode.replaceChild(sel, inp);
+    poner(actual);
+    sel.addEventListener('change', function () { sel.dispatchEvent(new Event('input', { bubbles: true })); });
+  }
+
+  var ocupado = false, pendiente = false;
+  function barrer() {
+    if (ocupado) { pendiente = true; return; }
+    var cand = Array.prototype.filter.call(document.querySelectorAll('input'), esOperador);
+    if (!cand.length) return;
+    ocupado = true;
+    cargarLista().then(function (ops) {
+      if (!ops.length) return;                                          // sin lista fiable no se cambia nada
+      cand.forEach(function (c) { if (c.parentNode && !c.dataset.o55) convertir(c, ops); });
+    }).then(function () { ocupado = false; if (pendiente) { pendiente = false; barrer(); } },
+      function () { ocupado = false; });
+  }
+
+  var t = null;
+  new MutationObserver(function () { clearTimeout(t); t = setTimeout(barrer, 60); }).observe(document.body, { childList: true, subtree: true });
+  barrer();
 })();
 
  </script>
