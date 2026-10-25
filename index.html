@@ -2502,7 +2502,7 @@ function ventaForm(l) {
   var MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   var DIAS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
   var HOY = new Date(), ROL = null;
-  function mk() { return { y: HOY.getFullYear(), m: HOY.getMonth() + 1, d: '', h: '', q: '', f: 'TODAS', max: 30, data: null, t: 0, busy: false, dirty: false }; }
+  function mk() { return { y: HOY.getFullYear(), m: HOY.getMonth() + 1, d: '', h: '', q: '', f: 'TODAS', b: 'venta', max: 30, data: null, t: 0, busy: false, dirty: false }; }
   var EST = { ven: mk(), ana: mk() };
   var MAC = { TRA: ['En trámite', 'info'], INC: ['Con incidencia', 'warn'], ACT: ['Activas', 'ok'], CAI: ['Caídas', 'bad'] };
   var TIPO = { CONVERGENTE: 'Internet', LINEA_PAGA: 'Línea móvil', 'LINEA PAGA': 'Línea móvil', LINEA_GRATIS: 'Línea gratis', 'LINEA GRATIS': 'Línea gratis', 'LINEA FIJA': 'Línea fija', LINEA_FIJA: 'Línea fija', TELEVISION: 'TV', FIJO: 'Línea fija' };
@@ -2543,6 +2543,9 @@ function ventaForm(l) {
     var R = rango(s), A = new Date(R[0] + 'T00:00:00').toISOString(), B = new Date(R[1] + 'T00:00:00').toISOString();
     // Usa fecha_venta cuando ya está completada; si una fila aún no la tiene, la ubica por la fecha de su estado (así nunca queda vacío)
     var filtro = 'and(fecha_venta.gte.' + A + ',fecha_venta.lt.' + B + '),and(fecha_venta.is.null,fecha_estado.gte.' + R[0] + ',fecha_estado.lt.' + R[1] + ')';
+    // «Contar por fecha de activación»: las líneas que se activaron o cayeron en el periodo, aunque la venta sea de un mes anterior (si falta la fecha del estado, vale la de la venta)
+    var ESTF = 'or(estado.ilike.*activ*,estado.ilike.*instal*,estado.ilike.*complet*,estado.ilike.*cancel*,estado.ilike.*decomis*,estado.ilike.*anul*,estado.ilike.*baja*)';
+    if (s.b === 'act') filtro = 'and(fecha_estado.gte.' + R[0] + ',fecha_estado.lt.' + R[1] + ',' + ESTF + '),and(fecha_estado.is.null,fecha_venta.gte.' + A + ',fecha_venta.lt.' + B + ',' + ESTF + ')';
     var rows = await todo(function () {
       return sb.from('ventas_sync').select('*').or(filtro)
         .order('fecha_venta', { ascending: false, nullsFirst: false }).order('id_venta').order('fila_matriz');
@@ -2588,6 +2591,13 @@ function ventaForm(l) {
     var D = { rows: rows, raw: raw, arma: arma, o: o, lm: lm, pn: pn, ventas: null, leadsN: null };
     if (extra) {
       var a = A, b = B;
+      try {   // activados del periodo por FECHA DE ACTIVACIÓN (para los totales «internet / móviles activados»)
+        var okE = 'or(estado.ilike.*activ*,estado.ilike.*instal*,estado.ilike.*complet*)';
+        D.act = await todo(function () {
+          return sb.from('ventas_sync').select('id,id_venta,tipo_producto,producto,estado,fecha_estado,fecha_venta,es_internet,es_movil')
+            .or('and(fecha_estado.gte.' + R[0] + ',fecha_estado.lt.' + R[1] + ',' + okE + '),and(fecha_estado.is.null,fecha_venta.gte.' + A + ',fecha_venta.lt.' + B + ',' + okE + ')').order('id');
+        });
+      } catch (e) { D.act = null; }
       try { D.ventas = await todo(function () { return sb.from('ventas').select('codigo_venta,created_at,campana').gte('created_at', a).lt('created_at', b).order('created_at'); }); } catch (e) { D.ventas = null; }
       try { var c = await sb.from('leads').select('id', { count: 'exact', head: true }).gte('created_at', a).lt('created_at', b); D.leadsN = c.count; } catch (e) { }
     }
@@ -2600,9 +2610,10 @@ function ventaForm(l) {
     for (i = y0; i >= y0 - 3; i--) ys += '<option' + (i == s.y ? ' selected' : '') + '>' + i + '</option>';
     var ms = '<option value="0">Todo el año</option>' + MESES.map(function (n, j) { return '<option value="' + (j + 1) + '"' + ((j + 1) == s.m ? ' selected' : '') + '>' + n + '</option>'; }).join('');
     return '<div class="d15-sec"><div class="d15-sh"><h3>' + (k === 'ana' ? 'Análisis del negocio' : (ROL === 'admin' || ROL === 'back' ? 'Ventas del equipo' : 'Mis ventas')) + '</h3>' +
-      '<span class="meta">Se descarga solo el periodo elegido, por fecha de venta</span></div><div data-svc49 class="svc49-fila"></div>' +
+      '<span class="meta">' + (k === 'ven' ? 'Se descarga solo el periodo elegido · cuenta por fecha de venta o de activación' : 'Se descarga solo el periodo elegido, por fecha de venta (los activados, por fecha de activación)') + '</span></div><div data-svc49 class="svc49-fila"></div>' +
       '<div class="d15-form" style="margin-bottom:14px"><div><label>Año</label><select data-f="y">' + ys + '</select></div>' +
       '<div><label>Mes</label><select data-f="m">' + ms + '</select></div>' +
+      (k === 'ven' ? '<div><label>Contar por</label><select data-f="b"><option value="venta"' + (s.b === 'act' ? '' : ' selected') + '>Fecha de venta</option><option value="act"' + (s.b === 'act' ? ' selected' : '') + '>Fecha de activación</option></select></div>' : '') +
       '<div><label>Desde (opcional)</label><input type="date" data-f="d"></div><div><label>Hasta (opcional)</label><input type="date" data-f="h"></div>' +
       (k === 'ven' ? '<div><label>Buscar</label><input data-f="q" data-minus placeholder="Cliente, DNI, teléfono, servicio…"></div>' : '') + '</div>' +
       '<div id="r16-' + k + '"><div class="d15-vacio">Cargando…</div></div></div>';
@@ -2653,7 +2664,7 @@ function ventaForm(l) {
     var pills = [['TODAS', 'Todas']].concat(['TRA', 'INC', 'ACT', 'CAI'].map(function (m) { return [m, MAC[m][0]]; })).map(function (p) {
       return '<button class="d15-pill' + (s.f === p[0] ? ' on' : '') + '" data-x="f" data-v="' + p[0] + '">' + p[1] + '<b>' + c[p[0]] + '</b></button>';
     }).join('');
-    out.innerHTML = (window.svc49 ? window.svc49.nota(D.raw.length - D.rows.length, D.raw) : '') + '<div class="d15-vbar"><div class="d15-pills">' + pills + '</div>' + (ROL === 'admin' ? '<button class="sec" data-x="csv" style="margin-left:auto">⬇ Exportar CSV</button>' : '') + '</div>' +
+    out.innerHTML = (s.b === 'act' ? '<div class="svc49-nota">✅ Viendo lo que se <b>activó o cayó</b> en este periodo (por fecha de activación), aunque la venta sea de un mes anterior.</div>' : '') + (window.svc49 ? window.svc49.nota(D.raw.length - D.rows.length, D.raw, EST.ven.b === 'act') : '') + '<div class="d15-vbar"><div class="d15-pills">' + pills + '</div>' + (ROL === 'admin' ? '<button class="sec" data-x="csv" style="margin-left:auto">⬇ Exportar CSV</button>' : '') + '</div>' +
       '<div class="meta" style="margin-bottom:10px">' + lista.length + ' venta(s) · ' + svc + ' servicio(s) con movimiento en el periodo</div>' +
       (lista.length ? '<div class="d15-vl">' + lista.slice(0, s.max).map(card).join('') + '</div>' +
         (lista.length > s.max ? '<p style="text-align:center;margin:14px 0 0"><button class="sec" data-x="mas">Ver más (' + (lista.length - s.max) + ')</button></p>' : '') :
@@ -2703,7 +2714,7 @@ function ventaForm(l) {
     var vInc = o.filter(function (x) { return x.est === 'INC'; }).length, crm = o.filter(function (x) { return x.lead; }).length;
     var kp = [[o.length, 'ventas'], [R.length, 'servicios'], [R.length ? Math.round(sAct * 100 / R.length) + '%' : '—', 'servicios activos'],
       [R.length ? Math.round(sCai * 100 / R.length) + '%' : '—', 'servicios caídos'], [vInc, 'ventas con incidencia'],
-      [window.svc49 ? window.svc49.activosDe(D.raw || R, 'INTERNET') : R.filter(function (x) { return x.es_internet && okS(x); }).length, 'internet activos'], [window.svc49 ? window.svc49.activosDe(D.raw || R, 'MOVIL') : R.filter(function (x) { return x.es_movil && okS(x); }).length, 'móviles activos (aparte)'],
+      [window.svc49 ? window.svc49.activosDe(D.act || D.raw || R, 'INTERNET') : R.filter(function (x) { return x.es_internet && okS(x); }).length, 'internet activados (por fecha de activación)'], [window.svc49 ? window.svc49.activosDe(D.act || D.raw || R, 'MOVIL') : R.filter(function (x) { return x.es_movil && okS(x); }).length, 'móviles activados (aparte)'],
       [D.leadsN == null ? '—' : D.leadsN, 'leads captados'], [D.leadsN ? Math.round(crm * 100 / D.leadsN) + '%' : '—', 'ventas CRM / leads']];
     var kHtml = '<div class="stats" style="margin:0 0 6px">' + kp.map(function (k) { return '<div><b>' + k[0] + '</b><small>' + k[1] + '</small></div>'; }).join('') + '</div>';
 
@@ -6598,17 +6609,17 @@ function ventaForm(l) {
   }
 
   function filaGrupo(r, max, etiqueta) {
-    var tot = r.servicios, res = r.activados + r.caidos, w = max ? tot / max * 100 : 0;
+    var tot = r.activados + r.tramite + r.caidos, res = r.activados + r.caidos, w = max ? tot / max * 100 : 0;   // el reparto se mide sobre lo que se ve en la fila
     function seg(v, c, t) { return v ? '<i style="width:' + (v / tot * 100) + '%;background:' + c + '" title="' + t + ': ' + v + '"></i>' : ''; }
-    return '<tr><td><b>' + esc(r[etiqueta]) + '</b></td><td class="n"><b>' + n0(tot) + '</b></td>' +
+    return '<tr><td><b>' + esc(r[etiqueta]) + '</b></td><td class="n"><b>' + n0(r.servicios) + '</b></td>' +
       '<td class="rep" style="width:26%"><div class="s46-stack" style="width:' + w + '%">' + seg(r.activados, 'var(--c-act)', 'Activados') + seg(r.tramite, 'var(--c-tra)', 'En trámite') + seg(r.caidos, 'var(--c-cai)', 'Caídos') + '</div></td>' +
       '<td class="n">' + r.activados + '</td><td class="n">' + r.tramite + '</td><td class="n">' + r.caidos + '</td>' +
       '<td class="n">' + (res ? '<b>' + pcn(r.caidos, res) + ' %</b> <span class="meta">(' + r.caidos + '/' + res + ')</span>' : '<span class="meta">— (0/0)</span>') + '</td></tr>';
   }
   function tablaGrupo(rows, etiqueta, titulo) {
     if (!rows.length) return '<div class="s46-vacio">Sin datos en este periodo.</div>';
-    var max = 0; rows.forEach(function (r) { max = Math.max(max, r.servicios); });
-    return '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>' + titulo + '</th><th class="n">Servicios</th><th class="rep">Reparto</th><th class="n">Activ.</th><th class="n">Trámite</th><th class="n">Caídos</th><th class="n">Tasa de caída</th></tr></thead><tbody>' +
+    var max = 0; rows.forEach(function (r) { max = Math.max(max, r.activados + r.tramite + r.caidos); });
+    return '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>' + titulo + '</th><th class="n" title="Ventas registradas en el periodo (por fecha de venta)">Vendidos</th><th class="rep">Reparto</th><th class="n" title="Por fecha de activación">Activ.</th><th class="n" title="Pendientes de las ventas del periodo">Trámite</th><th class="n" title="Por fecha en que cayeron">Caídos</th><th class="n">Tasa de caída</th></tr></thead><tbody>' +
       rows.map(function (r) { return filaGrupo(r, max, etiqueta); }).join('') + '</tbody></table></div>';
   }
   function ordenaAgentes(rows) {
@@ -6633,7 +6644,8 @@ function ventaForm(l) {
         '<td class="n">' + (rs ? pcn(x.caidos, rs) + ' %' : '—') + '</td></tr>';
     }).join('');
     return '<div class="s46-sec"><div class="s46-sh"><h3>Por tipo de servicio</h3><span class="meta">Cada tipo por separado: nunca se suman entre sí. Toca uno para verlo</span></div>' +
-      '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Tipo</th><th class="n">Servicios</th><th class="n">Activ.</th><th class="n">Trámite</th><th class="n">Caídos</th><th class="n">Tasa de caída</th></tr></thead><tbody>' + (filas || '<tr><td colspan="6" class="meta">Sin servicios en el periodo.</td></tr>') + '</tbody></table></div></div>';
+      '<p class="meta" style="margin:0 0 8px">Vendidos = ventas del periodo (por fecha de venta). Activados y caídos = por la fecha en que se activaron o cayeron, aunque la venta sea de otro mes.</p>' +
+      '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Tipo</th><th class="n" title="Ventas registradas en el periodo (por fecha de venta)">Vendidos</th><th class="n" title="Por fecha de activación, aunque la venta sea de otro mes">Activ.</th><th class="n" title="Pendientes de las ventas del periodo">Trámite</th><th class="n" title="Por fecha en que cayeron">Caídos</th><th class="n">Tasa de caída</th></tr></thead><tbody>' + (filas || '<tr><td colspan="6" class="meta">Sin servicios en el periodo.</td></tr>') + '</tbody></table></div></div>';
   }
 
   /* --- Objetivo del mes: del grupo y de CADA agente --- */
@@ -6642,7 +6654,7 @@ function ventaForm(l) {
     var g = (d.objetivos || []).filter(function (x) { return x.rol === rol; });
     if (!g.length) return '';
     g.sort(function (a, b) { return (b.act - a.act) || String(a.nombre).localeCompare(String(b.nombre)); });
-    return '<div class="s46-h4">' + titulo + '</div><div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Agente</th><th class="n">Activados</th><th class="n rep">En trámite</th><th style="width:30%">Avance</th><th class="n">Objetivo</th><th class="n rep" title="Aparte: no se suman al objetivo">' + (ap === 'MOVIL' ? '📱 Móviles act.' : '🌐 Conv. act.') + '</th></tr></thead><tbody>' +
+    return '<div class="s46-h4">' + titulo + '</div><div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Agente</th><th class="n">Activados</th><th class="n rep" title="Pendientes de los últimos 60 días: lo que puede activarse este mes">En trámite</th><th style="width:30%">Avance</th><th class="n">Objetivo</th><th class="n rep" title="Aparte: no se suman al objetivo">' + (ap === 'MOVIL' ? '📱 Móviles act.' : '🌐 Conv. act.') + '</th></tr></thead><tbody>' +
       g.map(function (x) {
         var p = x.objetivo ? pcn(x.act, x.objetivo) : 0;
         return '<tr><td><b>' + esc(x.nombre) + '</b></td><td class="n"><b>' + n0(x.act) + '</b></td><td class="n rep">' + n0(x.tra) + '</td><td>' +
@@ -6653,7 +6665,7 @@ function ventaForm(l) {
   function seccionObjetivo(d, sv) {
     var m = d.mes, obj = m.objetivo, act = m.obj_activados != null ? m.obj_activados : m.activados;
     var rit = m.dia ? act / m.dia : 0, proy = Math.round(rit * m.dias_mes), nuevo = !!d.objetivos;
-    var h = '<div class="s46-sec"><div class="s46-sh"><h3>Objetivo del mes</h3><span class="meta">' + (nuevo ? esc(sv ? sv.etiquetaKpi(d.clases_obj[0]) : 'Servicios') + ' activados este mes (por fecha de venta), sin importar lo que estés viendo arriba' : 'Servicios de este mes (por fecha de venta) que ya están activados') + '</span></div>';
+    var h = '<div class="s46-sec"><div class="s46-sh"><h3>Objetivo del mes</h3><span class="meta">' + (nuevo ? esc(sv ? sv.etiquetaKpi(d.clases_obj[0]) : 'Servicios') + ' activados este mes (por fecha de activación), sin importar lo que estés viendo arriba' : 'Servicios de este mes (por fecha de venta) que ya están activados') + '</span></div>';
     if (obj) {
       h += '<div><b style="font-size:1.4em">' + n0(act) + '</b> <span class="meta">de ' + n0(obj) + ' · ' + pc(act, obj) + (nuevo && m.objetivo_por_agente ? ' · objetivo del grupo = suma de los cerradores' : '') + '</span></div>' +
         '<div class="s46-meter" role="progressbar" aria-valuemin="0" aria-valuemax="' + obj + '" aria-valuenow="' + act + '" aria-label="Avance del objetivo del grupo"><i style="width:' + Math.min(100, pcn(act, obj)) + '%"></i></div>' +
@@ -6677,7 +6689,7 @@ function ventaForm(l) {
   /* --- Concertadores: clientes que suben y ventas que consiguen --- */
   function tablaConc(rows) {
     if (!rows.length) return '<div class="s46-vacio">No hay concertadores activos.</div>';
-    return '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Concertador</th><th class="n">Clientes subidos</th><th class="n">Vendidos</th><th class="n rep">Conversión</th><th class="n">Servicios</th><th class="n">Activ.</th><th class="n rep">Trámite</th><th class="n rep">Caídos</th></tr></thead><tbody>' +
+    return '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Concertador</th><th class="n">Clientes subidos</th><th class="n">Vendidos</th><th class="n rep">Conversión</th><th class="n" title="Servicios vendidos en el periodo">Servicios</th><th class="n" title="Por fecha de activación">Activ.</th><th class="n rep">Trámite</th><th class="n rep">Caídos</th></tr></thead><tbody>' +
       rows.map(function (r) {
         var nom = KP.esAdmin ? '<b>' + esc(r.nombre) + '</b>' : '<button type="button" class="svc49-lnk" data-k="verc" data-id="' + esc(r.id) + '" title="Ver sus clientes y el historial"><b>' + esc(r.nombre) + '</b></button>';
         return '<tr><td>' + nom + '</td><td class="n">' + n0(r.leads) + '</td><td class="n">' + n0(r.vendidos) + '</td><td class="n rep">' + (r.leads ? pcn(r.vendidos, r.leads) + ' %' : '—') + '</td>' +
@@ -6696,17 +6708,18 @@ function ventaForm(l) {
     if (KP.err) { host.innerHTML = barra + '<div class="s46-sec"><div class="s46-vacio">' + esc(KP.err) + '</div></div>'; return; }
     if (!d) { host.innerHTML = barra + '<div class="s46-sec"><div class="s46-vacio">Calculando…</div></div>'; return; }
     var t = d.totales, res = t.activados + t.caidos, tk = d.tareas, sv = SV();
-    var etq = d.clases && sv ? sv.etiquetaKpi(d.clases[0]) : 'Servicios';
+    var etq = d.clases && sv ? sv.etiquetaKpi(d.clases[0]) : 'Servicios', nv52 = d.base_fecha === 'activacion';
     var kSel = (d.clases && d.clases[0]) || 'INTERNET', kAp = sv ? sv.apartede(kSel) : 'MOVIL', xAp = null;
     (d.por_clase || []).forEach(function (x) { if (x.k === kAp) xAp = x; });
     var h = barra;
     if (KP.vieja) h += '<div class="svc49-nota">⚠️ Falta ejecutar <b>49_servicios_y_supervisor.sql</b> (y después el <b>50</b>) en Supabase: mientras tanto el panel cuenta todos los servicios y el objetivo es único.</div>';
     else if (!(d.mes && d.mes.ap_k)) h += '<div class="svc49-nota">⚠️ Falta ejecutar <b>50_internet_y_movil_separados.sql</b> en Supabase: mientras tanto Internet puede salir en 0 y no se separan los móviles.</div>';
+    else if (d.base_fecha !== 'activacion') h += '<div class="svc49-nota">⚠️ Falta ejecutar <b>52_activados_por_fecha_de_activacion.sql</b> en Supabase: mientras tanto los activados se cuentan por fecha de venta y no por fecha de activación.</div>';
     h += '<div class="s46-kpis">' +
-      kpi('', n0(t.servicios), esc(etq), n0(t.ventas) + ' ventas · por fecha de venta') +
-      kpi('act', n0(t.activados), 'Activados', pc(t.activados, t.servicios) + ' de los registrados') +
-      kpi('tra', n0(t.tramite), 'En trámite', pc(t.tramite, t.servicios) + ' de los registrados') +
-      kpi('cai', n0(t.caidos), 'Caídos', pc(t.caidos, t.servicios) + ' de los registrados') +
+      kpi('', n0(t.servicios), esc(nv52 && sv ? sv.etiquetaVta(kSel) : etq), n0(t.ventas) + ' ventas · por fecha de venta') +
+      kpi('act', n0(t.activados), 'Activados', nv52 ? 'Por fecha de activación' + (t.activados_antes ? ' · ' + n0(t.activados_antes) + ' de ventas anteriores' : '') : pc(t.activados, t.servicios) + ' de los registrados') +
+      kpi('tra', n0(t.tramite), 'En trámite', nv52 ? 'De las ventas del periodo' + (t.tramite_antes ? ' · +' + n0(t.tramite_antes) + ' de ventas anteriores' : '') : pc(t.tramite, t.servicios) + ' de los registrados') +
+      kpi('cai', n0(t.caidos), 'Caídos', nv52 ? 'Por fecha en que cayeron' : pc(t.caidos, t.servicios) + ' de los registrados') +
       kpi('cai', res ? pcn(t.caidos, res) + ' %' : '—', 'Tasa de caída', res ? 'Caídos ' + t.caidos + ' de ' + res + ' ya resueltos (activados + caídos)' : 'Aún no hay servicios resueltos') +
       (xAp && sv ? kpi('ap', n0(xAp.activados), sv.icono(kAp) + ' ' + esc(sv.etiquetaAct(kAp)), 'Aparte: no se suman · ' + n0(xAp.tramite) + ' en trámite') : '') +
       kpi(tk.vencidas ? 'bad' : '', n0(tk.vencidas), 'Tareas vencidas', n0(tk.sin_asignar) + ' sin asignar · ' + n0(tk.pendientes) + ' pendientes') + '</div>';
@@ -6715,18 +6728,18 @@ function ventaForm(l) {
     h += seccionObjetivo(d, sv);
 
     h += '<div class="s46-sec"><div class="s46-sh"><h3>Servicios por día</h3><span class="s46-pills"><button type="button" class="s46-pill' + (KP.tabla ? '' : ' on') + '" data-k="vista" data-v="g">Gráfico</button><button type="button" class="s46-pill' + (KP.tabla ? ' on' : '') + '" data-k="vista" data-v="t">Tabla</button></span></div>' +
-      '<div id="s46-dias"></div><p class="meta" style="margin-top:8px">Fecha de referencia: <b>fecha de venta</b>. «Servicio» = una fila de MATRIZ. Activado / caído / en trámite se clasifica igual que en la pestaña Ventas.</p></div>';
+      '<div id="s46-dias"></div><p class="meta" style="margin-top:8px">' + (nv52 ? 'Cada barra es un día. <b>Activados y caídos</b>: el día en que se activaron o cayeron (aunque la venta sea de un mes anterior). <b>En trámite</b>: el día en que se vendió.' : 'Fecha de referencia: <b>fecha de venta</b>.') + ' «Servicio» = una fila de MATRIZ.</p></div>';
 
     h += '<div class="s46-sec"><div class="s46-sh"><h3>Calidad por agente</h3><span class="s46-pills"><button type="button" class="s46-pill' + (KP.orden === 'vol' ? ' on' : '') + '" data-k="ord" data-v="vol">Más servicios</button><button type="button" class="s46-pill' + (KP.orden === 'caida' ? ' on' : '') + '" data-k="ord" data-v="caida">Mayor tasa de caída</button></span></div>' +
       tablaGrupo(ordenaAgentes(d.agentes), 'agente', 'Agente') +
-      '<p class="meta" style="margin-top:8px">El volumen nunca va solo: junto a cada agente está su tasa de caída = caídos ÷ (activados + caídos). Con pocos servicios resueltos el porcentaje engaña: mira el denominador.</p></div>';
+      '<p class="meta" style="margin-top:8px">El volumen nunca va solo: junto a cada agente está su tasa de caída = caídos ÷ (activados + caídos). Con pocos servicios resueltos el porcentaje engaña: mira el denominador. «Vendidos» va por fecha de venta; «Activ.» y «Caídos», por la fecha en que se activaron o cayeron.</p></div>';
 
     if (d.concertadores) h += '<div class="s46-sec"><div class="s46-sh"><h3>Concertadores</h3><span class="meta">Clientes que subieron en el periodo y lo que llevan vendido</span></div>' + tablaConc(d.concertadores) + '</div>';
 
     h += '<div class="s46-sec"><div class="s46-sh"><h3>Por campaña</h3></div>' + tablaGrupo(d.campanas, 'campana', 'Campaña') + '</div>';
 
     var mxE = 0; d.estados.forEach(function (e) { mxE = Math.max(mxE, e.n); });
-    h += '<div class="s46-sec"><div class="s46-sh"><h3>Dónde se atascan los servicios en trámite</h3><span class="meta">' + n0(t.tramite) + ' en trámite en el periodo</span></div>' +
+    h += '<div class="s46-sec"><div class="s46-sh"><h3>Dónde se atascan los servicios en trámite</h3><span class="meta">' + n0(t.tramite) + ' en trámite (ventas del periodo)</span></div>' +
       (d.estados.length ? d.estados.map(function (e) { return '<div class="s46-hb"><span class="l" title="' + esc(e.estado) + '">' + esc(e.estado) + '</span><div class="t"><i style="width:' + (mxE ? e.n / mxE * 100 : 0) + '%"></i></div><b>' + e.n + '</b></div>'; }).join('') : '<div class="s46-vacio">Nada en trámite en este periodo.</div>') + '</div>';
 
     h += '<div class="s46-sec"><div class="s46-sh"><h3>Back office · tareas</h3><span class="meta">Cumplimiento = hechas dentro de plazo ÷ hechas en el periodo</span></div>' +
@@ -7110,7 +7123,7 @@ function ventaForm(l) {
     TZ = { dias: 7, d: null, busy: false, err: null };
     CL = { q: '', etapa: '', conc: '', cerr: '', dias: 30, pag: 0, d: null, busy: false, otra: false, err: null, eq: null, abierto: {}, det: {}, re: {}, tq: null };
     NOTAS = {}; BORR = {};
-    main.innerHTML = '<div class="s46" id="s46"><div class="s46-hero"><small style="opacity:.85;text-transform:capitalize">' + esc(hoy) + '</small><h2>Hola, ' + esc(nombre) + '</h2><p>Ves cómo va el grupo y lo que suben los concertadores, comentas, llamas, pasas clientes de un cerrador a otro y repartes las tareas del back.</p></div>' +
+    main.innerHTML = '<div class="s46" id="s46"><div class="s46-hero"><small style="opacity:.85;text-transform:capitalize">' + esc(hoy) + '</small><h2>Hola, ' + esc(nombre) + '</h2><p>Supervisor · ves cómo va el grupo y lo que suben los concertadores, comentas, llamas, pasas clientes de un cerrador a otro y repartes las tareas del back. No editas estados ni ves comisiones.</p></div>' +
       '<div class="s46-tabs" id="s46-tabs" role="tablist">' + TABS.map(function (t) { return '<button type="button" class="s46-t" role="tab" data-k="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + '</button>'; }).join('') + '</div>' +
       '<section id="s46-p-pan"></section><section id="s46-p-cli" hidden><div class="s46-sec"><div class="s46-sh"><h3>Clientes de los concertadores</h3><span class="meta">Con su historial: puedes llamar, comentar y cambiar de cerrador</span></div><div id="s46-cl"></div></div></section><section id="s46-p-tar" hidden><div id="s46-tz"></div></section><section id="s46-p-seg" hidden><div class="s46-sec"><div class="s46-sh"><h3>Seguimiento de clientes</h3><span class="meta">Clientes con algún servicio sin OK</span></div><div id="s46-seg"></div></div></section></div>';
     KP.host = $('s46-p-pan'); ganchosPanel(KP.host); ganchosTz($('s46-p-tar')); ganchosSeg($('s46-p-seg')); ganchosComun($('s46-p-seg'), pintaSeg); ganchosCl($('s46-p-cli'));
@@ -8012,6 +8025,10 @@ function ventaForm(l) {
     k = k || sel()[0];
     return k === 'INTERNET' ? 'Convergentes (Internet) activos' : k === 'MOVIL' ? 'Líneas móviles activas' : nombre(k) + ' activos';
   }
+  function etiquetaVta(k) {   // «Ventas de convergentes (Internet)», «Ventas de líneas móviles»…
+    k = k || sel()[0];
+    return 'Ventas de ' + (k === 'INTERNET' ? 'convergentes (Internet)' : k === 'MOVIL' ? 'líneas móviles' : String(nombre(k)).toLowerCase());
+  }
   function icono(k) { return ICO[k] || '🧩'; }
   function sufijo() { return '_' + sel()[0]; }
   /* Lo que se enseña APARTE de lo elegido: si miras Internet, los móviles; si miras cualquier otra cosa, Internet */
@@ -8023,11 +8040,11 @@ function ventaForm(l) {
     (rows || []).forEach(function (r) { if (claseDe(r) === k && esAct(r.estado)) n++; });
     return n;
   }
-  function nota(ocultos, raw) {
+  function nota(ocultos, raw, porAct) {   // porAct: la lista está por fecha de activación; si no, son las ventas del periodo
     var k = sel()[0], ap = apartede(k);
     return '<div class="svc49-nota">' + icono(k) + ' Viendo solo <b>' + esc(nombre(k)) + '</b>' +
       (ocultos > 0 ? ' · ' + n0(ocultos) + ' línea(s) de otros tipos no entran en estas cifras' : '') +
-      (raw ? ' · ' + icono(ap) + ' ' + esc(nombre(ap)) + ' activos aparte: <b>' + n0(activosDe(raw, ap)) + '</b> (no se suman)' : '') + '</div>';
+      (raw ? ' · ' + icono(ap) + ' ' + esc(nombre(ap)) + ' activos aparte: <b>' + n0(activosDe(raw, ap)) + '</b> (no se suman' + (porAct ? '' : ' · de las ventas de este periodo') + ')' : '') + '</div>';
   }
 
   /* ================= SELECTOR Y VENTANITA ================= */
@@ -8141,7 +8158,7 @@ function ventaForm(l) {
   function reinicia() { ST.cfg = null; ST.real = false; ST.ok = null; ST.sel = null; ST.selUid = undefined; ST.set = null; ST.conteos = null; cierra(); }
 
   window.svc49 = {
-    carga: carga, sel: sel, defecto: defecto, cuenta: cuenta, filtra: filtra, clase: clase, claseDe: claseDe, nombre: nombre, etiqueta: etiqueta, etiquetaKpi: etiquetaKpi, etiquetaAct: etiquetaAct,
+    carga: carga, sel: sel, defecto: defecto, cuenta: cuenta, filtra: filtra, clase: clase, claseDe: claseDe, nombre: nombre, etiqueta: etiqueta, etiquetaKpi: etiquetaKpi, etiquetaAct: etiquetaAct, etiquetaVta: etiquetaVta,
     icono: icono, apartede: apartede, activosDe: activosDe, nota: nota, sufijo: sufijo,
     activo: function () { return true; }, cfg: cfg, pinta: pintaHosts, set: fijar,
     ok: function () { return ST.ok; },
@@ -8175,7 +8192,7 @@ function ventaForm(l) {
     var cls = (d.clases && d.clases[0]) || 'INTERNET';
     var que = cls === 'INTERNET' ? 'Convergentes (Internet) activados' : cls === 'MOVIL' ? 'Líneas móviles activas' : nombre(cls) + ' activados';
     var ap = d.ap_k ? '<div class="o49-ap"><span aria-hidden="true">' + icono(d.ap_k) + '</span><span>' + etiquetaAct(d.ap_k) + ' este mes: <b>' + n0(d.ap_act) + '</b></span><span class="meta">aparte, no se suman a tu objetivo</span></div>' : '';
-    var html = '<h3>🎯 Tu objetivo del mes</h3><div class="meta">' + que + ' este mes, por fecha de venta</div>' +
+    var html = '<h3>🎯 Tu objetivo del mes</h3><div class="meta">' + que + ' este mes, por fecha de activación</div>' +
       '<div class="o49-v"><b>' + n0(act) + '</b><span class="meta">de ' + n0(obj) + ' · ' + pcn(act, obj) + ' %</span></div>' +
       '<div class="o49-bar" role="progressbar" aria-valuemin="0" aria-valuemax="' + obj + '" aria-valuenow="' + act + '" aria-label="Avance hacia tu objetivo"><i style="width:' + Math.min(100, pcn(act, obj)) + '%"></i></div>' +
       '<div class="meta">' + (ok ? '🎉 ¡Objetivo cumplido! Todo lo que sumes ahora es extra.' : 'Te faltan <b>' + n0(falt) + '</b> · ' + n0(d.tra) + ' más en trámite' + (d.dia > 3 ? ' · al ritmo actual llegarías a ~' + n0(proy) + ' (estimación, solo orientativa)' : '')) + '</div>' + ap;
@@ -8252,7 +8269,7 @@ function ventaForm(l) {
           '<td class="n">' + n0(x.act) + ' act. · ' + n0(x.tra) + ' trám.</td><td class="n">' + n0(x.mov || 0) + '</td><td class="n"><input type="number" min="0" max="100000" step="1" data-f="obj" data-id="' + esc(x.id) + '" data-rol="' + esc(rol) + '" value="' + (x.objetivo || '') + '" placeholder="—" aria-label="Objetivo de ' + esc(x.nombre) + '"></td></tr>';
       }).join('');
     }
-    h.innerHTML = '<p class="meta">El objetivo se mide en <b>' + esc(clN) + ' activados</b> del mes (por fecha de venta), igual para todos. Los <b>' + esc(apN) + '</b> de cada agente se muestran al lado, pero no se suman al objetivo. Vale para este mes y los siguientes hasta que lo cambies. Déjalo vacío o en 0 para quitarlo. ' +
+    h.innerHTML = '<p class="meta">El objetivo se mide en <b>' + esc(clN) + ' activados</b> del mes (por fecha de activación, aunque la venta sea del mes anterior), igual para todos. Los <b>' + esc(apN) + '</b> de cada agente se muestran al lado, pero no se suman al objetivo. Vale para este mes y los siguientes hasta que lo cambies. Déjalo vacío o en 0 para quitarlo. ' +
       'El objetivo del grupo es la suma de los cerradores' + (m.objetivo ? ': <b>' + n0(m.objetivo) + '</b>' : '') + '.</p>' +
       (lista.length ? '<div class="c49-ay"><span class="meta">Poner el mismo a todos los</span><select data-f="aytipo" style="width:auto"><option value="cerrador">cerradores</option><option value="concertador">concertadores</option></select><input type="number" min="0" max="100000" id="c49-ayv" placeholder="Ej. 30"><button type="button" class="sec" data-a="ayuda">Rellenar</button><span class="meta">(se guarda al pulsar «Guardar objetivos»)</span></div>' +
         '<div class="c49-sc"><table class="c49-tbl"><thead><tr><th>Agente</th><th>Avance</th><th class="n">Este mes</th><th class="n" title="Se ven aparte, no cuentan para el objetivo">' + (m.ap_k === 'MOVIL' ? '📱 Móviles act.' : '🌐 Conv. act.') + '</th><th class="n">Objetivo</th></tr></thead><tbody>' + filas('cerrador', 'Cerradores') + filas('concertador', 'Concertadores') + '</tbody></table></div>' +
