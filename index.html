@@ -9481,21 +9481,27 @@ function ofcCalcular(cat, sel) {
   };
 })();
 
-  /* 57 · FIBERTEL MESSENGER (v3.1 · Fase 3A: mensajería fiable)
-   REQUIERE haber ejecutado ANTES 57_chat_mensajeria.sql en Supabase (SQL Editor). Sin él, el chat avisa «Falta ejecutar 57_chat_mensajeria.sql» y no abre.
+  /* 57 · FIBERTEL MESSENGER (v3.2 · Fase 3B: grupos, canales y funciones de mensaje)
+   REQUIERE haber ejecutado ANTES, en este orden, en Supabase (SQL Editor): 57_chat_mensajeria.sql y 57b_chat_funciones.sql.
+   Sin la primera el chat avisa «Falta ejecutar 57_chat_mensajeria.sql» y no abre; sin la segunda funcionan las conversaciones de siempre, pero fallan grupos, responder, editar, borrar, reacciones, fijados y favoritos
+   (y avisa «Falta ejecutar 57b_chat_funciones.sql»).
    PEGAR al final del script de index.html, DESPUÉS del bloque 56 y antes del cierre del script (y borrar el bloque 23 viejo).
    Qué es: el chat interno. Ventana de tres zonas (lista · conversación · información), tema claro/oscuro del CRM, estados de trabajo,
    «escribiendo…», zumbido, sonidos y efectos que se activan o desactivan uno a uno (engranaje de la ventana).
    Quién lo usa: concertador, cerrador, back, supervisor y administrador.
-   Qué hace la Fase 3A (todo lo decide la base de datos, no el navegador):
+   Fase 3A (todo lo decide la base de datos, no el navegador):
      · una sola conversación por pareja (aunque se escriban a la vez) y la sala general;
      · cada mensaje lleva un identificador: si se corta la red y se reintenta, NO se duplica; lo que no se pudo enviar se guarda y se reenvía solo al volver la conexión;
      · los «sin leer» se cuentan en la base (iguales en todos tus equipos); «Entregado» y «Leído» solo aparecen cuando la base los confirma;
      · tras una caída o con el equipo dormido recupera lo perdido (resumen cada minuto, historial paginado, «Cargar mensajes anteriores»);
      · búsqueda de mensajes en toda tu historia; estados Disponible / Ocupado / En llamada / No molestar / Ausente guardados en la base;
      · límites en el servidor: un zumbido cada 15 s, ninguno a quien tiene «No molestar», máximo 20 mensajes cada 10 s.
-   Qué NO hay todavía (llega en las fases siguientes): grupos y canales, favoritos / fijados / silenciar, reacciones, responder / editar / borrar,
-   archivos y notas de voz, avatares con foto, mensaje de estado, temas de conversación, clientes compartidos.
+   Fase 3B (también decidido por la base):
+     · grupos y canales: SOLO administración y supervisión los crean; el creador es administrador del grupo y puede añadir, quitar, nombrar administradores y dejar a alguien en solo lectura;
+       en un canal solo escriben los administradores del canal; quien no es miembro no ve ni el grupo ni sus mensajes (tampoco la administración);
+     · responder (con cita), editar (hasta 15 min), eliminar (el autor hasta 24 h; los administradores del grupo, y en la Sala general administración y supervisión), reacciones con 8 emojis, hasta 5 mensajes fijados por conversación;
+     · favoritos, hasta 5 conversaciones fijadas y silenciar (sin sonidos ni avisos, el contador sigue); cada persona tiene los suyos.
+   Qué NO hay todavía (llega en las fases siguientes): archivos y notas de voz, avatares con foto, mensaje de estado, clientes compartidos, borrar o archivar un grupo entero (pestaña de administración).
    El botón flotante sigue llamándose #chat23-btn porque el bloque 48 (notificaciones) lo pulsa al tocar un aviso de chat. */
 (function () {
   if (window.mz57) return;
@@ -9507,6 +9513,9 @@ function ofcCalcular(cat, sel) {
   var SILENCIO = { busy: 1, call: 1, dnd: 1 };                                                                   // con estos estados no suenan ni avisan los mensajes nuevos
   var DEPTO = { concertador: 'Ventas · Concertación', cerrador: 'Ventas · Cierre', back: 'Back office', admin: 'Administración', supervisor: 'Supervisión' };
   var PREF0 = { sonMsg: true, sonZumbido: true, conexion: true, animRecibir: true, animEnviar: true, animPaneles: true, sacudir: true, avisoTexto: true };
+  var REAC = ['👍', '❤', '😂', '😮', '😢', '🙏', '✅', '👀'];                      // reacciones permitidas (la base guarda ❤ sin el selector de variante)
+  var T_EDITAR = 15 * 60000, T_BORRAR = 24 * 3600000, MAX_FIJ_MSG = 5, MAX_FIJ_CONV = 5;   // mismos plazos y topes que impone la base (57b)
+  var CAMPOS_MSG = ['cuerpo', 'leido_at', 'entregado_at', 'editado_at', 'borrado_at', 'borrado_por', 'fijado_at', 'fijado_por', 'reacciones', 'responde_cuerpo'];   // lo que puede cambiar en un mensaje ya enviado
   var EMOJIS = [
     ['Caras', '😀 😄 😁 😂 🤣 😊 😇 🙂 😉 😍 🥰 😘 😎 🤩 🤔 😐 😴 😅 😬 🙄 😢 😭 😡 🥳'],
     ['Gestos', '👍 👎 👏 🙌 🙏 💪 👌 ✌️ 🤝 👋 🤞 ☝️ 👀 🫡 🤷 🙋 💁 🤦 🧠 ❤️ 💙 🧡 💚 🔥'],
@@ -9547,14 +9556,24 @@ function ofcCalcular(cat, sel) {
     no_molestar: 'Esa persona tiene «No molestar»: no se le pueden enviar zumbidos', zumbido_solo_privado: 'Los zumbidos solo se envían a una persona',
     demasiados_mensajes: 'Estás enviando demasiado rápido. Espera unos segundos', texto_invalido: 'El mensaje está vacío o pasa de 2000 caracteres',
     tipo_invalido: 'No se pudo enviar ese tipo de mensaje', estado_invalido: 'Estado no válido', conversacion_no_soportada: 'Esa conversación todavía no admite envíos',
-    par_invalido: 'No se pudo abrir la conversación'
+    par_invalido: 'No se pudo abrir la conversación',
+    solo_admin_supervisor: 'Solo administración y supervisión pueden crear grupos y canales', solo_lectura: 'En esta conversación solo puedes leer',
+    nombre_invalido: 'El nombre debe tener entre 2 y 60 caracteres', descripcion_invalida: 'La descripción pasa de 200 caracteres',
+    faltan_miembros: 'Elige al menos a una persona', demasiados_miembros: 'Un grupo admite como máximo 200 personas',
+    demasiados_grupos: 'Has creado varios grupos seguidos. Espera un minuto', usa_salir: 'Para salir tú mismo usa «Salir del grupo»',
+    ultimo_admin: 'Debe quedar al menos un administrador. Nombra a otro antes', rol_invalido: 'Ese papel no es válido aquí', no_es_miembro: 'Esa persona ya no es miembro',
+    solo_el_autor: 'Solo quien lo escribió puede editarlo', plazo_vencido: 'Ya pasó el tiempo permitido: se edita durante 15 minutos y se elimina durante 24 horas',
+    no_editable: 'Ese mensaje no se puede editar', mensaje_borrado: 'Ese mensaje ya fue eliminado', no_se_puede_borrar: 'Ese mensaje no se puede eliminar',
+    no_se_puede_reaccionar: 'No se puede reaccionar a ese mensaje', no_se_puede_fijar: 'Ese mensaje no se puede fijar', emoji_invalido: 'Esa reacción no está permitida',
+    demasiadas_reacciones: 'Ese mensaje ya tiene el máximo de reacciones distintas', demasiados_fijados: 'Ya tienes 5 conversaciones fijadas. Quita una primero',
+    demasiados_fijados_msg: 'Ya hay 5 mensajes fijados aquí. Quita uno primero', respuesta_invalida: 'No se puede responder a ese mensaje', conversacion_invalida: 'Esa conversación no existe'
   };
   /* Un corte de red / servidor caído se puede reintentar solo; un rechazo del servidor («chat:…») no. */
   function esRed(e) { var m = String((e && e.message) || e || ''); return !/chat:/.test(m) && /Failed to fetch|NetworkError|Load failed|network|tiempo agotado|timeout|timed out|50[234]|Bad Gateway|Service Unavailable|Gateway Time/i.test(m); }
   function msgE(e) {
     var m = String((e && e.message) || e || ''), c = String((e && e.code) || '');
     var k = /chat:([a-z_]+)/.exec(m); if (k && ERR_CHAT[k[1]]) return ERR_CHAT[k[1]];
-    if (/PGRST202|PGRST205|42883|42P01/.test(c + ' ' + m)) return 'Falta ejecutar 57_chat_mensajeria.sql en Supabase';
+    if (/PGRST202|PGRST205|42883|42P01/.test(c + ' ' + m)) return /chat_grupo|chat_miembros|chat_editar|chat_borrar|chat_reaccionar|chat_fijar|chat_conv_ajustes|p_responde_a|responde_a|reacciones|editado_at|borrado_at/.test(m) ? 'Falta ejecutar 57b_chat_funciones.sql en Supabase' : 'Falta ejecutar 57_chat_mensajeria.sql en Supabase';
     if (esRed(e)) return 'No hay conexión con el servidor';
     if (/JWT|expired|not authenticated/i.test(c + ' ' + m)) return 'Tu sesión venció. Recarga la página e inicia sesión de nuevo';
     return (typeof limpio === 'function' ? limpio(m) : m) || 'Error inesperado';
@@ -9581,7 +9600,22 @@ function ofcCalcular(cat, sel) {
     flecha: '<path d="M12 5v14M19 12l-7 7-7-7"/>',
     equipo: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
     otra: '<path d="M23 4v6h-6"/><path d="M20.5 15a9 9 0 1 1-2.1-9.4L23 10"/>',
-    arriba: '<path d="M18 15l-6-6-6 6"/>'
+    arriba: '<path d="M18 15l-6-6-6 6"/>',
+    pin: '<path d="M12 17v5"/><path d="M5 17h14v-1.8a2 2 0 0 0-1.1-1.8l-1.8-.9A2 2 0 0 1 15 10.8V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2z"/>',
+    estrella: '<path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.9L12 17.8 5.8 21.1 7 14.2 2 9.3l6.9-1z"/>',
+    mudo: '<path d="M8.7 3A6 6 0 0 1 18 8c0 2.7.6 4.6 1.2 5.8M17 17H3s3-2 3-9c0-.6.1-1.2.3-1.7"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/><path d="M2 2l20 20"/>',
+    responder: '<path d="M9 14L4 9l5-5"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+    lapiz: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+    copiar: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    papelera: '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/>',
+    mas: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
+    carita: '<path d="M22 11v1a10 10 0 1 1-9-10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/><path d="M16 5h6M19 2v6"/>',
+    canal: '<path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 8.5a5 5 0 0 1 0 7M19 6a9 9 0 0 1 0 12"/>',
+    masUsuario: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
+    salir: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
+    escudo: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+    mas2: '<path d="M12 5v14M5 12h14"/>',
+    leido: '<path d="M20 6L9 17l-5-5"/>'
   };
   var LOGO = '<svg class="mz-logo" viewBox="0 0 44 44" aria-hidden="true" focusable="false"><rect x="2" y="2" width="40" height="40" rx="12" style="fill:var(--mz-a)"/><rect x="2" y="2" width="40" height="40" rx="12" style="fill:url(#mz-lg)" opacity=".0"/><path d="M13 11h18a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4H20.5L14 33.5V28h-1a4 4 0 0 1-4-4v-9a4 4 0 0 1 4-4z" fill="#fff"/><circle cx="17" cy="19.5" r="1.8" style="fill:var(--mz-a)"/><circle cx="22" cy="19.5" r="1.8" style="fill:var(--mz-a)"/><circle cx="27" cy="19.5" r="1.8" style="fill:var(--mz-a)"/></svg>';
 
@@ -9593,7 +9627,8 @@ function ofcCalcular(cat, sel) {
       caido: false, conectado: false, cerrando: false, ctx: null, gesto: false, mark: null, tmpN: 0, resaltar: null, emo: false, aj: false, menu: false, vista: 'lista',
       primeraPres: true, ultConex: 0, col: {}, ultimaVez: Date.now(), resyncT: null, buzzT: null, enviando: false, globales: false,
       convId: {}, cargado: {}, mas: {}, ws: {}, ex: {}, cola: [], ultLeido: {}, markT: {}, busqRes: [], busqQ: '', busqErr: null, busqTok: 0, busqT: null, busqCarga: false,
-      cargadoEn: 0, general: null, latido: null, entregaT: null, refrescaT: null, colaT: null, colaOn: false, cargandoMas: false };
+      cargadoEn: 0, general: null, latido: null, entregaT: null, refrescaT: null, colaT: null, colaOn: false, cargandoMas: false,
+      grupos: {}, cfg: {}, fij: {}, fijIdx: {}, miembros: {}, miembrosCarga: {}, miembrosErr: {}, resp: null, edit: null, pop: null, modal: null, salida: null };
   }
   function cargaPrefs() {
     var p = {}; try { p = JSON.parse(lsGet('crm_chat_prefs_' + me.id) || '{}') || {}; } catch (e) { p = {}; }
@@ -9900,6 +9935,119 @@ function ofcCalcular(cat, sel) {
     '.mz-sinrecibir .mz-pop,.mz-sinrecibir .mz-flash,.mz-sinrecibir .mz-flash .mz-b{animation:none!important}',
     '.mz-sinenvio .mz-send.vuela .mz-ic{animation:none}.mz-sinenvio .mz-g.yo.mz-pop{animation:none}',
     '.mz-sinpaneles .mz-info{transition:none!important}.mz-sinpaneles .mz-tc{animation:none}',
+    /* ===== Fase 3B ===== */
+    '.mz-filtros button{padding:0 4px;font-size:12.5px;min-width:0;white-space:nowrap}',
+    '.mz-filtros .mz-cnt{min-width:17px;height:17px;line-height:17px;font-size:10.5px;padding:0 4px}',
+    '.mz-rw{position:relative}',
+    '.mz-rw .mz-row{margin-bottom:2px}',
+    '.mz-row.mudo .mz-rn b{font-weight:600}',
+    '.mz-mini{display:inline-flex;align-items:center;gap:3px;flex:none;color:var(--mz-meta)}',
+    '.mz-mini .mz-ic{width:13px;height:13px}',
+    '.mz-ct b .mz-mini{vertical-align:-2px;margin-left:6px}',
+    '.mz-nb.mut{background:var(--mz-meta);color:var(--card)}',
+    '.mz-rm{position:absolute;right:10px;top:7px;width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:var(--mz-meta);opacity:0;background:var(--card);border:1px solid var(--line2)}',
+    '.mz-rw:hover .mz-rm,.mz-rm:focus-visible,.mz-rm[aria-expanded=true]{opacity:1}',
+    '.mz-rw:hover .mz-rn time{visibility:hidden}',
+    '.mz-rm:hover{color:var(--ink);border-color:var(--acc)}',
+    '.mz-nuevo{padding:8px 4px 2px}',
+    '.mz-lnk{color:var(--acc);font-weight:700;font-size:12.5px;text-decoration:underline;text-underline-offset:2px;margin-left:10px}',
+    /* mensajes: avisos del sistema, eliminados, citas, reacciones, herramientas */
+    '.mz-sis{display:flex;justify-content:center;margin:10px 0}',
+    '.mz-sis span{max-width:92%;padding:4px 12px;border-radius:99px;font-size:12px;line-height:1.35;text-align:center;color:var(--mz-meta);background:color-mix(in srgb,var(--card) 82%,transparent);border:1px solid var(--line)}',
+    '.mz-g{outline:none}',
+    '.mz-g:focus-visible .mz-b{outline:2px solid var(--acc);outline-offset:2px}',
+    '.mz-b.del{background:var(--card)!important;color:var(--mz-meta)!important;border:1px dashed var(--line2)!important;box-shadow:none!important}',
+    '.mz-b.del .mz-t{font-style:italic;font-size:13.5px}',
+    '.mz-b.del .mz-mt{color:var(--mz-meta)!important}',
+    '.mz-q{display:block;width:100%;margin:0 0 6px;padding:5px 9px;border-radius:10px;border-left:3px solid var(--acc);background:color-mix(in srgb,var(--acc) 10%,var(--card));color:var(--ink);font-size:12.5px;line-height:1.3;cursor:pointer;overflow:hidden}',
+    '.mz-q b{display:block;font-size:12px;font-weight:700;color:var(--acc)}',
+    '.mz-q span{display:block;color:var(--mz-meta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.mz-q.del span{font-style:italic}',
+    '.mz-q:hover{background:color-mix(in srgb,var(--acc) 16%,var(--card))}',
+    '.mz-g.yo .mz-q{background:color-mix(in srgb,var(--ink) 22%,transparent);border-left-color:var(--on-acc);color:var(--on-acc)}',
+    '.mz-g.yo .mz-q b,.mz-g.yo .mz-q span{color:var(--on-acc)}',
+    '.mz-g.yo .mz-q:hover{background:color-mix(in srgb,var(--ink) 32%,transparent)}',
+    '.mz-rx{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}',
+    '.mz-rxc{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:99px;font-size:12.5px;font-weight:700;background:var(--card);border:1px solid var(--mz-borde-tinte);color:var(--ink)}',
+    '.mz-rxc i{font-style:normal;font-size:14px;line-height:1}',
+    '.mz-rxc:hover{border-color:var(--acc)}',
+    '.mz-rxc.mio{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 16%,var(--card))}',
+    '.mz-ed{font-style:italic}',
+    '.mz-pinm{display:inline-flex}.mz-pinm .mz-ic{width:13px;height:13px}',
+    '.mz-tool{position:absolute;top:-17px;right:8px;display:flex;gap:2px;padding:2px;border-radius:12px;background:var(--card);border:1px solid var(--line2);box-shadow:var(--sh);opacity:0;pointer-events:none;transform:translateY(3px);transition:opacity .12s,transform .12s;z-index:3;color:var(--ink)}',
+    '.mz-g.yo .mz-tool{right:auto;left:8px}',
+    '.mz-g:hover .mz-tool,.mz-g:focus-within .mz-tool,.mz-tool:focus-within{opacity:1;pointer-events:auto;transform:none}',
+    '.mz-tool button{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:var(--mz-meta)}',
+    '.mz-tool button:hover{background:var(--mz-hover);color:var(--ink)}',
+    '.mz-tool .mz-ic{width:16px;height:16px}',
+    /* franja de mensaje fijado y barra de respuesta/edición */
+    '.mz-fijb{display:flex;align-items:center;gap:6px;padding:6px 8px 6px 14px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--card) 92%,transparent);flex:none}',
+    '.mz-fijb .go{flex:1;min-width:0;display:flex;align-items:center;gap:10px;text-align:left;color:var(--acc);padding:2px 0}',
+    '.mz-fijb .go .t{flex:1;min-width:0;display:block}',
+    '.mz-fijb .go b{display:block;font-size:12px;color:var(--acc)}',
+    '.mz-fijb .go .t span{display:block;font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.mz-ctx{display:flex;align-items:center;gap:10px;margin:0 2px 6px;padding:6px 6px 6px 12px;border-radius:14px;background:var(--card);border:1px solid var(--line2);border-left:3px solid var(--acc)}',
+    '.mz-ctx .ico{color:var(--acc);display:grid}',
+    '.mz-ctx .t{flex:1;min-width:0}',
+    '.mz-ctx b{display:block;font-size:12px;color:var(--acc)}',
+    '.mz-ctx .t span{display:block;font-size:13px;color:var(--mz-meta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.mz-solo{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:18px;background:var(--card);border:1px dashed var(--line2);color:var(--mz-meta);font-size:13.5px;line-height:1.4}',
+    '.mz-solo .mz-ic{color:var(--acc)}',
+    /* menús flotantes */
+    '.mz-fl{position:absolute;z-index:12;min-width:220px;max-width:300px;padding:6px;border-radius:16px;background:var(--card);border:1px solid var(--line2);box-shadow:var(--sh-lg);animation:mz-desliza .16s ease}',
+    '.mz-fl .rx{display:flex;gap:2px;padding:2px 2px 6px;margin-bottom:4px;border-bottom:1px solid var(--line)}',
+    '.mz-fl .rx button{width:32px;height:32px;border-radius:10px;font-size:19px;line-height:1;display:grid;place-items:center;text-align:center}',
+    '.mz-fl .rx button:hover{background:var(--mz-hover)}',
+    '.mz-fl .rx button.mio{background:var(--mz-sel);box-shadow:inset 0 0 0 1px var(--acc)}',
+    '.mz-fl .it{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:10px;font-size:13.5px;font-weight:500}',
+    '.mz-fl .it:hover{background:var(--mz-hover)}',
+    '.mz-fl .it .mz-ic{color:var(--acc)}',
+    '.mz-fl .it.peligro,.mz-fl .it.peligro .mz-ic{color:var(--bad)}',
+    /* ventanas dentro del chat */
+    '.mz-mod{position:absolute;inset:0;z-index:14;display:grid;place-items:center;padding:16px;background:rgba(6,18,26,.5);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}',
+    '.mz-card{width:min(540px,100%);max-height:100%;display:flex;flex-direction:column;border-radius:22px;background:var(--card);border:1px solid var(--line2);box-shadow:var(--sh-lg);overflow:hidden;animation:mz-pop .22s cubic-bezier(.2,.8,.2,1)}',
+    '.mz-card .hd{display:flex;align-items:center;gap:8px;padding:14px 12px 8px 20px}',
+    '.mz-card h3{flex:1;font-size:17px;font-weight:800;letter-spacing:-.01em;margin:0}',
+    '.mz-card .body{flex:1;min-height:0;overflow-y:auto;padding:4px 20px 8px}',
+    '.mz-card .ft{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px 16px;border-top:1px solid var(--line)}',
+    '.mz-card .mz-btn:disabled{background:var(--line);color:var(--mz-meta);box-shadow:none;filter:none}',
+    '.mz-btn.peligro{background:var(--bad);color:#fff;box-shadow:none}',
+    '#mz:is(html[data-tema=oscuro] *) .mz-btn.peligro{color:#2a0a07}',
+    '.mz-mtexto{font-size:14px;line-height:1.5;color:var(--ink);margin:6px 0 10px}',
+    '.mz-fld{display:grid;gap:6px;margin-bottom:14px}',
+    '.mz-fld label{font-size:12.5px;font-weight:700;color:var(--mz-meta)}',
+    '.mz-fld .op{font-weight:500}',
+    '.mz-fld input[type=search],.mz-fld input:not([type]),.mz-fld textarea{display:block;width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;background:var(--bg);border:1px solid var(--line2);font-size:14px;line-height:1.4}',
+    '.mz-fld input:focus,.mz-fld textarea:focus{border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 16%,transparent);background:var(--card)}',
+    '.mz-fld input:focus-visible,.mz-fld textarea:focus-visible{outline:none}',
+    '.mz-fld input::-webkit-search-cancel-button{display:none}',
+    '.mz-seg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 16px}',
+    '.mz-seg button{display:grid;gap:2px;padding:10px 12px;border-radius:14px;border:1px solid var(--line2);background:var(--bg);text-align:left}',
+    '.mz-seg button b{font-size:14px}',
+    '.mz-seg button small{font-size:12px;line-height:1.35;color:var(--mz-meta)}',
+    '.mz-seg button[aria-checked=true]{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 12%,var(--card));box-shadow:0 0 0 1px var(--acc)}',
+    '.mz-selbar{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:var(--mz-meta)}',
+    '.mz-opts{max-height:230px;overflow-y:auto;border:1px solid var(--line);border-radius:14px;background:var(--bg)}',
+    '.mz-opt{display:flex;align-items:center;gap:10px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--line)}',
+    '.mz-opt:last-child{border-bottom:0}',
+    '.mz-opt:hover{background:var(--mz-hover)}',
+    '.mz-opt input{width:18px;height:18px;accent-color:var(--acc);flex:none}',
+    '.mz-opt .n,.mz-mb .n{flex:1;min-width:0;display:block}',
+    '.mz-opt .n b,.mz-mb .n b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.mz-opt .n small,.mz-mb .n small{display:block;font-size:12px;color:var(--mz-meta)}',
+    '.mz-err2{margin:6px 0 0;padding:8px 12px;border-radius:12px;background:var(--bad-bg);color:var(--bad);font-size:13px;font-weight:600}',
+    /* información de grupo */
+    '.mz-desc{font-size:13.5px;line-height:1.45;margin:0 0 8px;white-space:pre-wrap;overflow-wrap:anywhere}',
+    '.mz-desc .vacio{color:var(--mz-meta)}',
+    '.mz-mb{display:flex;align-items:center;gap:6px;padding:4px 0}',
+    '.mz-mb .mz-pers{flex:1;min-width:0;padding:0}',
+    '.mz-rol{flex:none;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;border:1px solid var(--mz-borde-tinte);background:var(--mz-tinte)}',
+    '.mz-rol.adm{color:var(--acc)}',
+    '.mz-rol.lec{color:var(--mz-meta)}',
+    '.mz-mbm{width:30px;height:30px}',
+    '.mz-acc.peligro,.mz-acc.peligro .mz-ic{color:var(--bad)}',
+    '@media(hover:none){.mz-rm{opacity:.85}.mz-rw .mz-rn{padding-right:28px}.mz-rw:hover .mz-rn time{visibility:visible}.mz-tool{display:none}}',
+    '@media(max-width:699px){.mz-mod{padding:0;align-items:end}.mz-card{width:100%;border-radius:22px 22px 0 0}.mz-seg{grid-template-columns:1fr}}',
     /* tamaños */
     '@media(max-width:1099px){.mz-kbd{display:none}.mz-busq input{padding-right:38px}.mz-info{position:absolute;top:0;right:0;bottom:0;width:min(330px,100%);z-index:7;box-shadow:var(--sh-lg);display:flex;transform:translateX(104%);visibility:hidden;transition:transform .22s cubic-bezier(.2,.8,.2,1),visibility .22s}.mz-win.info-on .mz-info{transform:none;visibility:visible}}',
     '@media(min-width:1100px){.mz-win.info-on{grid-template-columns:340px minmax(0,1fr) 308px}}',
@@ -9937,10 +10085,39 @@ function ofcCalcular(cat, sel) {
   function estadoDe(id) { return C.on[id] || 'off'; }                       // ¿está conectado ahora? (presencia en vivo) y con qué estado
   function trabajoDe(id) { return C.on[id] || C.ws[id] || 'on'; }          // estado de trabajo: el de la presencia si está conectado; si no, el último guardado en la base
   function textoEstado(id) { var s = estadoDe(id); return s === 'off' ? 'Desconectado' : ESTADOS[s]; }
-  function peerDe(m) { return m.para == null ? GEN : (m.de === me.id ? m.para : m.de); }
-  function total() { var n = 0; Object.keys(C.nl).forEach(function (k) { n += C.nl[k] || 0; }); return n; }
+  /* Cómo se guarda cada conversación en el navegador: privada → id de la otra persona · sala general → «GEN» · grupo o canal → id de la conversación. */
+  function peerDe(m) {
+    if (m.para != null) return m.de === me.id ? m.para : m.de;
+    var cv = m.conversacion_id;
+    return (!cv || cv === C.general || cv === C.convId[GEN]) ? GEN : cv;
+  }
+  function esGrupo(k) { return !!(k && C.grupos[k]); }
+  function compartida(k) { return k === GEN || esGrupo(k); }                 // sala general, grupo o canal (no es una conversación entre dos personas)
+  function cfgDe(k) { return C.cfg[k] || (C.cfg[k] = { silenciado: false, fijado: false, favorito: false }); }
+  function silenciada(k) { var c = C.cfg[k]; return !!(c && c.silenciado); }
+  function soyAdminDe(k) { var g = C.grupos[k]; return !!(g && g.rol_chat === 'ADMIN'); }
+  function moderador() { return perfil.rol === 'admin' || perfil.rol === 'supervisor'; }
+  function puedeCrear() { return moderador(); }                               // solo administración y supervisión crean grupos y canales (lo vuelve a comprobar la base)
+  function puedeEscribir(k) {
+    if (!k) return false; if (k === GEN) return true;
+    var g = C.grupos[k]; if (g) return g.rol_chat === 'ADMIN' || (g.tipo === 'GRUPO' && g.rol_chat === 'MIEMBRO');
+    return !inactivo(k);
+  }
+  function puedeFijarMsg(k) { return k === GEN ? moderador() : esGrupo(k) ? soyAdminDe(k) : true; }
+  function nombreConv(k) { return k === GEN ? 'Sala general' : esGrupo(k) ? C.grupos[k].nombre : (nombreDe(k) + (inactivo(k) ? ' (inactivo)' : '')); }
+  /* El botón flotante no cuenta lo de las conversaciones silenciadas; la lista y el filtro «No leídos» sí. */
+  function total(conSilenciadas) { var n = 0; Object.keys(C.nl).forEach(function (k) { if (conSilenciadas || !silenciada(k)) n += C.nl[k] || 0; }); return n; }
   function enLinea() { return Object.keys(C.on).filter(function (k) { return k !== me.id; }).length; }
-  function idConv(k) { return k === GEN ? (C.convId[GEN] || C.general) : C.convId[k]; }
+  function idConv(k) { return k === GEN ? (C.convId[GEN] || C.general) : (C.grupos[k] ? k : C.convId[k]); }
+  function msgPorId(k, id) { var l = C.msgs[k] || []; for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function copiaCampos(a, b) { CAMPOS_MSG.forEach(function (f) { if (b[f] !== undefined) a[f] = b[f]; }); return a; }
+  function claves() {   // todas las conversaciones que la lista debe mostrar (sin la sala general)
+    var o = {}; Object.keys(C.rec).forEach(function (k) { o[k] = 1; }); Object.keys(C.grupos).forEach(function (k) { o[k] = 1; });
+    Object.keys(C.cfg).forEach(function (k) { if (C.cfg[k].favorito || C.cfg[k].fijado) o[k] = 1; });
+    delete o[GEN]; return Object.keys(o);
+  }
+  function instante(k) { var r = C.rec[k]; return r ? Date.parse(r.created_at) || 0 : 0; }
+  function porRecientes(a, b) { return instante(b) - instante(a); }
   function uuid() {
     try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) { }
     var b = new Uint8Array(16); try { crypto.getRandomValues(b); } catch (e) { for (var i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256); }
@@ -9971,17 +10148,48 @@ function ofcCalcular(cat, sel) {
     C.cont = dir.map(function (x) { return { id: x.id, nombre: x.nombre, rol: x.rol }; });
     C.ws = {}; dir.forEach(function (x) { C.ws[x.id] = DE_SRV[x.estado_trabajo] || 'on'; });
     C.general = R.general || C.general;
-    var nl = {};
+    var nl = {}, grupos = {}, cfg = {}, antes = C.grupos, antesCfg = C.cfg, primera = !C.cargadoEn;
     lista.forEach(function (c) {
-      var k = c.tipo === 'GENERAL' ? GEN : c.peer; if (!k) return;
+      var k = c.tipo === 'GENERAL' ? GEN : (c.tipo === 'GRUPO' || c.tipo === 'CANAL') ? c.id : c.peer; if (!k) return;
       C.convId[k] = c.id; nl[k] = c.no_leidos || 0;
+      cfg[k] = { silenciado: !!c.silenciado, fijado: !!c.fijado, favorito: !!c.favorito };
+      if (c.tipo === 'GRUPO' || c.tipo === 'CANAL') grupos[k] = { id: c.id, tipo: c.tipo, nombre: c.nombre || (c.tipo === 'CANAL' ? 'Canal' : 'Grupo'), descripcion: c.descripcion || '', creada_por: c.creada_por || null, rol_chat: c.rol_chat || 'MIEMBRO', miembros: c.miembros || 0 };
       if (c.ultimo && (!C.rec[k] || Date.parse(c.ultimo.created_at) >= Date.parse(C.rec[k].created_at))) C.rec[k] = c.ultimo;
-      if (k === GEN) C.ultLeido[GEN] = c.ultimo_leido_at;
+      if (k === GEN || grupos[k]) C.ultLeido[k] = c.ultimo_leido_at;
       else C.ex[k] = { id: k, nombre: c.peer_nombre, rol: c.peer_rol, activo: c.peer_activo !== false };
+    });
+    var nuevosG = [], idos = [];
+    Object.keys(grupos).forEach(function (k) { if (!antes[k] && !primera) nuevosG.push(k); });
+    Object.keys(antes).forEach(function (k) { if (!grupos[k]) idos.push(k); });
+    C.grupos = grupos; C.cfg = cfg;
+    C.cola.slice().forEach(function (x) {   // mensajes pendientes de un grupo del que ya no soy miembro (o que ya no existe): no se pueden enviar, y no deben quedar como filas «fantasma»
+      if (x.cv && !grupos[x.key]) { colaQuita(x.client_id); if (C.msgs[x.key]) C.msgs[x.key] = C.msgs[x.key].filter(function (m) { return m.client_id !== x.client_id; }); if (C.rec[x.key] && C.rec[x.key].client_id === x.client_id) delete C.rec[x.key]; }
+    });
+    idos.forEach(function (k) {   // ya no soy miembro (me quitaron, o salí desde otro aparato): se olvida todo lo de ese grupo
+      var nombre = antes[k].nombre, estabaAbierto = C.peer === k;
+      delete C.msgs[k]; delete C.rec[k]; delete C.cargado[k]; delete C.mas[k]; delete C.convId[k]; delete C.fij[k]; delete C.fijIdx[k]; delete C.miembros[k]; delete C.divisor[k]; delete C.ultLeido[k]; delete C.borr[k];
+      if (C.resp && C.resp.key === k) C.resp = null; if (C.edit && C.edit.key === k) C.edit = null;
+      if (C.pop && C.pop.key === k) C.pop = null; if (C.modal && C.modal.key === k) C.modal = null;
+      if (estabaAbierto) { C.peer = null; C.vista = 'lista'; }
+      if (!C.salida || C.salida !== k) aviso(estabaAbierto ? 'Ya no eres miembro de «' + nombre + '»' : 'Saliste de «' + nombre + '» o te quitaron del grupo');
+      if (C.salida === k) C.salida = null;
+    });
+    if (idos.length && C.open) { pintaMain(); aplicaVista(); pintaInfo(); pintaPop(); pintaModal(); }
+    nuevosG.forEach(function (k) {
+      var g = grupos[k]; if (g.creada_por === me.id) return;
+      aviso('👥 Te añadieron ' + (g.tipo === 'CANAL' ? 'al canal «' : 'al grupo «') + g.nombre + '»');
+      if (!pasivo() && !silenciada(k)) sonidoMsg();
     });
     if (C.peer && C.open && !document.hidden) nl[C.peer] = 0;
     C.nl = nl;
     Object.keys(C.msgs).forEach(function (k) { (C.msgs[k] || []).forEach(function (m) { if (m._est) anotaReciente(m); }); });
+    var kp = C.peer;   // si en la conversación abierta cambió algo que se ve en la cabecera, el cuadro de escribir o la información (mi papel, el nombre, los miembros, silenciar…), se repinta solo eso
+    if (kp && C.open && !idos.length) {
+      var g0 = antes[kp], g1 = grupos[kp], c0 = antesCfg[kp] || {}, c1 = cfg[kp] || {};
+      var cambio = (g0 && g1 && ['rol_chat', 'nombre', 'tipo', 'descripcion'].some(function (f) { return g0[f] !== g1[f]; })) || c0.silenciado !== c1.silenciado || c0.fijado !== c1.fijado || c0.favorito !== c1.favorito;
+      if (cambio) { repintaChrome(); pintaInfo(); }
+      if (g0 && g1 && g0.miembros !== g1.miembros) { cargaMiembros(kp, true); }
+    }
     var yo = R.yo && DE_SRV[R.yo.estado];
     if (yo && yo !== C.st) { C.st = yo; lsSet('crm_chat_estado_' + me.id, yo); if (C.chP) { try { C.chP.track({ nombre: perfil.nombre, st: yo, t: Date.now() }); } catch (e) { } } }
     C.cargadoEn = Date.now(); boton();
@@ -10000,6 +10208,8 @@ function ofcCalcular(cat, sel) {
     if (r.error) return msgE(r.error);
     var d = r.data || {}, filas = d.mensajes || [];
     C.msgs[key] = filas.concat(pend(filas)); C.mas[key] = !!d.hay_mas; C.cargado[key] = true;
+    C.fij[key] = Array.isArray(d.fijados) ? d.fijados : filas.filter(function (x) { return x.fijado_at && !x.borrado_at; }).sort(function (a, b) { return Date.parse(b.fijado_at) - Date.parse(a.fijado_at); }).slice(0, MAX_FIJ_MSG);
+    if (!C.fij[key].length) delete C.fijIdx[key]; else if ((C.fijIdx[key] || 0) >= C.fij[key].length) C.fijIdx[key] = 0;
     var u = filas[filas.length - 1]; if (u) anotaReciente(u);
     return null;
   }
@@ -10030,7 +10240,7 @@ function ofcCalcular(cat, sel) {
   }
   function marca(key) {
     C.nl[key] = 0;
-    if (key === GEN) { var lg = C.msgs[GEN] || [], u = lg[lg.length - 1]; if (u && !u._est) C.ultLeido[GEN] = u.created_at; }
+    if (compartida(key)) { var lg = C.msgs[key] || [], u = lg[lg.length - 1]; if (u && !u._est) C.ultLeido[key] = u.created_at; }
     else (C.msgs[key] || []).forEach(function (m) { if (m.de !== me.id && !m.leido_at && !m._est) m.leido_at = new Date().toISOString(); });
     boton();
     var cid = idConv(key); if (!cid) return;
@@ -10038,10 +10248,10 @@ function ofcCalcular(cat, sel) {
     C.markT[key] = setTimeout(function () { llama('chat_leer', { p_conversacion: cid }).then(function (r) { if (r.error) refrescaSoon(); }); }, 300);
   }
   function calculaDivisor(peer) {
-    var l = C.msgs[peer] || [], d = null, lim = Date.parse(C.ultLeido[GEN] || '') || (Date.now() - 86400000);
+    var l = C.msgs[peer] || [], d = null, comp = compartida(peer), lim = Date.parse(C.ultLeido[peer] || '') || (Date.now() - 86400000);
     for (var i = 0; i < l.length; i++) {
-      var m = l[i]; if (m.de === me.id || m._est || m.tipo === 'ZUMBIDO') continue;
-      if (peer === GEN ? Date.parse(m.created_at) > lim : !m.leido_at) { d = m.id; break; }
+      var m = l[i]; if (m.de === me.id || m._est || m.tipo !== 'TEXTO' || m.borrado_at) continue;
+      if (comp ? Date.parse(m.created_at) > lim : !m.leido_at) { d = m.id; break; }
     }
     if (d) C.divisor[peer] = d; else delete C.divisor[peer];
   }
@@ -10076,10 +10286,16 @@ function ofcCalcular(cat, sel) {
   }
 
   /* ================= PINTADO: piezas pequeñas ================= */
+  /* gen: true = sala general (degradado del CRM) · 'g' = grupo · 'c' = canal (colores propios y su icono) */
   function av(id, nombre, tam, gen, mostrarEstado) {
-    var h = HUES[hash(id) % HUES.length], s = tam || 40;
-    return '<span class="mz-av' + (gen ? ' gen' : '') + '" style="--s:' + s + 'px;--h:' + h + ';--h2:' + (h + 24) + '">' + (gen ? ic(IC.equipo, Math.round(s * .5)) : esc(ini(nombre))) +
+    var h = HUES[hash(id) % HUES.length], s = tam || 40, grp = gen === 'g' || gen === 'c';
+    return '<span class="mz-av' + (gen === true ? ' gen' : '') + '" style="--s:' + s + 'px;--h:' + h + ';--h2:' + (h + 24) + '">' + (grp ? ic(gen === 'c' ? IC.canal : IC.equipo, Math.round(s * .5)) : gen ? ic(IC.equipo, Math.round(s * .5)) : esc(ini(nombre))) +
       (mostrarEstado ? dot(mostrarEstado) : '') + '</span>';
+  }
+  function avConv(k, tam, estado) {   // avatar de cualquier conversación
+    if (k === GEN) return av(GEN, 'Sala general', tam, true);
+    var g = C.grupos[k]; if (g) return av(k, g.nombre, tam, g.tipo === 'CANAL' ? 'c' : 'g');
+    return av(k, nombreDe(k), tam, false, estado === undefined ? estadoDe(k) : estado);
   }
   function dot(st, chico) { return '<i class="mz-dot' + (chico ? ' chico' : '') + '" data-st="' + esc(st) + '" role="img" aria-label="' + esc(st === 'off' ? 'Desconectado' : ESTADOS[st] || '') + '"></i>'; }
   function vacio(icono, titulo, texto, extra, grande) {
@@ -10108,7 +10324,16 @@ function ofcCalcular(cat, sel) {
   function previa(m) {
     if (!m) return '';
     if (m.tipo === 'ZUMBIDO') return (m.de === me.id ? 'Enviaste' : 'Recibiste') + ' un zumbido';
+    if (m.borrado_at) return 'Mensaje eliminado';
     return String(m.cuerpo || '');
+  }
+  function eRender(e) { return e === '❤' ? '❤️' : e; }
+  /* Quién y cuándo eliminó un mensaje, dicho de forma natural para quien lo lee. */
+  function textoBorrado(m) {
+    var yoAutor = m.de === me.id, porAutor = !m.borrado_por || m.borrado_por === m.de;
+    if (porAutor) return yoAutor ? 'Eliminaste este mensaje' : 'Este mensaje fue eliminado';
+    if (m.borrado_por === me.id) return 'Eliminaste este mensaje (administración)';
+    return yoAutor ? 'Un administrador eliminó tu mensaje' : 'Eliminado por un administrador';
   }
 
   /* ================= PINTADO: panel izquierdo ================= */
@@ -10120,40 +10345,52 @@ function ofcCalcular(cat, sel) {
       Object.keys(ESTADOS).map(function (k) { return '<button type="button" role="menuitemradio" aria-checked="' + (k === C.st) + '" data-a="estado" data-v="' + k + '">' + dot(k, true) + ESTADOS[k] + '</button>'; }).join('') + '</div>';
     b.innerHTML = h;
   }
+  /* Iconos pequeños junto al nombre: favorita, fijada, silenciada. */
+  function iconosFila(k) {
+    var c = C.cfg[k] || {}, h = '';
+    if (c.favorito) h += '<span title="Favorita">' + ic(IC.estrella, 13) + '<span class="mz-sr">Favorita</span></span>';
+    if (c.fijado) h += '<span title="Fijada">' + ic(IC.pin, 13) + '<span class="mz-sr">Fijada</span></span>';
+    if (c.silenciado) h += '<span title="Silenciada">' + ic(IC.mudo, 13) + '<span class="mz-sr">Silenciada</span></span>';
+    return h ? '<span class="mz-mini">' + h + '</span>' : '';
+  }
+  function masBtn(k, nombre) {   // botón «⋯» de cada fila: sale al pasar el ratón; con teclado se usa la tecla de menú contextual o Mayús+F10
+    return '<button type="button" class="mz-rm" tabindex="-1" data-a="menuconv" data-id="' + esc(k) + '" aria-haspopup="menu" aria-label="Opciones de ' + esc(nombre) + '" title="Opciones">' + ic(IC.mas, 18) + '</button>';
+  }
   function filaConv(id) {
-    var gen = id === GEN, c = gen ? null : contacto(id), r = C.rec[id], n = C.nl[id] || 0, nombre = gen ? 'Sala general' : ((c ? bonito(c.nombre) : 'Compañero') + (inactivo(id) ? ' (inactivo)' : ''));
-    var escribiendo = !gen && C.typ[id] && Date.now() - C.typ[id] < 4000;
+    var gen = id === GEN, g = C.grupos[id], r = C.rec[id], n = C.nl[id] || 0, cf = C.cfg[id] || {}, nombre = nombreConv(id);
+    var escribiendo = !gen && !g && C.typ[id] && Date.now() - C.typ[id] < 4000;
     var prev;
     if (escribiendo) prev = '<em>escribiendo…</em>';
-    else if (!r) prev = gen ? 'Todo el equipo' : esc(deptoDe(id));
-    else prev = (r._est === 'error' ? '<em style="color:var(--bad)">No enviado:</em> ' : r.de === me.id ? '<em>Tú:</em> ' : (gen ? '<em>' + esc(nombreDe(r.de).split(' ')[0]) + ':</em> ' : '')) + esc(previa(r));
-    return '<button type="button" class="mz-row' + (n ? ' nuevo' : '') + '" data-a="abrir" data-id="' + esc(id) + '"' + (C.peer === id ? ' aria-current="true"' : '') + ' aria-label="' + esc(nombre + (n ? ', ' + n + ' sin leer' : '')) + '">' +
-      av(id, nombre, 44, gen, gen ? null : estadoDe(id)) +
-      '<div class="mz-rt"><div class="mz-rn"><b>' + esc(nombre) + '</b>' + (r ? '<time>' + esc(tiempoCorto(r.created_at)) + '</time>' : '') + '</div>' +
-      '<div class="mz-rp"><span>' + prev + '</span>' + (n ? '<i class="mz-nb" aria-hidden="true">' + (n > 99 ? '99+' : n) + '</i>' : '') + '</div></div></button>';
+    else if (!r) prev = gen ? 'Todo el equipo' : g ? esc((g.tipo === 'CANAL' ? 'Canal' : 'Grupo') + ' · ' + g.miembros + (g.miembros === 1 ? ' miembro' : ' miembros')) : esc(deptoDe(id));
+    else if (r.tipo === 'SISTEMA') prev = esc(r.cuerpo);
+    else prev = (r._est === 'error' ? '<em style="color:var(--bad)">No enviado:</em> ' : r.de === me.id ? '<em>Tú:</em> ' : ((gen || g) ? '<em>' + esc(nombreDe(r.de).split(' ')[0]) + ':</em> ' : '')) + esc(previa(r));
+    return '<div class="mz-rw"><button type="button" class="mz-row' + (n ? ' nuevo' : '') + (cf.silenciado ? ' mudo' : '') + '" data-a="abrir" data-id="' + esc(id) + '"' + (C.peer === id ? ' aria-current="true"' : '') + ' aria-label="' + esc(nombre + (n ? ', ' + n + ' sin leer' : '') + (cf.silenciado ? ', silenciada' : '') + (cf.fijado ? ', fijada' : '')) + '">' +
+      avConv(id, 44) +
+      '<div class="mz-rt"><div class="mz-rn"><b>' + esc(nombre) + '</b>' + iconosFila(id) + (r ? '<time>' + esc(tiempoCorto(r.created_at)) + '</time>' : '') + '</div>' +
+      '<div class="mz-rp"><span>' + prev + '</span>' + (n ? '<i class="mz-nb' + (cf.silenciado ? ' mut' : '') + '" aria-hidden="true">' + (n > 99 ? '99+' : n) + '</i>' : '') + '</div></div></button>' + masBtn(id, nombre) + '</div>';
   }
   function filaContacto(c) {
-    return '<button type="button" class="mz-row" data-a="abrir" data-id="' + esc(c.id) + '"' + (C.peer === c.id ? ' aria-current="true"' : '') + '>' +
+    return '<div class="mz-rw"><button type="button" class="mz-row" data-a="abrir" data-id="' + esc(c.id) + '"' + (C.peer === c.id ? ' aria-current="true"' : '') + '>' +
       av(c.id, c.nombre, 40, false, estadoDe(c.id)) +
-      '<div class="mz-rt"><div class="mz-rn"><b>' + esc(bonito(c.nombre)) + '</b></div><div class="mz-rp"><span>' + esc(DEPTO[c.rol] || c.rol || '') + ' · ' + esc(textoEstado(c.id)) + '</span></div></div></button>';
+      '<div class="mz-rt"><div class="mz-rn"><b>' + esc(bonito(c.nombre)) + '</b></div><div class="mz-rp"><span>' + esc(DEPTO[c.rol] || c.rol || '') + ' · ' + esc(textoEstado(c.id)) + '</span></div></div></button>' + masBtn(c.id, bonito(c.nombre)) + '</div>';
   }
   function seccion(clave, titulo, n, cuerpo) {
     var cerrado = !!C.col[clave];
     return '<button type="button" class="mz-tit' + (cerrado ? ' cl' : '') + '" data-a="grupo" data-g="' + clave + '" aria-expanded="' + !cerrado + '">' + ic(IC.abajo, 14) + titulo + ' (' + n + ')</button>' + (cerrado ? '' : cuerpo);
   }
-  function convsOrdenadas() {
-    var ids = Object.keys(C.rec).filter(function (k) { return k !== GEN && (k === C.peer || contacto(k) || true); });
-    ids.sort(function (a, b) { return Date.parse(C.rec[b].created_at) - Date.parse(C.rec[a].created_at); });
-    return ids;
-  }
+  function titulo(t, extra) { return '<div class="mz-tit" role="presentation"' + (extra || '') + '>' + t + '</div>'; }
   function htmlNormal() {
-    var ids = convsOrdenadas(), conConv = {}; ids.forEach(function (i) { conConv[i] = 1; });
-    var h = '<div class="mz-tit" role="presentation">Conversaciones</div>' + filaConv(GEN) + ids.map(filaConv).join('');
+    var cl = claves(), conConv = {}; cl.forEach(function (i) { conConv[i] = 1; });
+    var fij = [GEN].concat(cl).filter(function (k) { return (C.cfg[k] || {}).fijado; }).sort(porRecientes);
+    var resto = cl.filter(function (k) { return !(C.cfg[k] || {}).fijado; }).sort(porRecientes);
+    var h = '';
+    if (fij.length) h += titulo('Fijadas') + fij.map(filaConv).join('');
+    h += titulo('Conversaciones') + (fij.indexOf(GEN) < 0 ? filaConv(GEN) : '') + resto.map(filaConv).join('');
     var libres = C.cont.filter(function (c) { return !conConv[c.id]; });
     var ord = function (a, b) { return String(a.nombre).localeCompare(String(b.nombre), 'es'); };
     var enl = libres.filter(function (c) { return C.on[c.id]; }).sort(ord), des = libres.filter(function (c) { return !C.on[c.id]; }).sort(ord);
     if (libres.length) {
-      h += '<div class="mz-tit" role="presentation" style="margin-top:6px">Compañeros</div>';
+      h += titulo('Compañeros', ' style="margin-top:6px"');
       if (enl.length) h += seccion('on', 'En línea', enl.length, enl.map(filaContacto).join(''));
       if (des.length) h += seccion('off', 'Desconectados', des.length, des.map(filaContacto).join(''));
     } else if (!C.cont.length) h += vacio(IC.equipo, 'Aún no hay compañeros', 'Cuando haya otros usuarios activos, aparecerán aquí.');
@@ -10161,22 +10398,36 @@ function ofcCalcular(cat, sel) {
   }
   function htmlNoLeidos() {
     var ids = Object.keys(C.nl).filter(function (k) { return C.nl[k] > 0; });
-    ids.sort(function (a, b) { var ra = C.rec[a], rb = C.rec[b]; return (rb ? Date.parse(rb.created_at) : 0) - (ra ? Date.parse(ra.created_at) : 0); });
+    ids.sort(porRecientes);
     if (!ids.length) return vacio(IC.ok, 'Todo al día', 'No tienes mensajes sin leer.', '<button type="button" class="mz-btn sec chico" data-a="filtro" data-f="todos">Ver todas las conversaciones</button>');
-    return '<div class="mz-tit" role="presentation">Sin leer</div>' + ids.map(filaConv).join('');
+    return titulo('Sin leer') + ids.map(filaConv).join('');
+  }
+  function htmlFavoritos() {
+    var ids = [GEN].concat(claves()).filter(function (k) { return (C.cfg[k] || {}).favorito; }).sort(porRecientes);
+    if (!ids.length) return vacio(IC.estrella, 'Aún no tienes favoritos', 'Pulsa «⋯» en una conversación o en un compañero y elige «Marcar como favorito».', '<button type="button" class="mz-btn sec chico" data-a="filtro" data-f="todos">Ver todas las conversaciones</button>');
+    return titulo('Favoritos') + ids.map(filaConv).join('');
+  }
+  function htmlGrupos() {
+    var ids = Object.keys(C.grupos).sort(function (a, b) { return ((C.cfg[b] || {}).fijado ? 1 : 0) - ((C.cfg[a] || {}).fijado ? 1 : 0) || porRecientes(a, b); });
+    var nuevo = puedeCrear() ? '<div class="mz-nuevo"><button type="button" class="mz-btn chico" data-a="grupo-nuevo">' + ic(IC.masUsuario, 16) + 'Nuevo grupo o canal</button></div>' : '';
+    if (!ids.length) return nuevo + vacio(IC.equipo, 'Aún no estás en ningún grupo', puedeCrear() ? 'Crea el primero para reunir a tu equipo.' : 'Los grupos los crean administración y supervisión. Cuando te añadan a uno, aparecerá aquí.');
+    return nuevo + titulo('Grupos y canales (' + ids.length + ')') + ids.map(filaConv).join('');
   }
   function htmlBusqueda() {
     var q = C.q.trim(), h = '';
     var pers = C.cont.filter(function (c) { return plano(c.nombre + ' ' + c.rol + ' ' + (DEPTO[c.rol] || '')).indexOf(plano(q)) >= 0; });
+    var grs = Object.keys(C.grupos).filter(function (k) { return plano(C.grupos[k].nombre + ' ' + (C.grupos[k].descripcion || '')).indexOf(plano(q)) >= 0; }).sort(porRecientes);
     var msgs = C.busqQ === q ? C.busqRes : [], cargando = C.busqCarga && q.length >= 2 && C.busqQ !== q;
     var gen = plano('sala general').indexOf(plano(q)) >= 0;
-    if (gen) h += '<div class="mz-tit" role="presentation">Sala</div>' + filaConv(GEN);
-    if (pers.length) h += '<div class="mz-tit" role="presentation">Personas (' + pers.length + ')</div>' + pers.map(function (c) { return C.rec[c.id] ? filaConv(c.id) : filaContacto(c); }).join('');
+    if (gen) h += titulo('Sala') + filaConv(GEN);
+    if (grs.length) h += titulo('Grupos y canales (' + grs.length + ')') + grs.map(filaConv).join('');
+    if (pers.length) h += titulo('Personas (' + pers.length + ')') + pers.map(function (c) { return C.rec[c.id] || (C.cfg[c.id] && (C.cfg[c.id].favorito || C.cfg[c.id].fijado)) ? filaConv(c.id) : filaContacto(c); }).join('');
     if (msgs.length) {
-      h += '<div class="mz-tit" role="presentation">Mensajes (' + msgs.length + ')</div>' + msgs.map(function (m) {
-        var p = peerDe(m), nom = p === GEN ? 'Sala general' : nombreDe(p);
-        return '<button type="button" class="mz-row" data-a="abrir" data-id="' + esc(p) + '" data-m="' + esc(m.id) + '">' + av(p, nom, 40, p === GEN) +
-          '<div class="mz-rt"><div class="mz-rn"><b>' + esc(nom) + '</b><time>' + esc(tiempoCorto(m.created_at)) + '</time></div><div class="mz-rp"><span>' + (m.de === me.id ? '<em>Tú:</em> ' : '') + resaltar(m.cuerpo, q) + '</span></div></div></button>';
+      h += titulo('Mensajes (' + msgs.length + ')') + msgs.map(function (m) {
+        var p = peerDe(m), g = C.grupos[p], nom = p === GEN ? 'Sala general' : g ? g.nombre : (m.conv_nombre && !m.peer ? m.conv_nombre : nombreDe(p));
+        var tipoAv = p === GEN ? true : (g ? (g.tipo === 'CANAL' ? 'c' : 'g') : (m.conv_tipo === 'CANAL' ? 'c' : m.conv_tipo === 'GRUPO' ? 'g' : false));
+        return '<button type="button" class="mz-row" data-a="abrir" data-id="' + esc(p) + '" data-m="' + esc(m.id) + '">' + av(p, nom, 40, tipoAv) +
+          '<div class="mz-rt"><div class="mz-rn"><b>' + esc(nom) + '</b><time>' + esc(tiempoCorto(m.created_at)) + '</time></div><div class="mz-rp"><span>' + (m.de === me.id ? '<em>Tú:</em> ' : (tipoAv ? '<em>' + esc(nombreDe(m.de).split(' ')[0]) + ':</em> ' : '')) + resaltar(m.cuerpo, q) + '</span></div></div></button>';
       }).join('');
     }
     if (cargando) h += '<div class="mz-buscando" role="status">Buscando en tus mensajes…</div>';
@@ -10191,16 +10442,18 @@ function ofcCalcular(cat, sel) {
     else if (C.err) h = vacio(IC.alerta, 'No se pudo cargar el chat', C.err, '<button type="button" class="mz-btn chico" data-a="reintentar">' + ic(IC.otra, 16) + 'Reintentar</button>');
     else if (C.q.trim()) h = htmlBusqueda();
     else if (C.filtro === 'nolei') h = htmlNoLeidos();
+    else if (C.filtro === 'fav') h = htmlFavoritos();
+    else if (C.filtro === 'grupos') h = htmlGrupos();
     else h = htmlNormal();
     L.innerHTML = h; L.scrollTop = top;
-    var n = total(), bc = $('mz-cnt'); if (bc) { bc.textContent = n > 99 ? '99+' : n; bc.hidden = !n; }
+    var n = total(true), bc = $('mz-cnt'); if (bc) { bc.textContent = n > 99 ? '99+' : n; bc.hidden = !n; }
     document.querySelectorAll('#mz [data-a="filtro"]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-f') === C.filtro)); });
     var lq = $('mz-limpia'); if (lq) lq.hidden = !C.q;
     var kb = $('mz-kbd'); if (kb) kb.hidden = !!C.q;
     pintaPie();
   }
   function pintaPie() {
-    var p = $('mz-pie'); if (!p) return; if (C.cargaCont) { p.innerHTML = ''; return; } var n = total(), e = enLinea();
+    var p = $('mz-pie'); if (!p) return; if (C.cargaCont) { p.innerHTML = ''; return; } var n = total(true), e = enLinea();
     p.innerHTML = '<span>' + dot('on', true) + e + (e === 1 ? ' compañero en línea' : ' compañeros en línea') + '</span><span>' + (n ? n + ' sin leer' : 'Todo al día') + '</span>';
   }
   function boton() {
@@ -10217,16 +10470,19 @@ function ofcCalcular(cat, sel) {
   function lineaEstado() {
     var id = C.peer; if (!id) return '';
     if (id === GEN) { var n = enLinea() + 1; return 'Todo el equipo · ' + n + (n === 1 ? ' persona en línea' : ' personas en línea'); }
+    var g = C.grupos[id];
+    if (g) return '<span class="est">' + (g.tipo === 'CANAL' ? 'Canal' : 'Grupo') + ' · ' + g.miembros + (g.miembros === 1 ? ' miembro' : ' miembros') + (g.descripcion ? ' · ' + esc(g.descripcion) : '') + '</span>';
     if (C.typ[id] && Date.now() - C.typ[id] < 4000) return '<span class="mz-escr">escribiendo<i></i><i></i><i></i></span>';
     return '<span class="dep">' + esc(deptoDe(id)) + ' ·</span><span class="est">' + dot(estadoDe(id), true) + esc(textoEstado(id)) + '</span>';
   }
   function cabecera() {
-    var id = C.peer, gen = id === GEN, nombre = gen ? 'Sala general' : nombreDe(id);
-    return '<header class="mz-ch"><button type="button" class="mz-ib mz-atras" data-a="atras" aria-label="Volver a la lista">' + ic(IC.atras) + '</button>' +
-      av(id, nombre, 44, gen, gen ? null : estadoDe(id)) +
-      '<div class="mz-ct"><b>' + esc(nombre) + '</b><span id="mz-es">' + lineaEstado() + '</span></div>' +
+    var id = C.peer, gen = id === GEN, g = C.grupos[id], nombre = gen ? 'Sala general' : g ? g.nombre : nombreDe(id);
+    return '<div class="mz-ch" role="group" aria-label="Conversación"><button type="button" class="mz-ib mz-atras" data-a="atras" aria-label="Volver a la lista">' + ic(IC.atras) + '</button>' +
+      avConv(id, 44) +
+      '<div class="mz-ct"><b>' + esc(nombre) + (silenciada(id) ? ' <span class="mz-mini" title="Silenciada">' + ic(IC.mudo, 14) + '<span class="mz-sr">Silenciada</span></span>' : '') + '</b><span id="mz-es">' + lineaEstado() + '</span></div>' +
       '<button type="button" class="mz-ib" id="mz-bqb" data-a="busqconv" aria-label="Buscar en la conversación" title="Buscar en la conversación" aria-pressed="' + C.busq.on + '">' + ic(IC.lupa) + '</button>' +
-      '<button type="button" class="mz-ib" id="mz-ib" data-a="info" aria-label="Información de la conversación" title="Información" aria-pressed="' + C.info + '" aria-controls="mz-info">' + ic(IC.info) + '</button></header>';
+      '<button type="button" class="mz-ib" data-a="menuconv" data-id="' + esc(id) + '" aria-haspopup="menu" aria-label="Opciones de la conversación" title="Opciones: fijar, favorito, silenciar">' + ic(IC.mas) + '</button>' +
+      '<button type="button" class="mz-ib" id="mz-ib" data-a="info" aria-label="Información de la conversación" title="Información" aria-pressed="' + C.info + '" aria-controls="mz-info">' + ic(IC.info) + '</button></div>';
   }
   function barraBusq() {
     return '<div class="mz-bq" id="mz-bq"' + (C.busq.on ? '' : ' hidden') + ' role="search" aria-label="Dentro de la conversación"><label class="mz-sr" for="mz-bqi">Buscar en esta conversación</label>' +
@@ -10237,15 +10493,49 @@ function ofcCalcular(cat, sel) {
       '<button type="button" class="mz-ib" data-a="busqconv" aria-label="Cerrar búsqueda" title="Cerrar">' + ic(IC.x) + '</button></div>';
   }
   function compositor() {
-    var gen = C.peer === GEN, off = !gen && inactivo(C.peer);
-    return '<div class="mz-comp" id="mz-comp"><span class="mz-cuenta" id="mz-cuenta" hidden></span>' +
-      '<div class="mz-emo" id="mz-emo" role="group" aria-label="Emojis" hidden>' + EMOJIS.map(function (g) {
-        return '<h4>' + g[0] + '</h4><div class="g">' + g[1].split(' ').map(function (e) { return '<button type="button" data-a="cara" data-e="' + e + '" aria-label="' + e + '">' + e + '</button>'; }).join('') + '</div>';
+    var k = C.peer, comp = compartida(k), g = C.grupos[k], off = !comp && inactivo(k);
+    if (g && !puedeEscribir(k)) {   // lector de un grupo, o miembro de un canal: puede leer y reaccionar, pero no escribir
+      return '<div class="mz-comp" id="mz-comp"><div class="mz-solo" role="note">' + ic(IC.info, 18) + '<span>' + (g.tipo === 'CANAL' ? 'Este es un canal: solo los administradores publican. Tú puedes leer y reaccionar.' : 'Eres lector en este grupo: puedes leer y reaccionar, pero no escribir.') + '</span></div></div>';
+    }
+    return '<div class="mz-comp" id="mz-comp"><span class="mz-cuenta" id="mz-cuenta" hidden></span><div id="mz-ctxc"></div>' +
+      '<div class="mz-emo" id="mz-emo" role="group" aria-label="Emojis" hidden>' + EMOJIS.map(function (gr) {
+        return '<h4>' + gr[0] + '</h4><div class="g">' + gr[1].split(' ').map(function (e) { return '<button type="button" data-a="cara" data-e="' + e + '" aria-label="' + e + '">' + e + '</button>'; }).join('') + '</div>';
       }).join('') + '</div>' +
       '<div class="mz-caja"><button type="button" class="mz-ib" id="mz-emob" data-a="emo" aria-label="Insertar emoji" title="Emojis" aria-expanded="false" aria-haspopup="true">' + ic(IC.cara) + '</button>' +
-      (gen || off ? '' : '<button type="button" class="mz-ib mz-bz" id="mz-bz" data-a="zumbido" aria-label="Enviar zumbido" title="Enviar zumbido (llama la atención de ' + esc(nombreDe(C.peer)) + ')">' + ic(IC.campana) + '<span class="cd" id="mz-cd" hidden></span></button>') +
-      '<label class="mz-sr" for="mz-in">Escribe un mensaje</label><textarea id="mz-in" rows="1" maxlength="' + MAXLEN + '"' + (off ? ' disabled' : '') + ' data-minus autocomplete="off" placeholder="' + (off ? 'Esta persona ya no está activa' : gen ? 'Escribe a todo el equipo…' : 'Escribe un mensaje…') + '"></textarea>' +
+      (comp || off ? '' : '<button type="button" class="mz-ib mz-bz" id="mz-bz" data-a="zumbido" aria-label="Enviar zumbido" title="Enviar zumbido (llama la atención de ' + esc(nombreDe(k)) + ')">' + ic(IC.campana) + '<span class="cd" id="mz-cd" hidden></span></button>') +
+      '<label class="mz-sr" for="mz-in">Escribe un mensaje</label><textarea id="mz-in" rows="1" maxlength="' + MAXLEN + '"' + (off ? ' disabled' : '') + ' data-minus autocomplete="off" placeholder="' + (off ? 'Esta persona ya no está activa' : k === GEN ? 'Escribe a todo el equipo…' : g ? (g.tipo === 'CANAL' ? 'Publica en el canal…' : 'Escribe al grupo…') : 'Escribe un mensaje…') + '"></textarea>' +
       '<button type="button" class="mz-send" id="mz-send" data-a="enviar" aria-label="Enviar mensaje" title="Enviar (Enter)" disabled>' + ic(IC.envia) + '</button></div></div>';
+  }
+  /* Barra sobre el cuadro de escribir: «Respondiendo a…» o «Editando mensaje». */
+  function pintaCtx() {
+    var c = $('mz-ctxc'); if (!c) return;
+    var h = '', ed = !!(C.edit && C.edit.key === C.peer);
+    if (ed) h = '<div class="mz-ctx"><span class="ico">' + ic(IC.lapiz, 16) + '</span><div class="t"><b>Editando mensaje</b><span>Enter guarda · Esc cancela</span></div><button type="button" class="mz-ib" data-a="cancelctx" aria-label="Cancelar edición" title="Cancelar">' + ic(IC.x, 16) + '</button></div>';
+    else if (C.resp && C.resp.key === C.peer) h = '<div class="mz-ctx"><span class="ico">' + ic(IC.responder, 16) + '</span><div class="t"><b>Respondiendo a ' + esc(nombreDe(C.resp.de)) + '</b><span>' + esc(C.resp.cuerpo) + '</span></div><button type="button" class="mz-ib" data-a="cancelctx" aria-label="Cancelar respuesta" title="Cancelar">' + ic(IC.x, 16) + '</button></div>';
+    c.innerHTML = h;
+    var s = $('mz-send'); if (s) { s.setAttribute('aria-label', ed ? 'Guardar cambios' : 'Enviar mensaje'); s.title = ed ? 'Guardar (Enter)' : 'Enviar (Enter)'; }
+  }
+  /* Mensaje fijado: una franja bajo el encabezado. Cada pulsación salta al mensaje y pasa al siguiente fijado (hasta 5). */
+  function pintaFijados() {
+    var c = $('mz-fijc'); if (!c) return;
+    var k = C.peer, f = (k && C.fij[k]) || [];
+    if (!f.length) { c.innerHTML = ''; return; }
+    var i = Math.min(C.fijIdx[k] || 0, f.length - 1), m = f[i], texto = String(m.cuerpo || '').replace(/\s+/g, ' ').slice(0, 140), quien = nombreDe(m.de).split(' ')[0];
+    c.innerHTML = '<div class="mz-fijb"><button type="button" class="go" data-a="irfij" aria-label="Ir al mensaje fijado' + (f.length > 1 ? ' ' + (i + 1) + ' de ' + f.length : '') + ': ' + esc(quien + ': ' + texto) + '">' + ic(IC.pin, 16) +
+      '<span class="t"><b>' + (f.length > 1 ? 'Mensaje fijado ' + (i + 1) + ' de ' + f.length : 'Mensaje fijado') + '</b><span>' + esc(quien) + ': ' + esc(texto) + '</span></span></button>' +
+      (puedeFijarMsg(k) ? '<button type="button" class="mz-ib" data-a="desfijar" data-id="' + esc(m.id) + '" aria-label="Quitar este mensaje de los fijados" title="Quitar fijado">' + ic(IC.x, 16) + '</button>' : '') + '</div>';
+  }
+  /* Cambia la cabecera y el cuadro de escribir sin tocar los mensajes (por ejemplo cuando cambia mi papel en un grupo). */
+  function repintaChrome() {
+    var M = $('mz-main'); if (!M || !C.peer || !C.open) return;
+    var h = M.querySelector('.mz-ch'), c = $('mz-comp'), i = $('mz-in'), val = i ? i.value : null, foco = !!(i && document.activeElement === i);
+    if (h) h.outerHTML = cabecera();
+    if (c) {
+      c.outerHTML = compositor(); var n = $('mz-in');
+      if (n && val != null) { n.value = val; autoTam(); }
+      actualizaEnvio(); actualizaZumbidoBtn(); pintaCtx(); if (foco && n) n.focus();
+    }
+    var e = $('mz-es'); if (e) e.innerHTML = lineaEstado();
   }
   function vacioMain() {
     return '<div class="mz-vacio grande"><div class="mz-ilu">' + ic(IC.chat, 42) + '</div><b>Fibertel Messenger</b><div>Elige una conversación de la lista o busca a un compañero.</div>' +
@@ -10259,26 +10549,61 @@ function ofcCalcular(cat, sel) {
     if (!gen && m.entregado_at) return '<span class="mz-rc entre" title="Entregado">' + ic(IC.ok2, 15) + '</span><span class="mz-sr">Entregado</span>';
     return '<span class="mz-rc" title="Enviado">' + ic(IC.ok, 14) + '</span><span class="mz-sr">Enviado</span>';
   }
+  function puedeEditar(m) { return !!m && m.de === me.id && m.tipo === 'TEXTO' && !m.borrado_at && !m._est && (Date.now() - Date.parse(m.created_at)) < T_EDITAR; }
+  function puedeBorrar(k, m) {
+    if (!m || m.tipo !== 'TEXTO' || m.borrado_at || m._est) return false;
+    if (esGrupo(k) ? soyAdminDe(k) : k === GEN ? moderador() : false) return true;
+    return m.de === me.id && (Date.now() - Date.parse(m.created_at)) < T_BORRAR;
+  }
+  function htmlCita(m) {
+    var sinTexto = m.responde_cuerpo == null, quien = nombreDe(m.responde_de);
+    return '<button type="button" class="mz-q' + (sinTexto ? ' del' : '') + '" data-a="irmsg" data-id="' + esc(m.responde_a) + '" aria-label="Ir al mensaje que respondes, de ' + esc(quien) + '"><b>' + esc(quien) + '</b><span>' + (sinTexto ? 'Mensaje eliminado' : esc(String(m.responde_cuerpo))) + '</span></button>';
+  }
+  function htmlReac(m) {
+    var r = m.reacciones || {}, ks = Object.keys(r).filter(function (e) { return r[e] && r[e].length; });
+    if (!ks.length) return '';
+    ks.sort(function (a, b) { return REAC.indexOf(a) - REAC.indexOf(b); });
+    return '<div class="mz-rx" role="group" aria-label="Reacciones">' + ks.map(function (e) {
+      var ids = r[e], mio = ids.indexOf(me.id) >= 0, quien = ids.map(nombreDe).join(', ');
+      return '<button type="button" class="mz-rxc' + (mio ? ' mio' : '') + '" data-a="reac" data-id="' + esc(m.id) + '" data-e="' + esc(e) + '" aria-pressed="' + mio + '" aria-label="' + esc(eRender(e) + ' ' + ids.length + ': ' + quien + (mio ? '. Pulsa para quitar tu reacción' : '. Pulsa para reaccionar igual')) + '" title="' + esc(quien) + '"><i>' + eRender(e) + '</i>' + ids.length + '</button>';
+    }).join('') + '</div>';
+  }
+  function htmlHerramientas(m) {
+    var id = esc(m.id);
+    return '<div class="mz-tool" role="toolbar" aria-label="Acciones del mensaje">' +
+      '<button type="button" tabindex="-1" data-a="msgmenu" data-modo="reac" data-id="' + id + '" aria-haspopup="menu" aria-label="Reaccionar" title="Reaccionar">' + ic(IC.carita, 16) + '</button>' +
+      (puedeEscribir(C.peer) ? '<button type="button" tabindex="-1" data-a="responder" data-id="' + id + '" aria-label="Responder" title="Responder">' + ic(IC.responder, 16) + '</button>' : '') +
+      '<button type="button" tabindex="-1" data-a="msgmenu" data-modo="todo" data-id="' + id + '" aria-haspopup="menu" aria-label="Más acciones" title="Más acciones">' + ic(IC.mas, 16) + '</button></div>';
+  }
   function htmlMsgs() {
-    var l = C.msgs[C.peer] || [], gen = C.peer === GEN, q = C.busq.on ? C.busq.q.trim() : '', h = '', ult = null, ultT = 0, ultD = null;
-    if (!l.length) return '<div class="mz-vacio">' + '<div class="mz-ilu">' + ic(IC.chat, 30) + '</div><b>' + (gen ? 'La sala está en silencio' : 'Empieza la conversación con ' + esc(nombreDe(C.peer))) + '</b><div>' + (gen ? 'Lo que escribas aquí lo ve todo el equipo.' : 'Aún no hay mensajes.') + '</div>' +
-      '<button type="button" class="mz-btn sec chico" data-a="saludar">👋 Escribir un saludo</button></div>';
-    if (C.mas[C.peer]) h += '<div class="mz-mas"><button type="button" class="mz-btn sec chico" data-a="mas"' + (C.cargandoMas ? ' disabled' : '') + '>' + (C.cargandoMas ? 'Cargando…' : 'Cargar mensajes anteriores') + '</button></div>';
+    var l = C.msgs[C.peer] || [], k = C.peer, gen = k === GEN, comp = compartida(k), q = C.busq.on ? C.busq.q.trim() : '', h = '', ult = null, ultT = 0, ultD = null;
+    if (!l.length) {
+      var escribe = puedeEscribir(k);
+      return '<div class="mz-vacio">' + '<div class="mz-ilu">' + ic(IC.chat, 30) + '</div><b>' + (gen ? 'La sala está en silencio' : comp ? 'Aún no hay mensajes' : 'Empieza la conversación con ' + esc(nombreDe(k))) + '</b><div>' + (gen ? 'Lo que escribas aquí lo ve todo el equipo.' : comp ? (escribe ? 'Escribe el primero para ' + (C.grupos[k].tipo === 'CANAL' ? 'el canal.' : 'el grupo.') : 'Cuando haya mensajes, los verás aquí.') : 'Aún no hay mensajes.') + '</div>' +
+        (escribe ? '<button type="button" class="mz-btn sec chico" data-a="saludar">👋 Escribir un saludo</button>' : '') + '</div>';
+    }
+    if (C.mas[k]) h += '<div class="mz-mas"><button type="button" class="mz-btn sec chico" data-a="mas"' + (C.cargandoMas ? ' disabled' : '') + '>' + (C.cargandoMas ? 'Cargando…' : 'Cargar mensajes anteriores') + '</button></div>';
     for (var i = 0; i < l.length; i++) {
-      var m = l[i], yo = m.de === me.id, t = Date.parse(m.created_at), sig = l[i + 1];
+      var m = l[i], yo = m.de === me.id, t = Date.parse(m.created_at), sig = l[i + 1], mid = esc(m.id);
       if (!ultD || !mismoDia(ultD, m.created_at)) { h += '<div class="mz-dia"><span>' + esc(etiquetaDia(m.created_at)) + '</span></div>'; ult = null; }
       ultD = m.created_at;
-      if (C.divisor[C.peer] === m.id) { h += '<div class="mz-div" id="mz-div"><span>Mensajes nuevos</span></div>'; ult = null; }
+      if (C.divisor[k] === m.id) { h += '<div class="mz-div" id="mz-div"><span>Mensajes nuevos</span></div>'; ult = null; }
+      if (m.tipo === 'SISTEMA') { h += '<div class="mz-sis" id="mz-m-' + mid + '"><span>' + esc(m.cuerpo) + '</span></div>'; ult = null; continue; }
       if (m.tipo === 'ZUMBIDO') {
-        h += '<div class="mz-z" id="mz-m-' + esc(m.id) + '">' + ic(IC.campana, 16) + '<span>' + esc(yo ? 'Enviaste un zumbido' : nombreDe(m.de) + ' te envió un zumbido') + '</span><time>' + esc(hhmm(m.created_at)) + '</time></div>'; ult = null; continue;
+        h += '<div class="mz-z" id="mz-m-' + mid + '">' + ic(IC.campana, 16) + '<span>' + esc(yo ? 'Enviaste un zumbido' : nombreDe(m.de) + ' te envió un zumbido') + '</span><time>' + esc(hhmm(m.created_at)) + '</time></div>'; ult = null; continue;
       }
+      var del = !!m.borrado_at, real = !m._est;
       var prim = ult !== m.de || t - ultT > 300000;
-      var fin = !sig || sig.de !== m.de || sig.tipo === 'ZUMBIDO' || Date.parse(sig.created_at) - t > 300000 || !mismoDia(m.created_at, sig.created_at) || C.divisor[C.peer] === sig.id;
-      h += '<div class="mz-g ' + (yo ? 'yo' : 'el') + (prim ? ' prim' : '') + (fin ? ' ult' : '') + (m._est === 'error' ? ' fallo' : '') + (C.fresh[m.id] ? ' mz-pop' : '') + '" id="mz-m-' + esc(m.id) + '">';
+      var fin = !sig || sig.de !== m.de || sig.tipo === 'ZUMBIDO' || sig.tipo === 'SISTEMA' || Date.parse(sig.created_at) - t > 300000 || !mismoDia(m.created_at, sig.created_at) || C.divisor[k] === sig.id;
+      h += '<div class="mz-g ' + (yo ? 'yo' : 'el') + (prim ? ' prim' : '') + (fin ? ' ult' : '') + (m._est === 'error' ? ' fallo' : '') + (C.fresh[m.id] ? ' mz-pop' : '') + '" id="mz-m-' + mid + '"' + (real && !del ? ' data-mid="' + mid + '" tabindex="-1"' : '') + '>';
       if (!yo) h += fin ? av(m.de, nombreDe(m.de), 30, false) : '<span class="mz-sp"></span>';
-      h += '<div class="mz-b">' + (!yo && gen && prim ? '<span class="mz-nm">' + esc(nombreDe(m.de)) + '</span>' : '') + '<div class="mz-t">' + textoHtml(m.cuerpo, q) + '</div>' +
-        '<div class="mz-mt"><time datetime="' + esc(m.created_at) + '">' + esc(hhmm(m.created_at)) + '</time>' + (yo ? marcasEstado(m, gen) : '') + '</div>';
-      if (m._est === 'error') h += '<div class="mz-err"><span>' + esc(m._red ? 'Sin conexión: no se envió. Se reintentará sola.' : (m._msg || 'No se envió.')) + '</span><button type="button" data-a="reintentar-msg" data-id="' + esc(m.id) + '">Reintentar</button><button type="button" data-a="descartar" data-id="' + esc(m.id) + '">Descartar</button></div>';
+      h += '<div class="mz-b' + (del ? ' del' : '') + '">' + (!yo && comp && prim ? '<span class="mz-nm">' + esc(nombreDe(m.de)) + '</span>' : '');
+      if (del) h += '<div class="mz-t">' + esc(textoBorrado(m)) + '</div>';
+      else h += (m.responde_a ? htmlCita(m) : '') + '<div class="mz-t">' + textoHtml(m.cuerpo, q) + '</div>' + htmlReac(m);
+      h += '<div class="mz-mt">' + (m.fijado_at && !del ? '<span class="mz-pinm" title="Mensaje fijado">' + ic(IC.pin, 13) + '<span class="mz-sr">Fijado</span></span>' : '') + (m.editado_at && !del ? '<span class="mz-ed">editado</span>' : '') +
+        '<time datetime="' + esc(m.created_at) + '">' + esc(hhmm(m.created_at)) + '</time>' + (yo && !del ? marcasEstado(m, comp) : '') + '</div>';
+      if (m._est === 'error') h += '<div class="mz-err"><span>' + esc(m._red ? 'Sin conexión: no se envió. Se reintentará sola.' : (m._msg || 'No se envió.')) + '</span><button type="button" data-a="reintentar-msg" data-id="' + mid + '">Reintentar</button><button type="button" data-a="descartar" data-id="' + mid + '">Descartar</button></div>';
+      if (real && !del) h += htmlHerramientas(m);
       h += '</div></div>';
       ult = m.de; ultT = t;
     }
@@ -10288,8 +10613,9 @@ function ofcCalcular(cat, sel) {
     op = op || {}; var b = $('mz-ms'); if (!b) return;
     if (C.cargaConv) { b.innerHTML = skeletonMsgs(); return; }
     if (C.errConv) { b.innerHTML = vacio(IC.alerta, 'No se pudieron cargar los mensajes', C.errConv, '<button type="button" class="mz-btn chico" data-a="reintentar-conv">' + ic(IC.otra, 16) + 'Reintentar</button>'); return; }
-    var cerca = b.scrollHeight - b.scrollTop - b.clientHeight < 90, antes = b.scrollTop;
+    var cerca = b.scrollHeight - b.scrollTop - b.clientHeight < 90, antes = b.scrollTop, foco = document.activeElement && document.activeElement.getAttribute && b.contains(document.activeElement) ? document.activeElement.id : '';
     b.innerHTML = htmlMsgs(); C.fresh = {};
+    if (foco) { var f = $(foco); if (f && f.focus) { try { f.focus({ preventScroll: true }); } catch (e) { } } }   // si estabas con el teclado sobre un mensaje, no pierdes el sitio
     if (op.inicio) { var d = $('mz-div'); if (d && C.divisor[C.peer]) b.scrollTop = Math.max(0, d.offsetTop - 40); else b.scrollTop = b.scrollHeight; }
     else if (op.fuerza || cerca) b.scrollTop = b.scrollHeight; else b.scrollTop = antes;
     if (C.busq.on) marcaBusqueda(false);
@@ -10297,7 +10623,7 @@ function ofcCalcular(cat, sel) {
       var el = $('mz-m-' + C.resaltar); C.resaltar = null;
       if (el) { try { el.scrollIntoView({ block: 'center' }); } catch (e) { } el.classList.add('mz-flash'); setTimeout(function () { el.classList.remove('mz-flash'); }, 1300); }
     }
-    actualizaAbajo();
+    pintaFijados(); actualizaAbajo();
   }
   function actualizaAbajo() {
     var b = $('mz-ms'), p = $('mz-abajo'); if (!b || !p) return;
@@ -10309,33 +10635,67 @@ function ofcCalcular(cat, sel) {
   function pintaMain() {
     var M = $('mz-main'); if (!M) return;
     if (!C.peer) { M.innerHTML = vacioMain(); return; }
-    M.innerHTML = cabecera() + barraBusq() + '<div class="mz-lienzo"><div class="mz-ms" id="mz-ms" role="log" aria-label="Mensajes"></div><button type="button" class="mz-abajo" id="mz-abajo" data-a="abajo" hidden></button></div>' +
+    M.innerHTML = cabecera() + barraBusq() + '<div id="mz-fijc"></div><div class="mz-lienzo"><div class="mz-ms" id="mz-ms" role="log" aria-label="Mensajes" tabindex="0"></div><button type="button" class="mz-abajo" id="mz-abajo" data-a="abajo" hidden></button></div>' +
       '<div class="mz-ty" id="mz-ty"></div>' + compositor();
     var i = $('mz-in'); if (i) { i.value = C.borr[C.peer] || ''; autoTam(); }
-    actualizaEnvio(); pintaTyping(); actualizaZumbidoBtn();
+    actualizaEnvio(); pintaTyping(); actualizaZumbidoBtn(); pintaCtx(); pintaFijados();
     var s = $('mz-ms'); if (s) s.addEventListener('scroll', actualizaAbajo, { passive: true });
   }
   function pintaTyping() {
-    var id = C.peer, ok = id && id !== GEN && C.typ[id] && Date.now() - C.typ[id] < 4000;
+    var id = C.peer, ok = id && !compartida(id) && C.typ[id] && Date.now() - C.typ[id] < 4000;
     var t = $('mz-ty'); if (t) t.innerHTML = ok ? '<span class="mz-tb" role="status" aria-label="' + esc(nombreDe(id)) + ' está escribiendo"><i></i><i></i><i></i></span>' : '';
     var e = $('mz-es'); if (e) e.innerHTML = lineaEstado();
     if (C.open && !C.q.trim()) pintaLista();
   }
+  /* Mis ajustes de esta conversación (cada persona tiene los suyos). */
+  function interruptorConv(k, campo, titulo, detalle) {
+    return '<label class="mz-sw"><span class="t"><b>' + titulo + '</b><small>' + detalle + '</small></span><input type="checkbox" role="switch" data-cfg="' + campo + '"' + ((C.cfg[k] || {})[campo] ? ' checked' : '') + '></label>';
+  }
+  function bloqueAjustes(k) {
+    return '<div class="mz-bl"><h4>Tus ajustes</h4>' +
+      interruptorConv(k, 'silenciado', 'Silenciar', 'Sin sonidos ni avisos. Los mensajes siguen llegando y contando en la lista.') +
+      interruptorConv(k, 'favorito', 'Favorito', 'Aparece en el filtro «Favoritos».') +
+      interruptorConv(k, 'fijado', 'Fijar arriba', 'Se queda al principio de la lista (máximo ' + MAX_FIJ_CONV + ').') + '</div>';
+  }
+  function etiquetaRol(r) { return r === 'ADMIN' ? '<span class="mz-rol adm">Administrador</span>' : r === 'LECTOR' ? '<span class="mz-rol lec">Solo lectura</span>' : ''; }
+  function bloqueMiembros(k) {
+    var g = C.grupos[k], mb = C.miembros[k], admin = soyAdminDe(k), h = '<div class="mz-bl"><h4>Miembros (' + (mb ? mb.length : g.miembros) + ')</h4>';
+    if (admin) h += '<button type="button" class="mz-acc" data-a="grupo-add">' + ic(IC.masUsuario, 18) + 'Añadir personas</button>';
+    if (C.miembrosCarga[k] && !mb) h += '<div class="mz-buscando" role="status">Cargando miembros…</div>';
+    else if (C.miembrosErr[k] && !mb) h += '<div class="mz-buscando" role="status">No se pudo cargar: ' + esc(C.miembrosErr[k]) + ' <button type="button" class="mz-lnk" data-a="miembros-reint">Reintentar</button></div>';
+    else if (mb) h += mb.map(function (x) {
+      var yo = x.id === me.id, nom = yo ? 'Tú' : bonito(x.nombre);
+      return '<div class="mz-mb"><div class="mz-pers">' + av(x.id, x.nombre, 32, false, yo ? C.st : estadoDe(x.id)) + '<span class="n"><b>' + esc(nom) + (x.activo === false ? ' (inactivo)' : '') + '</b><small>' + esc(DEPTO[x.rol] || x.rol || '') + '</small></span></div>' + etiquetaRol(x.rol_chat) +
+        (admin && !yo ? '<button type="button" class="mz-ib mz-mbm" data-a="menumiembro" data-id="' + esc(x.id) + '" aria-haspopup="menu" aria-label="Opciones de ' + esc(nom) + '" title="Opciones">' + ic(IC.mas, 18) + '</button>' : '') + '</div>';
+    }).join('');
+    return h + '</div>';
+  }
   function pintaInfo() {
     var I = $('mz-info'); if (!I) return;
     if (!C.peer) { I.innerHTML = ''; return; }
-    var id = C.peer, gen = id === GEN, l = (C.msgs[id] || []).filter(function (m) { return !m._est; }), env = l.filter(function (m) { return m.de === me.id; }).length;
+    var id = C.peer, gen = id === GEN, g = C.grupos[id], l = (C.msgs[id] || []).filter(function (m) { return !m._est; }), env = l.filter(function (m) { return m.de === me.id; }).length;
     var h = '<div class="mz-ih"><span>Información</span><button type="button" class="mz-ib" data-a="info" aria-label="Ocultar información" title="Ocultar">' + ic(IC.x) + '</button></div>';
     if (gen) {
       var ids = Object.keys(C.on);
       h += '<div class="mz-if">' + av(GEN, 'Sala general', 84, true) + '<b>Sala general</b><span class="sub">Todo el equipo con perfil activo</span></div>' +
         '<div class="mz-bl"><h4>En línea ahora (' + (ids.length + (C.on[me.id] ? 0 : 1)) + ')</h4>' + (ids.length || true ? '<div class="mz-pers">' + av(me.id, perfil.nombre, 28, false, C.st) + '<b>Tú</b></div>' : '') +
-        ids.filter(function (k) { return k !== me.id; }).map(function (k) { return '<div class="mz-pers">' + av(k, nombreDe(k), 28, false, estadoDe(k)) + '<b>' + esc(nombreDe(k)) + '</b></div>'; }).join('') + '</div>';
+        ids.filter(function (k) { return k !== me.id; }).map(function (k) { return '<div class="mz-pers">' + av(k, nombreDe(k), 28, false, estadoDe(k)) + '<b>' + esc(nombreDe(k)) + '</b></div>'; }).join('') + '</div>' + bloqueAjustes(id);
+    } else if (g) {
+      var admin = soyAdminDe(id), creador = g.creada_por ? nombreDe(g.creada_por) : '', canal = g.tipo === 'CANAL';
+      h += '<div class="mz-if">' + avConv(id, 84) + '<b>' + esc(g.nombre) + '</b><span class="sub">' + (canal ? 'Canal' : 'Grupo') + ' · ' + g.miembros + (g.miembros === 1 ? ' miembro' : ' miembros') + '</span>' +
+        '<span class="sub">' + (admin ? 'Eres administrador' : g.rol_chat === 'LECTOR' ? 'Eres lector' : 'Eres miembro') + '</span></div>' +
+        '<div class="mz-bl"><h4>Descripción</h4><p class="mz-desc">' + (g.descripcion ? esc(g.descripcion) : '<span class="vacio">Sin descripción</span>') + '</p>' +
+        (creador ? '<div class="mz-kv"><span>Creado por</span><b>' + esc(creador) + '</b></div>' : '') +
+        (canal ? '<div class="mz-kv"><span>Quién escribe</span><b>Solo administradores</b></div>' : '') +
+        (admin ? '<button type="button" class="mz-acc" data-a="grupo-editar">' + ic(IC.lapiz, 18) + 'Editar nombre y descripción</button>' : '') + '</div>' +
+        bloqueMiembros(id) + bloqueAjustes(id) +
+        '<div class="mz-bl"><h4>Acciones</h4><button type="button" class="mz-acc" data-a="busqconv">' + ic(IC.lupa, 18) + 'Buscar en la conversación</button>' +
+        '<button type="button" class="mz-acc peligro" data-a="grupo-salir">' + ic(IC.salir, 18) + 'Salir del ' + (canal ? 'canal' : 'grupo') + '</button></div>';
     } else {
       var ult = C.rec[id];
       h += '<div class="mz-if">' + av(id, nombreDe(id), 84, false, estadoDe(id)) + '<b>' + esc(nombreDe(id)) + '</b><span class="sub">' + esc(deptoDe(id)) + '</span><span class="sub">' + dot(estadoDe(id), true) + esc(textoEstado(id)) + '</span></div>' +
         '<div class="mz-bl"><h4>Conversación</h4><div class="mz-kv"><span>Mensajes cargados</span><b>' + l.length + '</b></div><div class="mz-kv"><span>Enviados por ti</span><b>' + env + '</b></div><div class="mz-kv"><span>Recibidos</span><b>' + (l.length - env) + '</b></div>' +
-        (ult ? '<div class="mz-kv"><span>Último mensaje</span><b>' + esc(etiquetaDia(ult.created_at) + ' · ' + hhmm(ult.created_at)) + '</b></div>' : '') + '</div>' +
+        (ult ? '<div class="mz-kv"><span>Último mensaje</span><b>' + esc(etiquetaDia(ult.created_at) + ' · ' + hhmm(ult.created_at)) + '</b></div>' : '') + '</div>' + bloqueAjustes(id) +
         '<div class="mz-bl"><h4>Acciones</h4><button type="button" class="mz-acc" data-a="zumbido" id="mz-izb">' + ic(IC.campana, 18) + 'Enviar zumbido</button>' +
         '<button type="button" class="mz-acc" data-a="busqconv">' + ic(IC.lupa, 18) + 'Buscar en la conversación</button></div>';
     }
@@ -10387,15 +10747,17 @@ function ofcCalcular(cat, sel) {
 
   /* ================= LÓGICA DE CONVERSACIÓN ================= */
   function aplicaVista() { var w = $('mz-win'); if (w) { w.setAttribute('data-vista', C.vista); w.classList.toggle('info-on', !!C.info && !!C.peer); } }
-  function guardaBorrador() { var i = $('mz-in'); if (!i || !C.peer) return; if (i.value) C.borr[C.peer] = i.value; else delete C.borr[C.peer]; }
+  function guardaBorrador() { var i = $('mz-in'); if (!i || !C.peer || C.edit) return; if (i.value) C.borr[C.peer] = i.value; else delete C.borr[C.peer]; }   // mientras editas un mensaje, el borrador de verdad no se toca
   async function abrirConv(peer, op) {
     op = op || {};
     if (!C.open) abrirVentana(true, true);
     guardaBorrador();
     var cambia = C.peer !== peer, cache = C.cargado[peer] ? C.msgs[peer] : null;
+    C.edit = null; if (cambia) { C.resp = null; cierraPop(); }
     C.peer = peer; C.vista = 'conv'; C.emo = false; C.busq = { on: false, q: '', i: 0, n: 0 }; C.nuevos = 0; C.resaltar = op.resaltar || null; C.errConv = null; C.cargaConv = !cache;
     if (cambia) delete C.divisor[peer];
     pintaMain(); aplicaVista(); pintaLista(); pintaInfo();
+    if (esGrupo(peer)) cargaMiembros(peer);
     if (cache) { if (cambia && !C.divisor[peer]) calculaDivisor(peer); pintaMsgs({ inicio: true }); } else pintaMsgs();
     var err = await cargaConv(peer);
     if (C.peer !== peer) return;
@@ -10407,18 +10769,24 @@ function ofcCalcular(cat, sel) {
     pintaMsgs({ inicio: true }); pintaInfo(); pintaLista();
     var i = $('mz-in'); if (i && window.innerWidth > 700 && !C.resaltar) i.focus();
   }
-  function cerrarConv() { guardaBorrador(); C.peer = null; C.vista = 'lista'; C.busq = { on: false, q: '', i: 0, n: 0 }; pintaMain(); aplicaVista(); pintaLista(); }
+  function cerrarConv() { guardaBorrador(); C.peer = null; C.resp = null; C.edit = null; cierraPop(); C.vista = 'lista'; C.busq = { on: false, q: '', i: 0, n: 0 }; pintaMain(); aplicaVista(); pintaLista(); }
 
   /* ----- Cola de envío: lo que no se pudo enviar por falta de red se guarda en este navegador y se reintenta solo.
      Es seguro reintentar: cada mensaje lleva su client_id y la base no crea dos con el mismo. ----- */
   function colaGuarda() { lsSet('crm_chat_cola_' + me.id, JSON.stringify(C.cola.slice(-50))); }
-  function colaAgrega(tmp, key) { C.cola.push({ client_id: tmp.client_id, key: key, cuerpo: tmp.cuerpo, created_at: tmp.created_at }); colaGuarda(); }
+  function colaAgrega(tmp, key) {
+    var x = { client_id: tmp.client_id, key: key, cuerpo: tmp.cuerpo, created_at: tmp.created_at };
+    if (esGrupo(key)) x.cv = key;                                                  // los de un grupo recuerdan a qué conversación van
+    if (tmp.responde_a) { x.ra = tmp.responde_a; x.rd = tmp.responde_de; x.rc = tmp.responde_cuerpo; }
+    C.cola.push(x); colaGuarda();
+  }
   function colaQuita(cid) { if (!cid) return; var n = C.cola.length; C.cola = C.cola.filter(function (x) { return x.client_id !== cid; }); if (C.cola.length !== n) colaGuarda(); }
   function colaCarga() {
     var arr = []; try { arr = JSON.parse(lsGet('crm_chat_cola_' + me.id) || '[]') || []; } catch (e) { arr = []; }
     C.cola = arr.filter(function (x) { return x && typeof x.client_id === 'string' && typeof x.key === 'string' && typeof x.cuerpo === 'string'; }).slice(-50);
     C.cola.forEach(function (x) {
-      var tmp = { id: 'tmp-q-' + x.client_id, client_id: x.client_id, de: me.id, para: x.key === GEN ? null : x.key, tipo: 'TEXTO', cuerpo: x.cuerpo, leido_at: null, entregado_at: null, created_at: x.created_at, _est: 'error', _red: true, _viejo: true };
+      var tmp = { id: 'tmp-q-' + x.client_id, client_id: x.client_id, de: me.id, para: (x.key === GEN || x.cv) ? null : x.key, conversacion_id: x.cv || null, tipo: 'TEXTO', cuerpo: x.cuerpo, leido_at: null, entregado_at: null, created_at: x.created_at, _est: 'error', _red: true, _viejo: true };
+      if (x.ra) { tmp.responde_a = x.ra; tmp.responde_de = x.rd || null; tmp.responde_cuerpo = x.rc == null ? null : x.rc; }
       agrega(x.key, tmp); anotaReciente(tmp);
     });
   }
@@ -10444,7 +10812,7 @@ function ofcCalcular(cat, sel) {
     var peer = C.peer; if (!peer) return;
     var inp = $('mz-in');
     if (tipo === 'ZUMBIDO') {
-      if (peer === GEN || inactivo(peer)) return;
+      if (compartida(peer) || inactivo(peer)) return;
       if (trabajoDe(peer) === 'dnd') { aviso(nombreDe(peer) + ' tiene «No molestar»: no se le pueden enviar zumbidos', true); return; }
       var r0 = ESPERA_ZUMBIDO - (Date.now() - C.buzz);
       if (r0 > 0) { aviso('Espera ' + Math.ceil(r0 / 1000) + ' s para enviar otro zumbido'); return; }
@@ -10458,10 +10826,13 @@ function ofcCalcular(cat, sel) {
       sonidoZumbido(); if (C.pref.sacudir && anim('sacudir')) sacude($('mz'));
       pintaLista(); return;
     }
+    if (C.edit && C.edit.key === peer) { guardaEdicion(); return; }
     var txt = ((inp && inp.value) || '').trim(); if (!txt) return;
     if (txt.length > MAXLEN) { aviso('El mensaje supera los ' + MAXLEN + ' caracteres', true); return; }
+    if (!puedeEscribir(peer)) { aviso(ERR_CHAT.solo_lectura, true); return; }
     inp.value = ''; delete C.borr[peer]; autoTam(); actualizaEnvio();
-    var tmp = { id: 'tmp-' + (++C.tmpN) + '-' + Date.now(), client_id: uuid(), de: me.id, para: peer === GEN ? null : peer, tipo: 'TEXTO', cuerpo: txt, leido_at: null, entregado_at: null, created_at: new Date().toISOString(), _est: 'enviando' };
+    var tmp = { id: 'tmp-' + (++C.tmpN) + '-' + Date.now(), client_id: uuid(), de: me.id, para: compartida(peer) ? null : peer, conversacion_id: esGrupo(peer) ? peer : null, tipo: 'TEXTO', cuerpo: txt, leido_at: null, entregado_at: null, created_at: new Date().toISOString(), _est: 'enviando' };
+    if (C.resp && C.resp.key === peer) { tmp.responde_a = C.resp.id; tmp.responde_de = C.resp.de; tmp.responde_cuerpo = C.resp.cuerpo; C.resp = null; pintaCtx(); }
     colaAgrega(tmp, peer);
     agrega(peer, tmp); C.fresh[tmp.id] = anim('animEnviar'); anotaReciente(tmp);
     pintaMsgs({ fuerza: true }); pintaLista();
@@ -10471,13 +10842,16 @@ function ofcCalcular(cat, sel) {
   }
   async function enviaFila(key, tmp) {
     tmp._est = 'enviando'; tmp._red = false; tmp._msg = '';
-    var r = await llama('chat_enviar', { p_conversacion: C.convId[key] || null, p_para: key === GEN ? null : key, p_cuerpo: tmp.cuerpo, p_client_id: tmp.client_id, p_tipo: 'TEXTO' });
+    var args = { p_conversacion: C.convId[key] || (esGrupo(key) ? key : null), p_para: compartida(key) ? null : key, p_cuerpo: tmp.cuerpo, p_client_id: tmp.client_id, p_tipo: 'TEXTO' };
+    if (tmp.responde_a) args.p_responde_a = tmp.responde_a;                      // solo se manda si es una respuesta: así lo demás funciona aunque falte ejecutar 57b
+    var r = await llama('chat_enviar', args);
     var l = C.msgs[key] || [], i = -1; for (var k = 0; k < l.length; k++) if (l[k].client_id === tmp.client_id) { i = k; break; }
     var d = r.data && r.data.mensaje;
     if (r.error || !d) {
       if (i >= 0 && !l[i]._est) { colaQuita(tmp.client_id); return; }   // mientras tanto llegó por tiempo real: ya está guardado
       var red = !r.error || esRed(r.error);                              // sin error ni dato = respuesta rara: se trata como corte de red
       tmp._est = 'error'; tmp._red = red; tmp._msg = red ? '' : msgE(r.error); tmp._n = (tmp._n || 0) + 1;
+      if (/chat:respuesta_invalida/.test(String(r.error && r.error.message))) { tmp._msg = 'El mensaje al que respondías ya no está. Al reintentar se envía sin cita.'; tmp.responde_a = null; tmp.responde_de = null; tmp.responde_cuerpo = null; }
       if (red) programaCola(Math.min(5000 * Math.pow(2, tmp._n - 1), 60000)); else colaQuita(tmp.client_id);
       if (C.peer === key) pintaMsgs({ fuerza: true });
       if (!tmp._viejo || !red) aviso(msgE(r.error), true);
@@ -10495,7 +10869,9 @@ function ofcCalcular(cat, sel) {
 
   function llego(m) {
     if (!m || !m.id) return;
+    if (!C.cargadoEn) { refrescaSoon(); return; }                      // todavía no sé qué conversaciones tengo: se cargará todo en un momento
     var yo = m.de === me.id, peer = peerDe(m);
+    if (m.para == null && peer !== GEN && !C.grupos[peer]) { refrescaSoon(); return; }   // un grupo que aún no conozco (me acaban de añadir): se recarga la lista
     if (m.conversacion_id) C.convId[peer] = m.conversacion_id;
     if (yo) {   // eco de mi propio mensaje (otra pestaña, o el mío antes de que termine la respuesta del servidor)
       var l = C.msgs[peer] = C.msgs[peer] || [];
@@ -10506,6 +10882,10 @@ function ofcCalcular(cat, sel) {
     }
     var nuevoM = agrega(peer, m); anotaReciente(m);
     if (!nuevoM) return;                                                // ya lo teníamos (tiempo real repetido o llegó por el resumen)
+    if (m.tipo === 'SISTEMA') {                                         // «X añadió a…», «X salió del grupo»: cambia quién está, mi papel o el nombre
+      if (C.open && C.peer === peer) { pintaMsgs(); if (C.info) cargaMiembros(peer, true); }
+      pintaLista(); refrescaSoon(); return;
+    }
     if (m.para) { C.typ[m.de] = 0; entregaSoon(); }                    // en privado: confirma a la base que llegó a este aparato
     var viendo = C.open && C.peer === peer && !document.hidden;
     if (viendo) {
@@ -10514,15 +10894,15 @@ function ofcCalcular(cat, sel) {
       if (lejos && m.tipo !== 'ZUMBIDO') C.nuevos++;
       pintaMsgs(); marca(peer); pintaTyping(); pintaLista();
     } else { if (m.tipo !== 'ZUMBIDO') C.nl[peer] = (C.nl[peer] || 0) + 1; boton(); pintaLista(); }
-    var quien = nombreDe(m.de) + (peer === GEN ? ' (sala general)' : '');
+    var g = C.grupos[peer], quien = nombreDe(m.de) + (peer === GEN ? ' (sala general)' : g ? ' · ' + g.nombre : ''), callada = silenciada(peer);
     if (m.tipo === 'ZUMBIDO') {
-      if (pasivo()) return;
+      if (pasivo() || callada) return;
       sonidoZumbido();
       if (!C.open) abrirVentana(true, true);
       if (C.peer !== peer) abrirConv(peer);
       if (C.pref.sacudir) sacude($('mz'));
       anuncia(quien + ' te envió un zumbido');
-    } else if (!pasivo()) {
+    } else if (!pasivo() && !callada) {
       if (!viendo) {
         sonidoMsg();
         aviso('💬 ' + quien + (C.pref.avisoTexto ? ': ' + String(m.cuerpo).slice(0, 60) : ' te escribió'));
@@ -10531,18 +10911,408 @@ function ofcCalcular(cat, sel) {
       anuncia('Mensaje nuevo de ' + quien + (C.pref.avisoTexto ? ': ' + String(m.cuerpo).slice(0, 120) : ''));
     }
   }
-  function actualizado(m) {   // la base registró «entregado» o «leído» en un mensaje mío (o leí algo en otra pestaña): se refleja la marca
+  /* Mantiene al día la lista de mensajes fijados de una conversación (hasta 5, el más reciente primero). */
+  function sincFijado(k, m) {
+    var f = (C.fij[k] || []).filter(function (x) { return x.id !== m.id; });
+    if (m.fijado_at && !m.borrado_at) { f.push(m); f.sort(function (a, b) { return Date.parse(b.fijado_at) - Date.parse(a.fijado_at); }); f = f.slice(0, MAX_FIJ_MSG); }
+    C.fij[k] = f; if (!f.length) delete C.fijIdx[k]; else if ((C.fijIdx[k] || 0) >= f.length) C.fijIdx[k] = 0;
+  }
+  /* Aplica a lo que ya tengo en pantalla un cambio confirmado por la base (editar, eliminar, reaccionar, fijar, leído…). Sirve igual para mi acción y para el aviso en vivo de otra persona. */
+  function aplicaCambio(k, row) {
+    var m = msgPorId(k, row.id); if (m) copiaCampos(m, row);
+    var base = m || row;
+    if (C.rec[k] && C.rec[k].id === row.id) copiaCampos(C.rec[k], row);
+    if (row.borrado_at) (C.msgs[k] || []).forEach(function (x) { if (x.responde_a === row.id) x.responde_cuerpo = null; });   // las citas no conservan el texto eliminado
+    if (row.fijado_at !== undefined || row.borrado_at) { if (!m) base = Object.assign({}, row); sincFijado(k, base); }
+    return m;
+  }
+  function actualizado(m) {   // la base cambió un mensaje (entregado, leído, editado, eliminado, reacciones, fijado): se refleja
     if (!m || !m.id) return;
-    var peer = peerDe(m), l = C.msgs[peer] || [];
-    for (var i = 0; i < l.length; i++) if (l[i].id === m.id) { l[i].leido_at = m.leido_at; l[i].entregado_at = m.entregado_at; }
-    if (C.rec[peer] && C.rec[peer].id === m.id) { C.rec[peer].leido_at = m.leido_at; C.rec[peer].entregado_at = m.entregado_at; }
+    if (!C.cargadoEn) { refrescaSoon(); return; }
+    var peer = peerDe(m);
+    if (m.para == null && peer !== GEN && !C.grupos[peer]) return;      // de un grupo del que ya no soy miembro
+    var antes = msgPorId(peer, m.id), eraBorrado = !!(antes && antes.borrado_at);
+    aplicaCambio(peer, m);
+    if (m.borrado_at && C.edit && C.edit.id === m.id) { cancelaCtx(false); aviso('El mensaje que estabas editando fue eliminado', true); }
+    if (m.borrado_at && C.resp && C.resp.id === m.id) { C.resp = null; pintaCtx(); aviso('El mensaje al que respondías fue eliminado', true); }
     if (C.open && C.peer === peer) pintaMsgs();
+    if (C.open) pintaLista();
     if (m.para === me.id && m.leido_at) refrescaSoon();
+    if (m.borrado_at && !eraBorrado && m.de !== me.id) refrescaSoon();   // pudo cambiar el número de «sin leer»
   }
   function avisaEscribiendo() {
     if (!C.peer || C.peer === GEN || !C.chP || Date.now() - C.tsent < 2500) return;
     C.tsent = Date.now();
     try { C.chP.send({ type: 'broadcast', event: 'typing', payload: { de: me.id, para: C.peer } }); } catch (e) { }
+  }
+
+  /* ================= FASE 3B: ACCIONES SOBRE MENSAJES, AJUSTES DE CONVERSACIÓN Y GRUPOS ================= */
+  /* Todo se decide en la base (permisos, plazos, límites). Aquí solo se muestra lo que la persona puede hacer y se avisa con claridad si la base dice que no. */
+  function resumenTexto(m) { return String(m.cuerpo || '').replace(/\s+/g, ' ').slice(0, 140); }
+  function iniciaResp(id) {
+    var k = C.peer, m = msgPorId(k, id); if (!m || m.borrado_at || m._est || m.tipo !== 'TEXTO') return;
+    if (!puedeEscribir(k)) { aviso(ERR_CHAT.solo_lectura, true); return; }
+    if (C.edit) cancelaCtx(false);
+    C.resp = { key: k, id: m.id, de: m.de, cuerpo: resumenTexto(m) };
+    pintaCtx(); var i = $('mz-in'); if (i) i.focus();
+  }
+  function iniciaEdit(id) {
+    var k = C.peer, m = msgPorId(k, id);
+    if (!puedeEditar(m)) { aviso(m && m.de === me.id ? ERR_CHAT.plazo_vencido : ERR_CHAT.solo_el_autor, true); return; }
+    var i = $('mz-in'); if (!i) return;
+    C.resp = null;
+    C.edit = { key: k, id: m.id, original: m.cuerpo, borrador: C.edit ? C.edit.borrador : i.value, enviando: false };
+    i.value = m.cuerpo; autoTam(); actualizaEnvio(); pintaCtx(); i.focus(); try { i.setSelectionRange(i.value.length, i.value.length); } catch (e) { }
+  }
+  function cancelaCtx(foco) {
+    var i = $('mz-in');
+    if (C.edit) { if (i) i.value = C.edit.borrador || ''; C.edit = null; autoTam(); actualizaEnvio(); }
+    C.resp = null; pintaCtx(); if (foco !== false && i) i.focus();
+  }
+  async function guardaEdicion() {
+    var E = C.edit, i = $('mz-in'); if (!E || !i || E.enviando) return;
+    var txt = i.value.trim();
+    if (!txt) { aviso('El mensaje no puede quedar vacío. Para quitarlo usa «Eliminar».', true); return; }
+    if (txt === E.original) { cancelaCtx(); return; }
+    E.enviando = true; var s = $('mz-send'); if (s) s.disabled = true;
+    var r = await llama('chat_editar', { p_mensaje: E.id, p_cuerpo: txt });
+    if (C.edit !== E) return;                                           // mientras tanto cambió de conversación o canceló
+    E.enviando = false;
+    if (r.error || !r.data || !r.data.mensaje) {
+      aviso(msgE(r.error), true);
+      if (/chat:(plazo_vencido|mensaje_borrado|solo_el_autor|no_editable|sin_permiso)/.test(String(r.error && r.error.message))) cancelaCtx(false); else actualizaEnvio();
+      return;
+    }
+    var k = E.key; cancelaCtx(false); aplicaCambio(k, r.data.mensaje);
+    if (C.peer === k) pintaMsgs(); pintaLista();
+    var inp = $('mz-in'); if (inp) inp.focus();
+  }
+  function pideBorrar(id) {
+    var k = C.peer, m = msgPorId(k, id);
+    if (!puedeBorrar(k, m)) { aviso(m && m.de === me.id ? ERR_CHAT.plazo_vencido : ERR_CHAT.no_se_puede_borrar, true); return; }
+    abreModal({ tipo: 'confirmar', titulo: 'Eliminar mensaje', ok: 'Eliminar', peligro: true, texto: m.de === me.id ? 'Se eliminará para todos y no se puede deshacer.' : 'Se eliminará para todos y quedará la nota «Eliminado por un administrador».', accion: function () { return borra(k, id); } });
+  }
+  async function borra(k, id) {
+    var r = await llama('chat_borrar', { p_mensaje: id });
+    if (r.error || !r.data || !r.data.mensaje) { aviso(msgE(r.error), true); return false; }
+    aplicaCambio(k, r.data.mensaje); if (C.peer === k) pintaMsgs(); pintaLista(); aviso('Mensaje eliminado'); return true;
+  }
+  async function reaccionar(id, e) {
+    var k = C.peer, m = msgPorId(k, id); if (!m || m.borrado_at || m._est) return;
+    var antes = JSON.stringify(m.reacciones || {}), r = JSON.parse(antes), arr = r[e] || [], i = arr.indexOf(me.id);
+    if (i >= 0) { arr.splice(i, 1); if (arr.length) r[e] = arr; else delete r[e]; }
+    else { if (!r[e] && Object.keys(r).length >= 8) { aviso(ERR_CHAT.demasiadas_reacciones, true); return; } r[e] = arr.concat(me.id); }
+    m.reacciones = r; pintaMsgs();                                      // se ve al instante; si la base dice que no, se deshace
+    var res = await llama('chat_reaccionar', { p_mensaje: id, p_emoji: e }), m2 = msgPorId(k, id); if (!m2) return;
+    if (res.error || !res.data) { m2.reacciones = JSON.parse(antes); aviso(msgE(res.error), true); } else m2.reacciones = res.data.reacciones || {};
+    if (C.peer === k) pintaMsgs();
+  }
+  async function fijaMsg(id, fijar) {
+    var k = C.peer, m = msgPorId(k, id) || (C.fij[k] || []).filter(function (x) { return x.id === id; })[0];
+    if (fijar && (C.fij[k] || []).length >= MAX_FIJ_MSG && !(m && m.fijado_at)) { aviso(ERR_CHAT.demasiados_fijados_msg, true); return; }
+    var r = await llama('chat_fijar_mensaje', { p_mensaje: id, p_fijar: !!fijar });
+    if (r.error || !r.data || !r.data.mensaje) { aviso(msgE(r.error), true); return; }
+    aplicaCambio(k, r.data.mensaje); if (C.peer === k) pintaMsgs(); aviso(fijar ? 'Mensaje fijado' : 'Mensaje desfijado');
+  }
+  function copiar(txt) {
+    var ok = function () { aviso('Texto copiado'); };
+    var plan = function () {
+      var t = document.createElement('textarea'); t.value = txt; t.setAttribute('readonly', ''); t.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(t); t.select(); var bien = false; try { bien = document.execCommand('copy'); } catch (e) { } t.remove();
+      if (bien) ok(); else aviso('No se pudo copiar. Selecciona el texto y usa Ctrl+C', true);
+    };
+    try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(txt).then(ok, plan); return; } } catch (e) { }
+    plan();
+  }
+  /* Salta a un mensaje de esta conversación; si es más antiguo que lo cargado, va trayendo páginas hasta encontrarlo. */
+  async function irMsg(k, id) {
+    if (!msgPorId(k, id)) { await buscaAtras(k, id); if (C.peer !== k) return; }
+    if (!msgPorId(k, id)) { C.resaltar = null; aviso('No encontré ese mensaje: es muy antiguo o ya no existe', true); return; }
+    C.resaltar = id; pintaMsgs();
+  }
+  function irFij() {
+    var k = C.peer, f = C.fij[k] || []; if (!f.length) return;
+    var i = Math.min(C.fijIdx[k] || 0, f.length - 1); C.fijIdx[k] = (i + 1) % f.length;
+    irMsg(k, f[i].id); pintaFijados();
+  }
+
+  /* ----- Menús flotantes: mensaje · conversación · miembro ----- */
+  function selectorFoco(el) {
+    if (!el || !el.getAttribute) return null;
+    if (el.classList.contains('mz-g') && el.id) return '#' + el.id;
+    var a = el.getAttribute('data-a'), id = el.getAttribute('data-id'); if (!a) return null;
+    return '[data-a="' + a + '"]' + (id ? '[data-id="' + id + '"]' : '') + (el.getAttribute('data-modo') ? '[data-modo="' + el.getAttribute('data-modo') + '"]' : '');
+  }
+  function abrePop(p, ancla) {
+    cierraPop();
+    var r = ancla && ancla.getBoundingClientRect ? ancla.getBoundingClientRect() : null;
+    p.rect = r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom } : null; p.foco = ancla ? selectorFoco(ancla) : null; p.key = p.key || C.peer;
+    C.pop = p; pintaPop();
+    var P = $('mz-pop'), f = P && P.querySelector('button'); if (f) f.focus();
+  }
+  function cierraPop(devuelve) {
+    if (!C.pop) return; var f = C.pop.foco; C.pop = null; pintaPop();
+    if (devuelve && f) { var el = document.querySelector('#mz ' + f); if (el) { try { el.focus({ preventScroll: true }); } catch (e) { } } }
+  }
+  function itemPop(a, icono, texto, attrs, clase) { return '<button type="button" role="menuitem" class="it' + (clase ? ' ' + clase : '') + '" data-a="' + a + '"' + (attrs || '') + '>' + ic(icono, 18) + '<span>' + texto + '</span></button>'; }
+  function pintaPop() {
+    var P = $('mz-pop'); if (!P) return;
+    var p = C.pop; if (!p) { P.hidden = true; P.innerHTML = ''; P.removeAttribute('aria-label'); return; }
+    var h = '', k = p.key;
+    if (p.tipo === 'msg') {
+      var m = msgPorId(k, p.id); if (!m) { C.pop = null; P.hidden = true; P.innerHTML = ''; return; }
+      var mio = function (e) { return ((m.reacciones || {})[e] || []).indexOf(me.id) >= 0; };
+      h += '<div class="rx" role="group" aria-label="Reaccionar">' + REAC.map(function (e) { return '<button type="button" role="menuitem" class="' + (mio(e) ? 'mio' : '') + '" data-a="reac" data-id="' + esc(m.id) + '" data-e="' + esc(e) + '" aria-label="' + (mio(e) ? 'Quitar ' : 'Reaccionar con ') + eRender(e) + '">' + eRender(e) + '</button>'; }).join('') + '</div>';
+      if (p.modo !== 'reac') {
+        var id = ' data-id="' + esc(m.id) + '"';
+        if (puedeEscribir(k)) h += itemPop('responder', IC.responder, 'Responder', id);
+        h += itemPop('copiar', IC.copiar, 'Copiar texto', id);
+        if (puedeEditar(m)) h += itemPop('editar', IC.lapiz, 'Editar', id);
+        if (puedeFijarMsg(k)) h += itemPop('fijarmsg', IC.pin, m.fijado_at ? 'Quitar de fijados' : 'Fijar mensaje', id + ' data-v="' + (m.fijado_at ? 0 : 1) + '"');
+        if (puedeBorrar(k, m)) h += itemPop('borrar', IC.papelera, 'Eliminar', id, 'peligro');
+      }
+      P.setAttribute('aria-label', 'Acciones del mensaje');
+    } else if (p.tipo === 'conv') {
+      var cf = cfgDe(k), n = C.nl[k] || 0, at = ' data-id="' + esc(k) + '"';
+      h += itemPop('conv-aj', IC.pin, cf.fijado ? 'Quitar de fijadas' : 'Fijar arriba', at + ' data-campo="fijado" data-v="' + (cf.fijado ? 0 : 1) + '"');
+      h += itemPop('conv-aj', IC.estrella, cf.favorito ? 'Quitar de favoritos' : 'Marcar como favorito', at + ' data-campo="favorito" data-v="' + (cf.favorito ? 0 : 1) + '"');
+      h += itemPop('conv-aj', IC.mudo, cf.silenciado ? 'Activar avisos y sonidos' : 'Silenciar', at + ' data-campo="silenciado" data-v="' + (cf.silenciado ? 0 : 1) + '"');
+      if (n > 0) h += itemPop('conv-leida', IC.ok, 'Marcar como leída', at);
+      P.setAttribute('aria-label', 'Opciones de ' + nombreConv(k));
+    } else if (p.tipo === 'miembro') {
+      var g = C.grupos[k], mb = (C.miembros[k] || []).filter(function (x) { return x.id === p.id; })[0];
+      if (!g || !mb) { C.pop = null; P.hidden = true; P.innerHTML = ''; return; }
+      var u = ' data-uid="' + esc(mb.id) + '"', nom = bonito(mb.nombre);
+      if (mb.rol_chat === 'ADMIN') h += itemPop('pop-rol', IC.escudo, 'Quitar administrador', u + ' data-v="' + (g.tipo === 'CANAL' ? 'LECTOR' : 'MIEMBRO') + '"');
+      else h += itemPop('pop-rol', IC.escudo, 'Hacer administrador', u + ' data-v="ADMIN"');
+      if (g.tipo === 'GRUPO' && mb.rol_chat === 'MIEMBRO') h += itemPop('pop-rol', IC.leido, 'Dejar solo con lectura', u + ' data-v="LECTOR"');
+      if (g.tipo === 'GRUPO' && mb.rol_chat === 'LECTOR') h += itemPop('pop-rol', IC.lapiz, 'Permitir que escriba', u + ' data-v="MIEMBRO"');
+      h += itemPop('pop-quitar', IC.salir, 'Quitar del ' + (g.tipo === 'CANAL' ? 'canal' : 'grupo'), u, 'peligro');
+      P.setAttribute('aria-label', 'Opciones de ' + nom);
+    }
+    P.innerHTML = h; P.hidden = false; posicionaPop();
+  }
+  function posicionaPop() {
+    var P = $('mz-pop'), W = $('mz'); if (!P || P.hidden || !C.pop) return;
+    var wr = W.getBoundingClientRect(), r = C.pop.rect || { left: wr.left + 40, top: wr.top + 80, right: wr.left + 200, bottom: wr.top + 100 };
+    P.style.left = '0px'; P.style.top = '0px';
+    var pw = P.offsetWidth, ph = P.offsetHeight, x = r.right - pw - wr.left, y = r.bottom + 6 - wr.top;
+    if (y + ph > wr.height - 8) y = r.top - wr.top - ph - 6;
+    x = Math.max(8, Math.min(x, wr.width - pw - 8)); y = Math.max(8, Math.min(y, wr.height - ph - 8));
+    P.style.left = Math.round(x) + 'px'; P.style.top = Math.round(y) + 'px';
+  }
+  function abrirMenuMsg(id, modo, ancla) {
+    if (C.pop && C.pop.tipo === 'msg' && C.pop.id === id && C.pop.modo === modo) { cierraPop(true); return; }
+    var m = msgPorId(C.peer, id); if (!m || m._est || m.borrado_at) return;
+    abrePop({ tipo: 'msg', id: id, modo: modo }, ancla);
+  }
+  function teclaPop(e) {
+    if (!C.pop) return;
+    var its = Array.prototype.slice.call(document.querySelectorAll('#mz-pop button')), i = its.indexOf(document.activeElement); if (!its.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); its[(i + 1) % its.length].focus(); }
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); its[(i - 1 + its.length) % its.length].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); its[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); its[its.length - 1].focus(); }
+    else if (e.key === 'Tab') cierraPop(true);
+  }
+  /* Con el teclado: enfocar la lista de mensajes, subir/bajar con las flechas y Enter (o la tecla de menú) abre las acciones del mensaje. */
+  function teclaMsgs(e) {
+    var t = e.target, enLista = t.id === 'mz-ms', enMsg = !!(t.classList && t.classList.contains('mz-g') && t.hasAttribute('data-mid'));
+    if (!enLista && !enMsg) return;
+    var ms = Array.prototype.slice.call(document.querySelectorAll('#mz-ms .mz-g[data-mid]')); if (!ms.length) return;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      var i = enMsg ? ms.indexOf(t) : (e.key === 'ArrowUp' ? ms.length : -1);
+      i = Math.max(0, Math.min(ms.length - 1, i + (e.key === 'ArrowUp' ? -1 : 1))); ms[i].focus();
+    } else if (enMsg && (e.key === 'Enter' || e.key === ' ' || e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey))) {
+      e.preventDefault(); abrirMenuMsg(t.getAttribute('data-mid'), 'todo', t);
+    }
+  }
+  function menuContextual(e) {
+    var rw = e.target.closest && e.target.closest('.mz-rw'); if (!rw) return;
+    var mas = rw.querySelector('.mz-rm'); if (!mas) return;
+    e.preventDefault(); abrePop({ tipo: 'conv', key: mas.getAttribute('data-id') }, mas);
+  }
+
+  /* ----- Mis ajustes de una conversación: fijar, favorito, silenciar ----- */
+  var AVISO_AJUSTE = { fijado: ['Conversación fijada arriba', 'Conversación quitada de fijadas'], favorito: ['Añadida a favoritos', 'Quitada de favoritos'], silenciado: ['Silenciada: sin sonidos ni avisos', 'Avisos y sonidos activados'] };
+  var PARAM_AJUSTE = { silenciado: 'p_silenciado', fijado: 'p_fijado', favorito: 'p_favorito' };
+  async function ajusteConv(k, campo, v) {
+    var cf = cfgDe(k); v = !!v; if (cf[campo] === v || !PARAM_AJUSTE[campo]) return;
+    if (campo === 'fijado' && v && Object.keys(C.cfg).filter(function (x) { return x !== k && C.cfg[x].fijado; }).length >= MAX_FIJ_CONV) { aviso(ERR_CHAT.demasiados_fijados, true); pintaInfo(); return; }
+    var antes = cf[campo]; cf[campo] = v;
+    pintaLista(); boton(); if (C.peer === k) { repintaChrome(); pintaInfo(); }
+    var cid = idConv(k), args = { p_conversacion: cid || null, p_con: (!cid && !compartida(k)) ? k : null }; args[PARAM_AJUSTE[campo]] = v;
+    var r = await llama('chat_conv_ajustes', args);
+    if (r.error || !r.data) {
+      cfgDe(k)[campo] = antes; aviso(msgE(r.error), true);
+      pintaLista(); boton(); if (C.peer === k) { repintaChrome(); pintaInfo(); } return;
+    }
+    if (r.data.conversacion_id) C.convId[k] = r.data.conversacion_id;
+    var c2 = cfgDe(k); c2.silenciado = !!r.data.silenciado; c2.fijado = !!r.data.fijado; c2.favorito = !!r.data.favorito;
+    aviso(AVISO_AJUSTE[campo][v ? 0 : 1]); pintaLista(); boton(); if (C.peer === k) { repintaChrome(); pintaInfo(); }
+  }
+
+  /* ----- Miembros de un grupo o canal ----- */
+  async function cargaMiembros(k, forzar) {
+    if (!esGrupo(k) || C.miembrosCarga[k] || (C.miembros[k] && !forzar)) return;
+    C.miembrosCarga[k] = true; C.miembrosErr[k] = null; if (C.peer === k && !C.miembros[k]) pintaInfo();
+    var r = await llama('chat_miembros', { p_conversacion: k });
+    C.miembrosCarga[k] = false; if (!esGrupo(k)) return;
+    if (r.error) C.miembrosErr[k] = msgE(r.error); else C.miembros[k] = r.data || [];
+    if (C.peer === k) pintaInfo();
+  }
+  async function refrescaGrupo(k) {   // tras añadir, quitar o cambiar un papel: vuelve a pedir lista, resumen y conversación para ver el aviso del sistema
+    await cargaTodo(); if (!C.grupos[k]) { if (C.open) { pintaMain(); aplicaVista(); pintaInfo(); pintaLista(); } return; }
+    await Promise.all([cargaMiembros(k, true), C.peer === k ? cargaConv(k) : null]);
+    if (C.peer === k) { pintaMsgs(); repintaChrome(); pintaInfo(); }
+    pintaLista();
+  }
+  async function cambiaRol(k, uid, rol) {
+    var r = await llama('chat_grupo_rol', { p_conversacion: k, p_usuario: uid, p_rol: rol });
+    if (r.error) { aviso(msgE(r.error), true); return; }
+    aviso('Papel actualizado'); refrescaGrupo(k);
+  }
+  async function quitaMiembro(k, uid) {
+    var r = await llama('chat_grupo_miembros', { p_conversacion: k, p_agregar: [], p_quitar: [uid] });
+    if (r.error) { aviso(msgE(r.error), true); return false; }
+    aviso('Persona quitada'); refrescaGrupo(k); return true;
+  }
+  async function salirGrupo(k) {
+    var g = C.grupos[k]; if (!g) return false;
+    var r = await llama('chat_grupo_salir', { p_conversacion: k });
+    if (r.error) { aviso(msgE(r.error), true); return false; }
+    C.salida = k; aviso('Saliste ' + (g.tipo === 'CANAL' ? 'del canal «' : 'del grupo «') + g.nombre + '»');
+    await cargaTodo(); C.salida = null;
+    if (C.open) { pintaMain(); aplicaVista(); pintaInfo(); pintaLista(); }
+    return true;
+  }
+
+  /* ----- Ventanas dentro del chat: crear grupo · añadir personas · editar grupo · confirmar ----- */
+  function abreModal(M) {
+    cierraPop(); M.foco = document.activeElement; M.key = M.key || C.peer; C.modal = M; pintaModal();
+    var O = $('mz-modal'), f = O && O.querySelector(M.enfoque || (M.tipo === 'confirmar' ? 'button.sec' : 'input,textarea,button')); if (f) f.focus();
+  }
+  function cierraModal() {
+    var M = C.modal; if (!M) return; C.modal = null; pintaModal();
+    if (M.foco && M.foco.isConnected && M.foco.focus) { try { M.foco.focus(); } catch (e) { } }
+  }
+  function candidatos(M) {
+    var ya = {}; if (M.tipo === 'miembros') (C.miembros[M.key] || []).forEach(function (x) { ya[x.id] = 1; });
+    return C.cont.filter(function (c) { return !ya[c.id]; }).sort(function (a, b) { return String(a.nombre).localeCompare(String(b.nombre), 'es'); });
+  }
+  function htmlPersonas(M) {
+    return '<div class="mz-fld"><label for="mz-gq">Personas</label><input id="mz-gq" type="search" data-minus autocomplete="off" placeholder="Buscar por nombre o área">' +
+      '<div class="mz-selbar"><span id="mz-gcount" aria-live="polite"></span><span><button type="button" class="mz-lnk" data-a="mod-todos">Elegir las que se ven</button><button type="button" class="mz-lnk" data-a="mod-ninguno">Quitar todas</button></span></div>' +
+      '<div class="mz-opts" id="mz-gopts" role="group" aria-label="Personas"></div></div>';
+  }
+  function pintaModalPersonas() {
+    var M = C.modal, L = $('mz-gopts'); if (!M || !L) return;
+    var q = plano(M.q || ''), lista = candidatos(M).filter(function (c) { return !q || plano(c.nombre + ' ' + c.rol + ' ' + (DEPTO[c.rol] || '')).indexOf(q) >= 0; });
+    L.innerHTML = lista.length ? lista.map(function (c) {
+      return '<label class="mz-opt"><input type="checkbox" data-sel="' + esc(c.id) + '"' + (M.sel[c.id] ? ' checked' : '') + '>' + av(c.id, c.nombre, 32, false) + '<span class="n"><b>' + esc(bonito(c.nombre)) + '</b><small>' + esc(DEPTO[c.rol] || c.rol || '') + '</small></span></label>';
+    }).join('') : '<div class="mz-buscando" role="status">' + (candidatos(M).length ? 'Nadie coincide con la búsqueda.' : 'No hay más personas para añadir.') + '</div>';
+    actualizaModalBtn();
+  }
+  function elegidas(M) { return Object.keys(M.sel || {}).filter(function (k) { return M.sel[k]; }); }
+  function pintaModal() {
+    var O = $('mz-modal'); if (!O) return;
+    var M = C.modal; if (!M) { O.hidden = true; O.innerHTML = ''; return; }
+    var t = M.tipo, titulo = '', cuerpo = '', ok = 'Aceptar', g = C.grupos[M.key];
+    if (t === 'confirmar') { titulo = M.titulo; ok = M.ok || 'Aceptar'; cuerpo = '<p class="mz-mtexto" id="mz-md1">' + esc(M.texto) + '</p>'; }
+    else if (t === 'grupo') {
+      titulo = 'Nuevo grupo o canal'; ok = 'Crear';
+      cuerpo = '<div class="mz-seg" role="radiogroup" aria-label="Tipo de conversación">' +
+        '<button type="button" role="radio" aria-checked="' + (M.gtipo === 'GRUPO') + '" data-a="mod-tipo" data-v="GRUPO"><b>Grupo</b><small>Todos los miembros pueden escribir.</small></button>' +
+        '<button type="button" role="radio" aria-checked="' + (M.gtipo === 'CANAL') + '" data-a="mod-tipo" data-v="CANAL"><b>Canal</b><small>Solo los administradores publican; los demás leen y reaccionan.</small></button></div>' +
+        '<div class="mz-fld"><label for="mz-gn">Nombre</label><input id="mz-gn" data-minus autocomplete="off" maxlength="60" placeholder="Ej.: Ventas · turno mañana"></div>' +
+        '<div class="mz-fld"><label for="mz-gd">Descripción <span class="op">(opcional)</span></label><textarea id="mz-gd" data-minus rows="2" maxlength="200" placeholder="Para qué sirve este grupo"></textarea></div>' + htmlPersonas(M);
+    } else if (t === 'miembros') { titulo = 'Añadir personas a «' + (g ? g.nombre : '') + '»'; ok = 'Añadir'; cuerpo = htmlPersonas(M); }
+    else if (t === 'editar') {
+      titulo = 'Editar ' + (g && g.tipo === 'CANAL' ? 'canal' : 'grupo'); ok = 'Guardar';
+      cuerpo = '<div class="mz-fld"><label for="mz-gn">Nombre</label><input id="mz-gn" data-minus autocomplete="off" maxlength="60"></div>' +
+        '<div class="mz-fld"><label for="mz-gd">Descripción <span class="op">(opcional)</span></label><textarea id="mz-gd" data-minus rows="3" maxlength="200"></textarea></div>';
+    }
+    O.innerHTML = '<div class="mz-card" role="dialog" aria-modal="true" aria-labelledby="mz-mt1"><div class="hd"><h3 id="mz-mt1">' + esc(titulo) + '</h3><button type="button" class="mz-ib" data-a="mod-cerrar" aria-label="Cerrar" title="Cerrar">' + ic(IC.x) + '</button></div>' +
+      '<div class="body">' + cuerpo + '<p class="mz-err2" id="mz-gerr" role="alert" hidden></p></div>' +
+      '<div class="ft"><button type="button" class="mz-btn sec" data-a="mod-cerrar">Cancelar</button><button type="button" class="mz-btn' + (M.peligro ? ' peligro' : '') + '" id="mz-mok" data-a="mod-ok" data-ok="' + esc(ok) + '">' + esc(ok) + '</button></div></div>';
+    O.hidden = false;
+    var n = $('mz-gn'), d = $('mz-gd'); if (n) n.value = M.nombre || ''; if (d) d.value = M.desc || '';
+    if (t === 'grupo' || t === 'miembros') pintaModalPersonas();
+    actualizaModalBtn();
+  }
+  function actualizaModalBtn() {
+    var M = C.modal, b = $('mz-mok'); if (!M || !b) return;
+    var nombreOk = (M.nombre || '').trim().length >= 2 && (M.nombre || '').trim().length <= 60, n = M.sel ? elegidas(M).length : 0, listo = true, etiqueta = b.getAttribute('data-ok'), aviso2 = '';
+    if (M.tipo === 'grupo') { listo = nombreOk && n >= 1 && n <= 199; etiqueta = M.gtipo === 'CANAL' ? 'Crear canal' : 'Crear grupo'; if (n > 199) aviso2 = 'Un grupo admite como máximo 200 personas.'; }
+    else if (M.tipo === 'miembros') { listo = n >= 1; etiqueta = n ? 'Añadir ' + n + (n === 1 ? ' persona' : ' personas') : 'Añadir'; }
+    else if (M.tipo === 'editar') { var g = C.grupos[M.key] || {}; listo = nombreOk && ((M.nombre || '').trim() !== g.nombre || (M.desc || '').trim() !== (g.descripcion || '')); }
+    var c = $('mz-gcount'); if (c) c.textContent = n + (n === 1 ? ' persona elegida' : ' personas elegidas');
+    b.disabled = !listo || !!M.enviando; b.textContent = M.enviando ? 'Un momento…' : etiqueta;
+    var e = $('mz-gerr'); if (e) { var t2 = M.err || aviso2; e.textContent = t2; e.hidden = !t2; }
+  }
+  function abrirNuevoGrupo() {
+    if (!puedeCrear()) { aviso(ERR_CHAT.solo_admin_supervisor, true); return; }
+    abreModal({ tipo: 'grupo', gtipo: 'GRUPO', nombre: '', desc: '', q: '', sel: {}, err: '', enviando: false, cid: null, enfoque: '#mz-gn', key: '_nuevo' });
+  }
+  async function abrirAgregar(k) {
+    if (!soyAdminDe(k)) return;
+    if (!C.miembros[k]) await cargaMiembros(k);
+    if (!C.miembros[k]) { aviso('No se pudo cargar la lista de miembros. Inténtalo otra vez', true); return; }
+    abreModal({ tipo: 'miembros', key: k, q: '', sel: {}, err: '', enviando: false, enfoque: '#mz-gq' });
+  }
+  function abrirEditar(k) { var g = C.grupos[k]; if (!g || !soyAdminDe(k)) return; abreModal({ tipo: 'editar', key: k, nombre: g.nombre, desc: g.descripcion || '', err: '', enviando: false, enfoque: '#mz-gn' }); }
+  function pideSalir(k) {
+    var g = C.grupos[k]; if (!g) return;
+    abreModal({ tipo: 'confirmar', titulo: 'Salir del ' + (g.tipo === 'CANAL' ? 'canal' : 'grupo'), ok: 'Salir', peligro: true, key: k, texto: 'Dejarás de recibir sus mensajes y no podrás volver a verlos. Un administrador tendrá que añadirte de nuevo.', accion: function () { return salirGrupo(k); } });
+  }
+  function pideQuitar(k, uid) {
+    var g = C.grupos[k], mb = (C.miembros[k] || []).filter(function (x) { return x.id === uid; })[0]; if (!g || !mb) return;
+    abreModal({ tipo: 'confirmar', titulo: 'Quitar a ' + bonito(mb.nombre), ok: 'Quitar', peligro: true, key: k, texto: 'Dejará de ver este ' + (g.tipo === 'CANAL' ? 'canal' : 'grupo') + ' y sus mensajes.', accion: function () { return quitaMiembro(k, uid); } });
+  }
+  async function okModal() {
+    var M = C.modal; if (!M || M.enviando) return;
+    M.err = ''; M.enviando = true; actualizaModalBtn();
+    var res = false;
+    try {
+      if (M.tipo === 'confirmar') res = await M.accion();
+      else if (M.tipo === 'grupo') res = await creaGrupo(M);
+      else if (M.tipo === 'miembros') res = await agregaMiembros(M);
+      else if (M.tipo === 'editar') res = await editaGrupo(M);
+    } catch (e) { console.error(e); M.err = 'Error inesperado'; }
+    if (C.modal !== M) return;
+    M.enviando = false;
+    if (res !== false && !M.err) cierraModal(); else if (M.tipo === 'confirmar') cierraModal(); else actualizaModalBtn();
+  }
+  async function creaGrupo(M) {
+    var cid = M.cid || (M.cid = uuid());                                // el mismo identificador en cada reintento: si se cortó la red a mitad, no se crea dos veces
+    var r = await llama('chat_grupo_crear', { p_tipo: M.gtipo, p_nombre: M.nombre.trim(), p_descripcion: M.desc.trim() || null, p_miembros: elegidas(M), p_client_id: cid });
+    var conv = r.data && r.data.conversacion;
+    if (r.error || !conv) { M.err = msgE(r.error) + (esRed(r.error) ? '. Puedes volver a pulsar «Crear»: no se duplicará.' : ''); return false; }
+    C.modal = null; pintaModal();
+    await cargaTodo();
+    if (C.grupos[conv.id]) { abrirConv(conv.id); aviso((conv.tipo === 'CANAL' ? 'Canal «' : 'Grupo «') + conv.nombre + '» creado'); }
+    else pintaLista();
+    return true;
+  }
+  async function agregaMiembros(M) {
+    var r = await llama('chat_grupo_miembros', { p_conversacion: M.key, p_agregar: elegidas(M), p_quitar: [] });
+    if (r.error) { M.err = msgE(r.error); return false; }
+    aviso('Personas añadidas'); refrescaGrupo(M.key); return true;
+  }
+  async function editaGrupo(M) {
+    var g = C.grupos[M.key] || {}, n = M.nombre.trim(), d = M.desc.trim();
+    var r = await llama('chat_grupo_editar', { p_conversacion: M.key, p_nombre: n !== g.nombre ? n : null, p_descripcion: d !== (g.descripcion || '') ? d : null });
+    if (r.error) { M.err = msgE(r.error); return false; }
+    aviso('Cambios guardados'); refrescaGrupo(M.key); return true;
+  }
+  function teclaModal(e) {
+    if (e.key !== 'Tab' || !C.modal) return;
+    var O = $('mz-modal'), f = Array.prototype.slice.call(O.querySelectorAll('button:not([disabled]),input,textarea,[tabindex="0"]')).filter(function (x) { return x.offsetParent !== null; });
+    if (!f.length) return;
+    var i = f.indexOf(document.activeElement);
+    if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+    else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
   }
 
   /* ================= BÚSQUEDA EN LA CONVERSACIÓN ================= */
@@ -10672,12 +11442,20 @@ function ofcCalcular(cat, sel) {
   }
 
   /* ================= EVENTOS ================= */
+  function esTactil() { try { return window.matchMedia('(hover: none)').matches; } catch (e) { return false; } }
   function clic(e) {
     var t = e.target;
     if (C.emo && !t.closest('#mz-emo') && !t.closest('#mz-emob')) cierraEmo();
     if (C.menu && !t.closest('#mz-menu') && !t.closest('#mz-st')) menuEstado(false);
-    var b = t.closest('[data-a]'); if (!b) return;
-    var a = b.getAttribute('data-a');
+    if (C.pop && !t.closest('#mz-pop') && !t.closest('[data-a="msgmenu"],[data-a="menuconv"],[data-a="menumiembro"]')) cierraPop();
+    var b = t.closest('[data-a]');
+    if (!b) {   // en pantallas táctiles no hay «pasar el ratón»: tocar el globo de un mensaje abre sus acciones
+      var gl = t.closest('.mz-b'), fila = gl && gl.closest('.mz-g[data-mid]');
+      if (fila && esTactil() && !t.closest('a') && !(window.getSelection && String(window.getSelection()))) abrirMenuMsg(fila.getAttribute('data-mid'), 'todo', gl);
+      return;
+    }
+    var a = b.getAttribute('data-a'), enPop = !!t.closest('#mz-pop');
+    if (enPop) cierraPop(true);
     switch (a) {
       case 'cerrar': abrirVentana(false); break;
       case 'abrir': abrirConv(b.getAttribute('data-id'), { resaltar: b.getAttribute('data-m') || null }); break;
@@ -10704,6 +11482,34 @@ function ofcCalcular(cat, sel) {
       case 'aj-cerrar': ajustes(false); break;
       case 'probar': var k = b.getAttribute('data-k'); C.gesto = true; if (k === 'msg') sonidoMsg(true); else if (k === 'zumbido') sonidoZumbido(true); else sonidoConexion(true); break;
       case 'reintentar-msg': var tm = (C.msgs[C.peer] || []).filter(function (x) { return x.id === b.getAttribute('data-id'); })[0]; if (tm) { tm._est = 'enviando'; tm._viejo = false; if (!C.cola.some(function (x) { return x.client_id === tm.client_id; })) colaAgrega(tm, C.peer); pintaMsgs(); enviaFila(C.peer, tm); } break;
+      case 'msgmenu': abrirMenuMsg(b.getAttribute('data-id'), b.getAttribute('data-modo') || 'todo', b); break;
+      case 'menuconv': if (C.pop && C.pop.tipo === 'conv' && C.pop.key === b.getAttribute('data-id')) cierraPop(true); else abrePop({ tipo: 'conv', key: b.getAttribute('data-id') }, b); break;
+      case 'menumiembro': if (C.pop && C.pop.tipo === 'miembro' && C.pop.id === b.getAttribute('data-id')) cierraPop(true); else abrePop({ tipo: 'miembro', key: C.peer, id: b.getAttribute('data-id') }, b); break;
+      case 'reac': reaccionar(b.getAttribute('data-id'), b.getAttribute('data-e')); break;
+      case 'responder': iniciaResp(b.getAttribute('data-id')); break;
+      case 'copiar': var mc = msgPorId(C.peer, b.getAttribute('data-id')); if (mc) copiar(String(mc.cuerpo)); break;
+      case 'editar': iniciaEdit(b.getAttribute('data-id')); break;
+      case 'fijarmsg': fijaMsg(b.getAttribute('data-id'), b.getAttribute('data-v') === '1'); break;
+      case 'desfijar': fijaMsg(b.getAttribute('data-id'), false); break;
+      case 'borrar': pideBorrar(b.getAttribute('data-id')); break;
+      case 'irmsg': irMsg(C.peer, b.getAttribute('data-id')); break;
+      case 'irfij': irFij(); break;
+      case 'cancelctx': cancelaCtx(); break;
+      case 'conv-aj': ajusteConv(b.getAttribute('data-id'), b.getAttribute('data-campo'), b.getAttribute('data-v') === '1'); break;
+      case 'conv-leida': var kl = b.getAttribute('data-id'); marca(kl); refrescaSoon(); pintaLista(); break;
+      case 'grupo-nuevo': abrirNuevoGrupo(); break;
+      case 'grupo-add': abrirAgregar(C.peer); break;
+      case 'grupo-editar': abrirEditar(C.peer); break;
+      case 'grupo-salir': pideSalir(C.peer); break;
+      case 'miembros-reint': cargaMiembros(C.peer, true); break;
+      case 'pop-rol': cambiaRol(C.peer, b.getAttribute('data-uid'), b.getAttribute('data-v')); break;
+      case 'pop-quitar': pideQuitar(C.peer, b.getAttribute('data-uid')); break;
+      case 'mod-fondo': if (e.target === b) cierraModal(); break;
+      case 'mod-cerrar': cierraModal(); break;
+      case 'mod-ok': okModal(); break;
+      case 'mod-tipo': if (C.modal && C.modal.tipo === 'grupo') { C.modal.gtipo = b.getAttribute('data-v'); document.querySelectorAll('#mz-modal [data-a="mod-tipo"]').forEach(function (x) { x.setAttribute('aria-checked', String(x === b)); }); actualizaModalBtn(); } break;
+      case 'mod-todos': if (C.modal) { var q2 = plano(C.modal.q || ''); candidatos(C.modal).forEach(function (c) { if (!q2 || plano(c.nombre + ' ' + c.rol + ' ' + (DEPTO[c.rol] || '')).indexOf(q2) >= 0) C.modal.sel[c.id] = 1; }); pintaModalPersonas(); } break;
+      case 'mod-ninguno': if (C.modal) { C.modal.sel = {}; pintaModalPersonas(); } break;
       case 'descartar': var lm = C.msgs[C.peer] || [], id2 = b.getAttribute('data-id'); for (var z = 0; z < lm.length; z++) if (lm[z].id === id2) { colaQuita(lm[z].client_id); var inp = $('mz-in'); if (inp && !inp.value) { inp.value = lm[z].cuerpo; autoTam(); actualizaEnvio(); } lm.splice(z, 1); break; } pintaMsgs(); pintaLista(); break;
     }
   }
@@ -10722,10 +11528,15 @@ function ofcCalcular(cat, sel) {
     if (id === 'mz-q') { C.q = e.target.value; buscaMsgs(); pintaLista(); }
     else if (id === 'mz-in') { autoTam(); actualizaEnvio(); avisaEscribiendo(); guardaBorrador(); }
     else if (id === 'mz-bqi') { C.busq.q = e.target.value; pintaMsgs(); C.busq.i = 1e9; marcaBusqueda(true); }
+    else if (C.modal && id === 'mz-gn') { C.modal.nombre = e.target.value; C.modal.err = ''; actualizaModalBtn(); }
+    else if (C.modal && id === 'mz-gd') { C.modal.desc = e.target.value; C.modal.err = ''; actualizaModalBtn(); }
+    else if (C.modal && id === 'mz-gq') { C.modal.q = e.target.value; pintaModalPersonas(); }
   }
   function cambio(e) {
-    var p = e.target.getAttribute && e.target.getAttribute('data-p');
-    if (p && p in PREF0) { C.pref[p] = e.target.checked; guardaPrefs(); aplicaPrefs(); }
+    var t = e.target, p = t.getAttribute && t.getAttribute('data-p');
+    if (p && p in PREF0) { C.pref[p] = t.checked; guardaPrefs(); aplicaPrefs(); return; }
+    var cf = t.getAttribute && t.getAttribute('data-cfg'); if (cf && C.peer) { ajusteConv(C.peer, cf, t.checked); return; }
+    var sel = t.getAttribute && t.getAttribute('data-sel'); if (sel && C.modal && C.modal.sel) { C.modal.sel[sel] = t.checked ? 1 : 0; C.modal.err = ''; actualizaModalBtn(); }
   }
   function aplicaPrefs() {
     var w = $('mz'); if (!w) return;
@@ -10757,9 +11568,12 @@ function ofcCalcular(cat, sel) {
     var t = e.target;
     if (document.querySelector('.k-ov')) return;
     if (t && t !== document.body && t !== document.documentElement && t.closest && !t.closest('#mz') && !t.closest('#chat23-btn')) return;
-    if (C.emo) { cierraEmo(); var eb = $('mz-emob'); if (eb) eb.focus(); }
+    if (C.modal) { cierraModal(); }
+    else if (C.pop) { cierraPop(true); }
+    else if (C.emo) { cierraEmo(); var eb = $('mz-emob'); if (eb) eb.focus(); }
     else if (C.menu) { menuEstado(false); var sb3 = $('mz-st'); if (sb3) sb3.focus(); }
     else if (C.aj) ajustes(false);
+    else if (C.edit || (C.resp && C.resp.key === C.peer)) cancelaCtx();
     else if (C.busq.on) busqAbrir(false);
     else if (C.info && window.innerWidth < 1100 && C.peer) { C.info = false; aplicaVista(); var ib = $('mz-ib'); if (ib) { ib.setAttribute('aria-pressed', 'false'); ib.focus(); } }
     else abrirVentana(false);
@@ -10783,6 +11597,7 @@ function ofcCalcular(cat, sel) {
     w.innerHTML = '<div class="mz-win" id="mz-win" data-vista="lista">' +
       '<aside class="mz-side" aria-label="Conversaciones y contactos">' +
       '<div class="mz-brand">' + LOGO + '<div class="mz-bt"><b>Fibertel</b><span>Messenger</span></div><div class="mz-bb">' +
+      (puedeCrear() ? '<button type="button" class="mz-ib" id="mz-nuevog" data-a="grupo-nuevo" aria-label="Nuevo grupo o canal" title="Nuevo grupo o canal">' + ic(IC.masUsuario) + '</button>' : '') +
       '<button type="button" class="mz-ib" id="mz-ajb" data-a="aj" aria-label="Configuración del chat" title="Configuración del chat" aria-haspopup="dialog" aria-expanded="false">' + ic(IC.gear) + '</button>' +
       '<button type="button" class="mz-ib" data-a="cerrar" aria-label="Cerrar Messenger" title="Cerrar (Esc)">' + ic(IC.x) + '</button></div></div>' +
       '<div class="mz-me" id="mz-me"></div>' +
@@ -10790,14 +11605,19 @@ function ofcCalcular(cat, sel) {
       '<input id="mz-q" type="search" data-minus autocomplete="off" placeholder="Buscar personas y mensajes" enterkeyhint="search"><span class="mz-kbd" id="mz-kbd" aria-hidden="true">Ctrl K</span>' +
       '<button type="button" class="mz-limpia" id="mz-limpia" data-a="limpiabusq" aria-label="Borrar búsqueda" hidden>' + ic(IC.x, 16) + '</button></div>' +
       '<div class="mz-filtros" role="group" aria-label="Filtrar conversaciones"><button type="button" data-a="filtro" data-f="todos" aria-pressed="true">Todos</button>' +
-      '<button type="button" data-a="filtro" data-f="nolei" aria-pressed="false">No leídos <span class="mz-cnt" id="mz-cnt" hidden></span></button></div>' +
+      '<button type="button" data-a="filtro" data-f="nolei" aria-pressed="false">No leídos <span class="mz-cnt" id="mz-cnt" hidden></span></button>' +
+      '<button type="button" data-a="filtro" data-f="fav" aria-pressed="false">Favoritos</button>' +
+      '<button type="button" data-a="filtro" data-f="grupos" aria-pressed="false">Grupos</button></div>' +
       '<div class="mz-lista" id="mz-lista"></div><div class="mz-pie" id="mz-pie"></div>' +
       '<section class="mz-ajp" id="mz-ajp" role="dialog" aria-label="Configuración del chat" hidden></section></aside>' +
       '<section class="mz-main" id="mz-main" aria-label="Conversación"></section>' +
       '<aside class="mz-info" id="mz-info" aria-label="Información de la conversación"></aside></div>' +
+      '<div class="mz-fl" id="mz-pop" role="menu" hidden></div><div class="mz-mod" id="mz-modal" data-a="mod-fondo" hidden></div>' +
       '<div class="mz-banner" id="mz-banner" role="status" hidden>' + ic(IC.alerta, 16) + 'Sin conexión en vivo. Reconectando…</div>' +
       '<div class="mz-toasts" id="mz-toasts"></div><div class="mz-sr" id="mz-live" role="status" aria-live="polite"></div>';
     w.addEventListener('click', clic); w.addEventListener('input', entrada); w.addEventListener('change', cambio); w.addEventListener('keydown', teclaEntrada); w.addEventListener('keydown', teclaChatK);
+    w.addEventListener('keydown', teclaMsgs); w.addEventListener('contextmenu', menuContextual);
+    w.querySelector('#mz-pop').addEventListener('keydown', teclaPop); w.querySelector('#mz-modal').addEventListener('keydown', teclaModal);
     document.body.appendChild(fab); document.body.appendChild(w);
     w.querySelector('#mz-lista').addEventListener('keydown', teclaLista); w.querySelector('#mz-q').addEventListener('keydown', teclaLista);
     document.addEventListener('keydown', teclaGlobal, true); document.addEventListener('visibilitychange', visible);
