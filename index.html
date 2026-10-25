@@ -1363,11 +1363,11 @@ function ventaForm(l) {
       Q = await Promise.all([
         sb.from('leads').select('id,estado,created_at,fecha_cita,cerrador_id,concertador_id').order('created_at', { ascending: false }).limit(1000),
         sb.from('perfiles').select('id,nombre,rol,activo'),
-        sb.from('ventas_sync').select('id_venta,campana,estado,tipo_producto,producto').not('lead_id', 'is', null).limit(1000)]);
+        sb.from('ventas_sync').select('id_venta,campana,estado,tipo_producto,producto,es_internet,es_movil').not('lead_id', 'is', null).limit(1000)]);
     } catch (e) { return; }
     if (Q[0].error || Q[1].error) return;
     var leads = Q[0].data || [], per = Q[1].data || [], vs = Q[2].data || [];
-    if (window.svc49 && window.svc49.activo()) vs = window.svc49.filtra(vs);   // botón 🧩
+    if (window.svc49 && window.svc49.activo()) vs = window.svc49.filtra(vs);   // selector 🌐 Internet / 📱 Móvil
     var vend = leads.filter(function (l) { return l.estado === 'VENDIDO'; }).length;
     var gv = {}; vs.forEach(function (r) { (gv[r.id_venta] = gv[r.id_venta] || []).push(r.estado); });
     var ids = Object.keys(gv);
@@ -2016,7 +2016,7 @@ function ventaForm(l) {
       if (r.fecha_estado && (!x.f || new Date(r.fecha_estado) > new Date(x.f))) x.f = r.fecha_estado;
     });
     o.forEach(function (x) {
-      var SV = window.svc49;   // botón 🧩: solo cuentan los servicios elegidos (Internet + Móvil por defecto); los demás se ven atenuados
+      var SV = window.svc49;   // botones 🌐 Internet / 📱 Móvil: se cuenta UN servicio a la vez (Internet por defecto, nunca se suman); los demás se ven atenuados
       x.sel = SV && SV.activo() ? x.items.filter(function (i) { return SV.cuenta(i); }) : x.items;
       x.act = x.sel.filter(function (i) { return macro(i.estado) === 'ACT'; }).length;
       x.pend = x.sel.filter(function (i) { var m = macro(i.estado); return m === 'TRA' || m === 'INC'; });
@@ -2161,6 +2161,11 @@ function ventaForm(l) {
     D.rows.forEach(function (r) { if (r.es_internet && macro(r.estado) === 'ACT' && esMes(r.fecha_estado)) s[r.id_venta] = 1; });
     return Object.keys(s).length;
   }
+  function movMes() {   // líneas móviles activas este mes (por fecha de estado). Se cuentan aparte: nunca se suman a los convergentes
+    var SV = window.svc49, n = 0;
+    D.rows.forEach(function (r) { if (SV && SV.claseDe(r) === 'MOVIL' && macro(r.estado) === 'ACT' && esMes(r.fecha_estado)) n++; });
+    return n;
+  }
   function tramoTxt(n) {
     var t = TRAMOS.filter(function (x) { return !x.campana && x.rol === 'cerrador'; });
     if (!t.length) return TR_OK ? 'Aún sin marcos configurados' : 'Falta ejecutar el SQL 15';
@@ -2184,7 +2189,7 @@ function ventaForm(l) {
       var n = convMes();
       k = [kpi('📂', ab, 'Leads abiertos', '', 'info'), kpi('📅', citasHoy, 'Citas hoy', '', citasHoy ? 'warn' : ''),
         kpi('⏳', ps, 'Servicios por activar', inc ? inc + ' venta(s) con incidencia' : '', ps ? 'warn' : 'ok'),
-        kpi('🏆', n, 'Convergentes activos del mes', 'Tu comisión está en «Mi liquidación»', 'ok')];
+        kpi('🏆', n, 'Convergentes activos del mes', 'Tu comisión está en «Mi liquidación»', 'ok'), kpi('📱', movMes(), 'Líneas móviles activas del mes', 'Aparte: no se suman a los convergentes', '')];
     } else if (ROL === 'concertador') {
       var tot = D.comis.reduce(function (a, c) { return a + Number(c.monto || 0); }, 0), pg = D.comis.filter(function (c) { return !/PAGAD/.test(N(c.estado_pago)); }).length;
       k = [kpi('👥', L.length, 'Clientes registrados', '', 'info'), kpi('📅', citasHoy, 'Citas hoy', '', ''), kpi('🏆', ven, 'Vendidos', L.length ? Math.round(ven * 100 / L.length) + '% de conversión' : '', 'ok'),
@@ -2648,7 +2653,7 @@ function ventaForm(l) {
     var pills = [['TODAS', 'Todas']].concat(['TRA', 'INC', 'ACT', 'CAI'].map(function (m) { return [m, MAC[m][0]]; })).map(function (p) {
       return '<button class="d15-pill' + (s.f === p[0] ? ' on' : '') + '" data-x="f" data-v="' + p[0] + '">' + p[1] + '<b>' + c[p[0]] + '</b></button>';
     }).join('');
-    out.innerHTML = (window.svc49 ? window.svc49.nota(D.raw.length - D.rows.length) : '') + '<div class="d15-vbar"><div class="d15-pills">' + pills + '</div>' + (ROL === 'admin' ? '<button class="sec" data-x="csv" style="margin-left:auto">⬇ Exportar CSV</button>' : '') + '</div>' +
+    out.innerHTML = (window.svc49 ? window.svc49.nota(D.raw.length - D.rows.length, D.raw) : '') + '<div class="d15-vbar"><div class="d15-pills">' + pills + '</div>' + (ROL === 'admin' ? '<button class="sec" data-x="csv" style="margin-left:auto">⬇ Exportar CSV</button>' : '') + '</div>' +
       '<div class="meta" style="margin-bottom:10px">' + lista.length + ' venta(s) · ' + svc + ' servicio(s) con movimiento en el periodo</div>' +
       (lista.length ? '<div class="d15-vl">' + lista.slice(0, s.max).map(card).join('') + '</div>' +
         (lista.length > s.max ? '<p style="text-align:center;margin:14px 0 0"><button class="sec" data-x="mas">Ver más (' + (lista.length - s.max) + ')</button></p>' : '') :
@@ -2698,7 +2703,7 @@ function ventaForm(l) {
     var vInc = o.filter(function (x) { return x.est === 'INC'; }).length, crm = o.filter(function (x) { return x.lead; }).length;
     var kp = [[o.length, 'ventas'], [R.length, 'servicios'], [R.length ? Math.round(sAct * 100 / R.length) + '%' : '—', 'servicios activos'],
       [R.length ? Math.round(sCai * 100 / R.length) + '%' : '—', 'servicios caídos'], [vInc, 'ventas con incidencia'],
-      [R.filter(function (x) { return x.es_internet && okS(x); }).length, 'internet activos'], [R.filter(function (x) { return x.es_movil; }).length, 'líneas móviles'],
+      [window.svc49 ? window.svc49.activosDe(D.raw || R, 'INTERNET') : R.filter(function (x) { return x.es_internet && okS(x); }).length, 'internet activos'], [window.svc49 ? window.svc49.activosDe(D.raw || R, 'MOVIL') : R.filter(function (x) { return x.es_movil && okS(x); }).length, 'móviles activos (aparte)'],
       [D.leadsN == null ? '—' : D.leadsN, 'leads captados'], [D.leadsN ? Math.round(crm * 100 / D.leadsN) + '%' : '—', 'ventas CRM / leads']];
     var kHtml = '<div class="stats" style="margin:0 0 6px">' + kp.map(function (k) { return '<div><b>' + k[0] + '</b><small>' + k[1] + '</small></div>'; }).join('') + '</div>';
 
@@ -2718,7 +2723,7 @@ function ventaForm(l) {
     var hMax = Math.max.apply(null, hs.concat([1]));
 
     var porLead = function (f) { return function (x) { return x.lead && f(x.lead); }; };
-    out.innerHTML = (window.svc49 ? window.svc49.nota(D.raw.length - R.length) : '') + kHtml + '<div class="k-g">' +
+    out.innerHTML = (window.svc49 ? window.svc49.nota(D.raw.length - R.length, D.raw) : '') + kHtml + '<div class="k-g">' +
       '<div><h4>Ventas por provincia (top 10)</h4>' + bars(by(o, function (x) { return S(x.prov); }, okV), 10) + '</div>' +
       '<div><h4>Ventas por campaña (operador vendido)</h4>' + bars(by(o, function (x) { return S(x.campana); }, okV), 10) + '</div>' +
       '<div><h4>Servicios por tipo (todos)</h4>' + bars(by(D.raw || R, function (x) { return tipoL(x.tipo_producto); }, okS), 8) + '</div>' +
@@ -6465,6 +6470,7 @@ function ventaForm(l) {
     '.s46-pill:hover{background:var(--acc2)}.s46-pill.on{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}',
     '.s46-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}',
     '.s46-k{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;box-shadow:var(--sh);border-top:3px solid var(--line2)}',
+    '.s46-k.ap{border-top-style:dashed;border-top-color:var(--c-tra);background:color-mix(in srgb,var(--c-tra) 6%,var(--card))}.s46-ap{background:var(--card);border:1px dashed var(--line2);border-radius:12px;padding:8px 12px;display:inline-block}',
     '.s46-k.act{border-top-color:var(--c-act)}.s46-k.tra{border-top-color:var(--c-tra)}.s46-k.cai{border-top-color:var(--c-cai)}.s46-k.bad{border-top-color:var(--bad)}',
     '.s46-kv{font-size:1.7em;font-weight:800;line-height:1.1;letter-spacing:-.03em}.s46-kl{color:var(--mut);font-size:.8em;font-weight:600;margin-top:2px}.s46-ks{color:var(--mut);font-size:.74em;margin-top:2px}',
     '.s46-legend{display:flex;gap:16px;flex-wrap:wrap;margin:0 0 8px;font-size:.84em}',
@@ -6621,38 +6627,42 @@ function ventaForm(l) {
     sv.setConteos(cnt);
     var filas = sv.cfg().clases.filter(function (c) { return pcm[c.k] || d.clases.indexOf(c.k) >= 0; }).map(function (c) {
       var x = pcm[c.k] || { servicios: 0, activados: 0, tramite: 0, caidos: 0 }, on = d.clases.indexOf(c.k) >= 0, rs = x.activados + x.caidos;
-      return '<tr' + (on ? '' : ' class="s46-off"') + '><td><button type="button" class="svc49-lnk" data-k="solo" data-v="' + esc(c.k) + '" title="Ver solo este tipo"><b>' + esc(c.n) + '</b></button> ' +
-        (on ? '<span class="badge b-ok">cuenta</span>' : '<span class="badge">no cuenta</span>') + (c.paga ? ' <span class="meta">paga comisión</span>' : '') + '</td>' +
+      return '<tr' + (on ? '' : ' class="s46-off"') + '><td><button type="button" class="svc49-lnk" data-k="solo" data-v="' + esc(c.k) + '" title="Ver este servicio (se ve uno a la vez)"><b>' + esc(c.n) + '</b></button> ' +
+        (on ? '<span class="badge b-ok">viendo</span>' : '<span class="meta">aparte</span>') + '</td>' +
         '<td class="n"><b>' + n0(x.servicios) + '</b></td><td class="n">' + n0(x.activados) + '</td><td class="n">' + n0(x.tramite) + '</td><td class="n">' + n0(x.caidos) + '</td>' +
         '<td class="n">' + (rs ? pcn(x.caidos, rs) + ' %' : '—') + '</td></tr>';
     }).join('');
-    return '<div class="s46-sec"><div class="s46-sh"><h3>Por tipo de servicio</h3><span class="meta">Todos los tipos del periodo. Toca uno para ver solo ese</span></div>' +
+    return '<div class="s46-sec"><div class="s46-sh"><h3>Por tipo de servicio</h3><span class="meta">Cada tipo por separado: nunca se suman entre sí. Toca uno para verlo</span></div>' +
       '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Tipo</th><th class="n">Servicios</th><th class="n">Activ.</th><th class="n">Trámite</th><th class="n">Caídos</th><th class="n">Tasa de caída</th></tr></thead><tbody>' + (filas || '<tr><td colspan="6" class="meta">Sin servicios en el periodo.</td></tr>') + '</tbody></table></div></div>';
   }
 
   /* --- Objetivo del mes: del grupo y de CADA agente --- */
   function tablaObjAg(d, rol, titulo) {
+    var ap = (d.mes && d.mes.ap_k) || 'MOVIL';
     var g = (d.objetivos || []).filter(function (x) { return x.rol === rol; });
     if (!g.length) return '';
     g.sort(function (a, b) { return (b.act - a.act) || String(a.nombre).localeCompare(String(b.nombre)); });
-    return '<div class="s46-h4">' + titulo + '</div><div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Agente</th><th class="n">Activados</th><th class="n rep">En trámite</th><th style="width:34%">Avance</th><th class="n">Objetivo</th></tr></thead><tbody>' +
+    return '<div class="s46-h4">' + titulo + '</div><div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Agente</th><th class="n">Activados</th><th class="n rep">En trámite</th><th style="width:30%">Avance</th><th class="n">Objetivo</th><th class="n rep" title="Aparte: no se suman al objetivo">' + (ap === 'MOVIL' ? '📱 Móviles act.' : '🌐 Conv. act.') + '</th></tr></thead><tbody>' +
       g.map(function (x) {
         var p = x.objetivo ? pcn(x.act, x.objetivo) : 0;
         return '<tr><td><b>' + esc(x.nombre) + '</b></td><td class="n"><b>' + n0(x.act) + '</b></td><td class="n rep">' + n0(x.tra) + '</td><td>' +
           (x.objetivo ? '<div class="s46-meter" style="margin:0" role="progressbar" aria-valuemin="0" aria-valuemax="' + x.objetivo + '" aria-valuenow="' + x.act + '" aria-label="Avance de ' + esc(x.nombre) + '"><i style="width:' + Math.min(100, p) + '%"></i></div>' : '<span class="meta">Sin objetivo</span>') + '</td>' +
-          '<td class="n">' + (x.objetivo ? n0(x.objetivo) + ' <span class="meta">(' + p + ' %)</span>' : '—') + '</td></tr>';
+          '<td class="n">' + (x.objetivo ? n0(x.objetivo) + ' <span class="meta">(' + p + ' %)</span>' : '—') + '</td><td class="n rep">' + n0(x.mov || 0) + '</td></tr>';
       }).join('') + '</tbody></table></div>';
   }
   function seccionObjetivo(d, sv) {
     var m = d.mes, obj = m.objetivo, act = m.obj_activados != null ? m.obj_activados : m.activados;
     var rit = m.dia ? act / m.dia : 0, proy = Math.round(rit * m.dias_mes), nuevo = !!d.objetivos;
-    var h = '<div class="s46-sec"><div class="s46-sh"><h3>Objetivo del mes</h3><span class="meta">' + (nuevo ? 'Servicios activados este mes (por fecha de venta) de tipo ' + esc(sv ? sv.etiqueta(d.clases_obj) : '') + ', sin importar el botón 🧩' : 'Servicios de este mes (por fecha de venta) que ya están activados') + '</span></div>';
+    var h = '<div class="s46-sec"><div class="s46-sh"><h3>Objetivo del mes</h3><span class="meta">' + (nuevo ? esc(sv ? sv.etiquetaKpi(d.clases_obj[0]) : 'Servicios') + ' activados este mes (por fecha de venta), sin importar lo que estés viendo arriba' : 'Servicios de este mes (por fecha de venta) que ya están activados') + '</span></div>';
     if (obj) {
       h += '<div><b style="font-size:1.4em">' + n0(act) + '</b> <span class="meta">de ' + n0(obj) + ' · ' + pc(act, obj) + (nuevo && m.objetivo_por_agente ? ' · objetivo del grupo = suma de los cerradores' : '') + '</span></div>' +
         '<div class="s46-meter" role="progressbar" aria-valuemin="0" aria-valuemax="' + obj + '" aria-valuenow="' + act + '" aria-label="Avance del objetivo del grupo"><i style="width:' + Math.min(100, pcn(act, obj)) + '%"></i></div>' +
         '<div class="meta">Ritmo ' + rit.toLocaleString('es-PE', { maximumFractionDigits: 2 }) + ' por día · proyección a fin de mes: <b>' + n0(proy) + '</b> (estimación lineal con días del calendario, solo orientativa; ' + m.dia + ' de ' + m.dias_mes + ' días transcurridos)</div>';
     } else {
       h += '<div class="meta">' + (KP.esAdmin ? 'Todavía no has fijado objetivos.' : 'El administrador aún no ha fijado objetivos.') + ' Este mes van ' + n0(act) + ' activados.</div>';
+    }
+    if (nuevo && m.ap_k && sv) {
+      h += '<div class="s46-ap" style="margin:10px 0 0"><span aria-hidden="true">' + sv.icono(m.ap_k) + '</span> ' + esc(sv.etiquetaAct(m.ap_k)) + ' este mes: <b>' + n0(m.ap_activados) + '</b> <span class="meta">· aparte, no se suman al objetivo</span></div>';
     }
     if (nuevo) {
       h += tablaObjAg(d, 'cerrador', 'Cerradores') + tablaObjAg(d, 'concertador', 'Concertadores');
@@ -6672,7 +6682,7 @@ function ventaForm(l) {
         var nom = KP.esAdmin ? '<b>' + esc(r.nombre) + '</b>' : '<button type="button" class="svc49-lnk" data-k="verc" data-id="' + esc(r.id) + '" title="Ver sus clientes y el historial"><b>' + esc(r.nombre) + '</b></button>';
         return '<tr><td>' + nom + '</td><td class="n">' + n0(r.leads) + '</td><td class="n">' + n0(r.vendidos) + '</td><td class="n rep">' + (r.leads ? pcn(r.vendidos, r.leads) + ' %' : '—') + '</td>' +
           '<td class="n"><b>' + n0(r.servicios) + '</b></td><td class="n">' + n0(r.activados) + '</td><td class="n rep">' + n0(r.tramite) + '</td><td class="n rep">' + n0(r.caidos) + '</td></tr>';
-      }).join('') + '</tbody></table></div><p class="meta" style="margin-top:8px">«Clientes subidos» = los que registró en el periodo. Los servicios son los de sus clientes con venta en el periodo, de los tipos elegidos con 🧩.</p>';
+      }).join('') + '</tbody></table></div><p class="meta" style="margin-top:8px">«Clientes subidos» = los que registró en el periodo. Los servicios son los de sus clientes con venta en el periodo, del servicio que estás viendo (Internet o Móvil, nunca los dos juntos).</p>';
   }
 
   function pintaPanel() {
@@ -6686,15 +6696,19 @@ function ventaForm(l) {
     if (KP.err) { host.innerHTML = barra + '<div class="s46-sec"><div class="s46-vacio">' + esc(KP.err) + '</div></div>'; return; }
     if (!d) { host.innerHTML = barra + '<div class="s46-sec"><div class="s46-vacio">Calculando…</div></div>'; return; }
     var t = d.totales, res = t.activados + t.caidos, tk = d.tareas, sv = SV();
-    var etq = d.clases && sv ? sv.etiqueta(d.clases) : 'Todos los servicios';
+    var etq = d.clases && sv ? sv.etiquetaKpi(d.clases[0]) : 'Servicios';
+    var kSel = (d.clases && d.clases[0]) || 'INTERNET', kAp = sv ? sv.apartede(kSel) : 'MOVIL', xAp = null;
+    (d.por_clase || []).forEach(function (x) { if (x.k === kAp) xAp = x; });
     var h = barra;
-    if (KP.vieja) h += '<div class="svc49-nota">⚠️ Falta ejecutar <b>49_servicios_y_supervisor.sql</b> en Supabase: mientras tanto el panel cuenta todos los servicios y el objetivo es único.</div>';
+    if (KP.vieja) h += '<div class="svc49-nota">⚠️ Falta ejecutar <b>49_servicios_y_supervisor.sql</b> (y después el <b>50</b>) en Supabase: mientras tanto el panel cuenta todos los servicios y el objetivo es único.</div>';
+    else if (!(d.mes && d.mes.ap_k)) h += '<div class="svc49-nota">⚠️ Falta ejecutar <b>50_internet_y_movil_separados.sql</b> en Supabase: mientras tanto Internet puede salir en 0 y no se separan los móviles.</div>';
     h += '<div class="s46-kpis">' +
-      kpi('', n0(t.servicios), 'Servicios (' + esc(etq) + ')', n0(t.ventas) + ' ventas · por fecha de venta') +
+      kpi('', n0(t.servicios), esc(etq), n0(t.ventas) + ' ventas · por fecha de venta') +
       kpi('act', n0(t.activados), 'Activados', pc(t.activados, t.servicios) + ' de los registrados') +
       kpi('tra', n0(t.tramite), 'En trámite', pc(t.tramite, t.servicios) + ' de los registrados') +
       kpi('cai', n0(t.caidos), 'Caídos', pc(t.caidos, t.servicios) + ' de los registrados') +
       kpi('cai', res ? pcn(t.caidos, res) + ' %' : '—', 'Tasa de caída', res ? 'Caídos ' + t.caidos + ' de ' + res + ' ya resueltos (activados + caídos)' : 'Aún no hay servicios resueltos') +
+      (xAp && sv ? kpi('ap', n0(xAp.activados), sv.icono(kAp) + ' ' + esc(sv.etiquetaAct(kAp)), 'Aparte: no se suman · ' + n0(xAp.tramite) + ' en trámite') : '') +
       kpi(tk.vencidas ? 'bad' : '', n0(tk.vencidas), 'Tareas vencidas', n0(tk.sin_asignar) + ' sin asignar · ' + n0(tk.pendientes) + ' pendientes') + '</div>';
 
     if (d.por_clase && sv) h += seccionTipos(d, sv);
@@ -6935,7 +6949,7 @@ function ventaForm(l) {
     var sv = SV(); if (!vn || !vn.clases || !sv) return '';
     return sv.cfg().clases.filter(function (c) { return vn.clases[c.k]; }).map(function (c) {
       var x = vn.clases[c.k], on = sv.sel().indexOf(c.k) >= 0;
-      return '<span class="badge ' + (on ? 'b-info' : 'off') + '" title="' + (on ? 'Cuenta en los KPIs' : 'No cuenta en los KPIs con la selección actual') + '">' + esc(c.n) + ' ' + x.n + (x.act ? ' · ' + x.act + ' act.' : '') + (x.cai ? ' · ' + x.cai + ' caíd.' : '') + '</span>';
+      return '<span class="badge ' + (on ? 'b-info' : 'off') + '" title="' + (on ? 'Es lo que estás viendo en los KPIs' : 'Se cuenta aparte: no se suma a lo que estás viendo') + '">' + esc(c.n) + ' ' + x.n + (x.act ? ' · ' + x.act + ' act.' : '') + (x.cai ? ' · ' + x.cai + ' caíd.' : '') + '</span>';
     }).join('');
   }
   function tarjetaCl(L) {
@@ -6983,7 +6997,7 @@ function ventaForm(l) {
         '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Servicio</th><th>Tipo</th><th>Número</th><th>Estado</th><th>Desde</th><th>Comentario</th></tr></thead><tbody>' +
         (v.lineas || []).map(function (l) {
           var on = !sv || sv.sel().indexOf(l.clase) >= 0;
-          return '<tr' + (on ? '' : ' class="s46-off"') + '><td>' + esc(l.producto || '') + '</td><td>' + esc(sv ? sv.nombre(l.clase) : l.clase) + (on ? '' : ' <span class="meta">(no cuenta)</span>') + '</td><td>' + esc(l.numero || '') + '</td><td><b>' + esc(l.estado || '—') + '</b></td><td>' + esc(fdia(l.fecha_estado)) + '</td><td>' + esc(clip(l.comentario || '', 160)) + '</td></tr>';
+          return '<tr' + (on ? '' : ' class="s46-off"') + '><td>' + esc(l.producto || '') + '</td><td>' + esc(sv ? sv.nombre(l.clase) : l.clase) + (on ? '' : ' <span class="meta">(aparte)</span>') + '</td><td>' + esc(l.numero || '') + '</td><td><b>' + esc(l.estado || '—') + '</b></td><td>' + esc(fdia(l.fecha_estado)) + '</td><td>' + esc(clip(l.comentario || '', 160)) + '</td></tr>';
         }).join('') + '</tbody></table></div>' + bloqueNotas(v.id_venta);
     });
     if (!(D.ventas || []).length) h += '<div class="s46-h4">Venta</div><div class="meta">Todavía no tiene ninguna venta en MATRIZ.</div>';
@@ -7007,7 +7021,7 @@ function ventaForm(l) {
     else if (!d) body = '<div class="s46-vacio">' + (CL.busy ? 'Cargando…' : 'Sin datos') + '</div>';
     else {
       var desde = d.total ? CL.pag * PAG + 1 : 0, hasta = Math.min(d.total, CL.pag * PAG + (d.leads || []).length);
-      body = '<p class="meta" style="margin:0 0 10px">Mostrando ' + desde + '–' + hasta + ' de ' + n0(d.total) + ' · lo más reciente primero · los servicios atenuados no cuentan en los KPIs con tu selección 🧩</p>' +
+      body = '<p class="meta" style="margin:0 0 10px">Mostrando ' + desde + '–' + hasta + ' de ' + n0(d.total) + ' · lo más reciente primero · los servicios atenuados son de otro tipo y se cuentan aparte</p>' +
         ((d.leads || []).length ? '<div class="s46-cl">' + d.leads.map(tarjetaCl).join('') + '</div>' : '<div class="s46-vacio">No hay clientes con ese filtro.</div>') +
         '<div class="s46-tb" style="margin:12px 0 0;justify-content:center"><button type="button" class="sec" data-k="cant"' + (CL.pag ? '' : ' disabled') + '>← Anteriores</button><button type="button" class="sec" data-k="csig"' + (hasta >= d.total ? ' disabled' : '') + '>Siguientes →</button></div>';
     }
@@ -7167,10 +7181,10 @@ function ventaForm(l) {
    - 🆘 «Pedir ayuda»: concertador, cerrador y back avisan al supervisor y al administrador (máximo una vez cada 2 minutos).
    - Administrador: en Configuración aparece «🔔 Notificaciones»: enciende/apaga cada aviso, cambia su sonido y prioridad,
      envía anuncios (a todos o a algunos perfiles, normales o urgentes) y ve quién los leyó.
-   Los sonidos se fabrican en el navegador (no hay archivos de audio que subir). */
+   Los sonidos (cristal, marimba, pop…) se fabrican en el navegador con eco y reverberación suaves: no hay archivos de audio que subir. */
 (function () {
-  var SONIDOS = [['campanilla', 'Campanilla'], ['exito', 'Éxito'], ['dinero', 'Moneda'], ['triunfo', 'Triunfo'], ['discreto', 'Discreto'],
-    ['mensaje', 'Mensaje (tipo chat)'], ['aviso', 'Aviso'], ['alerta', 'Alerta'], ['prioridad', 'Urgente (sirena)'], ['ninguno', 'Sin sonido']];
+  var SONIDOS = [['campanilla', 'Cristal'], ['exito', 'Ascenso'], ['dinero', 'Chispa (moneda)'], ['triunfo', 'Victoria'], ['discreto', 'Gota (discreto)'],
+    ['mensaje', 'Pop (chat)'], ['aviso', 'Señal'], ['alerta', 'Alerta suave'], ['prioridad', 'Urgente (pulso)'], ['ninguno', 'Sin sonido']];
   var PRIO = { baja: 0, normal: 1, alta: 2, critica: 3 };
   var PRIO_T = [['baja', 'Baja'], ['normal', 'Normal'], ['alta', 'Alta'], ['critica', 'Urgente']];
   var ROLES = [['concertador', 'Concertadores'], ['cerrador', 'Cerradores (comerciales)'], ['back', 'Backs'], ['supervisor', 'Supervisores'], ['admin', 'Otros administradores']];
@@ -7206,41 +7220,121 @@ function ventaForm(l) {
   function vol() { var v = parseInt(pref('vol', '70'), 10); return isNaN(v) ? 0.7 : Math.min(1, Math.max(0, v / 100)); }
   function webOn() { return pref('web', '0') === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted'; }
 
-  /* ---------- sonidos fabricados con WebAudio ---------- */
-  var AC = null, master = null;
+  /* ---------- sonidos fabricados con WebAudio ----------
+     Suenan como una aplicación moderna: notas de cristal y marimba (síntesis FM), un toque de aire, eco estéreo suave y una cola de
+     reverberación. No hay archivos de audio: todo se genera aquí, en el navegador. */
+  var AC = null, master = null, bus = null, ruido = null;
+  function impulso(c, seg, caida) {   // cola de reverberación: ruido oscurecido que se apaga solo
+    var n = Math.floor(c.sampleRate * seg), b = c.createBuffer(2, n, c.sampleRate);
+    for (var ch = 0; ch < 2; ch++) {
+      var d = b.getChannelData(ch), s = 1234567 + ch * 7919, lp = 0;
+      for (var i = 0; i < n; i++) {
+        s = (s * 1664525 + 1013904223) >>> 0;
+        lp += ((s / 2147483648 - 1) - lp) * 0.4;
+        d[i] = lp * Math.pow(1 - i / n, caida) * (i < 400 ? i / 400 : 1);   // entrada suave: sin chasquido
+      }
+    }
+    return b;
+  }
+  function cadena(c) {
+    ruido = null;
+    master = c.createGain(); master.gain.value = 0.7;
+    var comp = c.createDynamicsCompressor();       // limitador suave: nunca satura ni se corta
+    comp.threshold.value = -9; comp.knee.value = 10; comp.ratio.value = 8; comp.attack.value = 0.002; comp.release.value = 0.2;
+    master.connect(comp); comp.connect(c.destination);
+    bus = c.createGain(); bus.connect(master);       // aquí entran todas las notas (directo + reverb + eco)
+    var rev = c.createConvolver(), hp = c.createBiquadFilter(), rg = c.createGain();
+    rev.buffer = impulso(c, 1.6, 3); hp.type = 'highpass'; hp.frequency.value = 220; rg.gain.value = 0.34;
+    bus.connect(hp); hp.connect(rev); rev.connect(rg); rg.connect(master);
+    var dl = c.createDelay(1), dr = c.createDelay(1), fb = c.createGain(), lp = c.createBiquadFilter(), env = c.createGain(), mer = c.createChannelMerger(2);
+    dl.delayTime.value = 0.17; dr.delayTime.value = 0.17; fb.gain.value = 0.34; lp.type = 'lowpass'; lp.frequency.value = 3400; env.gain.value = 0.2;
+    bus.connect(env); env.connect(dl); dl.connect(lp); lp.connect(dr); dr.connect(fb); fb.connect(dl);   // eco que rebota de izquierda a derecha
+    dl.connect(mer, 0, 0); dr.connect(mer, 0, 1); mer.connect(master);
+  }
   function ctx() {
     try {
       var A = window.AudioContext || window.webkitAudioContext; if (!A) return null;
-      if (!AC) { AC = new A(); master = AC.createGain(); master.connect(AC.destination); }
+      if (!AC) { AC = new A(); cadena(AC); }
       if (AC.state === 'suspended' && AC.resume) AC.resume();
       return AC;
     } catch (e) { return null; }
   }
-  function nota(c, t, f, dur, tipo, v, f2) {
+  function salida(c, g, pan) {
+    if (pan && c.createStereoPanner) { var p = c.createStereoPanner(); p.pan.value = pan; g.connect(p); p.connect(bus); } else g.connect(bus);
+  }
+  function sobre(g, t, v, atk, dur) {   // sube en unos milisegundos y se apaga sola (sin chasquidos al empezar ni al terminar)
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(v, t + atk); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  }
+  function fm(c, t, f, dur, v, razon, indice, pan) {   // nota FM: «pluck» de marimba o de vidrio, según la razón y el índice
+    var o = c.createOscillator(), m = c.createOscillator(), mg = c.createGain(), g = c.createGain();
+    o.frequency.setValueAtTime(f, t); m.frequency.setValueAtTime(f * razon, t);
+    mg.gain.setValueAtTime(f * indice, t); mg.gain.exponentialRampToValueAtTime(Math.max(1, f * 0.02), t + dur * 0.55);
+    m.connect(mg); mg.connect(o.frequency);
+    sobre(g, t, v, 0.004, dur); o.connect(g); salida(c, g, pan);
+    o.start(t); m.start(t); o.stop(t + dur + 0.05); m.stop(t + dur + 0.05);
+  }
+  function tono(c, t, f, dur, v, tipo, pan, atk) {
     var o = c.createOscillator(), g = c.createGain();
     o.type = tipo || 'sine'; o.frequency.setValueAtTime(f, t);
-    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
-    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(v, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.03);
+    sobre(g, t, v, atk || 0.004, dur); o.connect(g); salida(c, g, pan); o.start(t); o.stop(t + dur + 0.05);
+  }
+  function campana(c, t, f, dur, v, pan) {   // campana de vidrio: parciales inarmónicos 1 · 2.76 · 5.4 · 8.9 que se apagan a distinta velocidad
+    [[1, 1, 1], [2.756, 0.34, 0.6], [5.404, 0.16, 0.36], [8.933, 0.06, 0.22]].forEach(function (p) { tono(c, t, f * p[0], dur * p[2], v * p[1], 'sine', pan); });
+  }
+  function gota(c, t, f0, f1, dur, v, pan) {   // burbuja: el tono sube rápido y se apaga
+    var o = c.createOscillator(), g = c.createGain();
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.5);
+    sobre(g, t, v, 0.004, dur); o.connect(g); salida(c, g, pan); o.start(t); o.stop(t + dur + 0.05);
+  }
+  function tic(c, t, v, f) {   // chasquido de 30 ms (ruido filtrado): da presencia al principio de la nota
+    if (!ruido) {
+      var n = Math.floor(c.sampleRate * 0.04), d, s = 98765;
+      ruido = c.createBuffer(1, n, c.sampleRate); d = ruido.getChannelData(0);
+      for (var i = 0; i < n; i++) { s = (s * 1664525 + 1013904223) >>> 0; d[i] = (s / 2147483648 - 1) * Math.pow(1 - i / n, 3); }
+    }
+    var src = c.createBufferSource(), fl = c.createBiquadFilter(), g = c.createGain();
+    src.buffer = ruido; fl.type = 'bandpass'; fl.frequency.value = f || 5000; fl.Q.value = 1.4; g.gain.value = v;
+    src.connect(fl); fl.connect(g); g.connect(bus); src.start(t);
+  }
+  function acorde(c, t, freqs, dur, v) {   // acorde de sintetizador: dos sierras desafinadas por nota, con un filtro que se abre y se cierra
+    var fl = c.createBiquadFilter(), g = c.createGain();
+    fl.type = 'lowpass'; fl.Q.value = 0.7;
+    fl.frequency.setValueAtTime(900, t); fl.frequency.exponentialRampToValueAtTime(3600, t + 0.12); fl.frequency.exponentialRampToValueAtTime(1100, t + dur);
+    sobre(g, t, v, 0.02, dur); fl.connect(g); g.connect(bus);
+    freqs.forEach(function (f) {
+      [-6, 6].forEach(function (cents) {
+        var o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t); o.detune.value = cents;
+        o.connect(fl); o.start(t); o.stop(t + dur + 0.05);
+      });
+    });
   }
   var SON = {
-    campanilla: function (c, t) { nota(c, t, 880, .55, 'sine', .22); nota(c, t, 1760, .3, 'sine', .05); nota(c, t + .15, 1318.5, .7, 'sine', .2); nota(c, t + .15, 2637, .35, 'sine', .04); },
-    exito: function (c, t) { [523.25, 659.25, 783.99].forEach(function (f, i) { nota(c, t + i * .11, f, .3, 'triangle', .2); }); nota(c, t + .33, 1046.5, .55, 'triangle', .18); },
-    dinero: function (c, t) { nota(c, t, 1568, .09, 'square', .07); nota(c, t + .08, 2093, .6, 'sine', .22); nota(c, t + .08, 3136, .45, 'triangle', .06); nota(c, t + .08, 4186, .4, 'sine', .04); },
-    triunfo: function (c, t) {
-      [523.25, 659.25, 783.99].forEach(function (f, i) { nota(c, t + i * .12, f, .16, 'triangle', .2); });
-      [1046.5, 783.99, 659.25].forEach(function (f, i) { nota(c, t + .36, f, .8, 'triangle', i ? .1 : .2); });
+    campanilla: function (c, t) { campana(c, t, 1174.66, 1.0, .16, -.18); campana(c, t + .13, 1760, 1.3, .15, .18); tic(c, t, .05, 7000); },             // Cristal
+    exito: function (c, t) {                                                                                                                              // Ascenso
+      [523.25, 659.25, 783.99].forEach(function (f, i) { fm(c, t + i * .075, f, .42, .16, 4, 1.4, (i - 1) * .3); });
+      fm(c, t + .24, 1046.5, .75, .17, 3.5, 2.2, 0); campana(c, t + .24, 2093, .9, .05, .25); tic(c, t, .04, 6000);
     },
-    discreto: function (c, t) { nota(c, t, 720, .12, 'sine', .12); },
-    mensaje: function (c, t) { nota(c, t, 520, .09, 'sine', .22, 900); nota(c, t + .11, 700, .12, 'sine', .22, 1200); },
-    aviso: function (c, t) { nota(c, t, 740, .16, 'triangle', .22); nota(c, t + .2, 740, .16, 'triangle', .22); nota(c, t + .4, 988, .3, 'triangle', .22); },
-    alerta: function (c, t) { nota(c, t, 466, .22, 'triangle', .26); nota(c, t + .24, 349, .22, 'triangle', .26); nota(c, t + .48, 233, .4, 'triangle', .26); },
-    prioridad: function (c, t) { for (var i = 0; i < 6; i++) nota(c, t + i * .2, i % 2 ? 660 : 990, .18, 'square', .09); nota(c, t + 1.25, 1320, .5, 'sine', .2); }
+    dinero: function (c, t) { tic(c, t, .09, 6500); campana(c, t + .02, 1975.5, .55, .14, -.15); campana(c, t + .1, 2637, 1.0, .15, .15); fm(c, t + .1, 3951, .5, .04, 2, 1, .35); },   // Chispa
+    triunfo: function (c, t) {                                                                                                                            // Victoria
+      [523.25, 659.25, 783.99, 1046.5].forEach(function (f, i) { fm(c, t + i * .07, f, .5, .13, 4, 1.2, (i - 1.5) * .25); });
+      acorde(c, t + .26, [523.25, 659.25, 783.99, 1174.66], 1.3, .028);
+      campana(c, t + .26, 1567.98, 1.5, .09, -.2); campana(c, t + .34, 2349.3, 1.4, .07, .2);
+    },
+    discreto: function (c, t) { gota(c, t, 520, 980, .18, .3); fm(c, t + .01, 1560, .22, .05, 2, 1); tic(c, t, .04, 3500); },                                                                 // Gota
+    mensaje: function (c, t) { gota(c, t, 420, 880, .13, .27, -.1); gota(c, t + .1, 560, 1250, .18, .27, .1); fm(c, t + .1, 2500, .25, .04, 2, 1, .2); },    // Pop
+    aviso: function (c, t) { fm(c, t, 784, .5, .17, 4, 1.6, -.15); fm(c, t + .14, 1046.5, .8, .18, 3.5, 1.8, .15); campana(c, t + .14, 2093, .7, .04, .2); },  // Señal
+    alerta: function (c, t) {                                                                                                                             // Alerta suave
+      fm(c, t, 659.25, .45, .2, 3, 2.2, -.1); fm(c, t + .16, 523.25, .45, .2, 3, 2.2, 0); fm(c, t + .32, 440, .9, .22, 3, 2.6, .1); tono(c, t + .32, 110, .7, .08, 'sine');
+    },
+    prioridad: function (c, t) {                                                                                                                          // Urgente (pulso)
+      for (var i = 0; i < 4; i++) { var tt = t + i * .26; fm(c, tt, 880, .2, .26, 2, 2.2, -.25); fm(c, tt + .11, 1318.5, .2, .26, 2, 2.2, .25); tono(c, tt, 1760, .1, .05, 'triangle'); }
+      campana(c, t + 1.06, 1760, 1.0, .12, 0); tono(c, t, 110, 1.1, .06, 'sine');
+    }
   };
   function suena(nombre, minVol) {
     if (!nombre || nombre === 'ninguno' || !SON[nombre]) return;
     var c = ctx(); if (!c) return;
-    try { master.gain.value = Math.min(1, Math.max(vol(), minVol || 0)); SON[nombre](c, c.currentTime + 0.02); } catch (e) { }
+    try { master.gain.value = 2.4 * Math.min(1, Math.max(vol(), minVol || 0)); SON[nombre](c, c.currentTime + 0.03); } catch (e) { }
   }
 
   /* ---------- utilidades de pantalla ---------- */
@@ -7782,54 +7876,63 @@ function ventaForm(l) {
   if (typeof oLogin === 'function') {
     window.loginView = function () { quitar(); return oLogin.apply(this, arguments); };
   }
-  window.nt48 = { tick: tick, estado: function () { return S; }, suena: suena, navegar: navegar };
+  window.nt48 = { tick: tick, estado: function () { return S; }, suena: suena, navegar: navegar, audioReset: function () { AC = null; } };
 })();
 
-  /* 49 · «Servicios que cuentan» (botón 🧩 en todos los reportes) + objetivo mensual por agente
-   PEGAR al final de index.html, DESPUÉS del bloque 48. Antes: ejecuta 49_servicios_y_supervisor.sql en Supabase.
+  /* 49 · «Qué servicio ver» (Internet / Móvil / otros) en todos los reportes + objetivo mensual por agente
+   PEGAR al final de index.html, DESPUÉS del bloque 48. Antes: ejecuta 49_servicios_y_supervisor.sql y 50_internet_y_movil_separados.sql en Supabase.
    - Cada línea de MATRIZ es de un tipo: Internet (convergente), Móvil (línea paga), Móvil gratis, Línea fija, TV u Otros.
-     Solo Internet y Móvil pagan comisión, así que por defecto los totales cuentan solo esos dos. El administrador cambia el
-     defecto; cada persona puede elegir otra cosa con el botón 🧩 (se recuerda en su navegador).
-   - Lo elegido se aplica a los KPIs y reportes (supervisor, admin, Resumen, Ventas, Análisis). La ficha de cada cliente
-     sigue mostrando TODAS sus líneas: lo que no cuenta se ve atenuado.
-   - Objetivo mensual por agente: lo fija el administrador (Configuración → «Servicios y objetivos»); cada cerrador y
-     concertador ve el suyo en su Resumen y el supervisor ve el de todos. */
+   - REGLA DE ORO: Internet y Móvil NUNCA se suman. Se ve UNO a la vez (Internet por defecto, que es lo principal) y los móviles
+     activos aparecen aparte, como un número propio. Lo que no es lo elegido sigue visible en la ficha del cliente, atenuado.
+   - Lo elegido se aplica a los KPIs y reportes (supervisor, admin, Resumen, Ventas, Análisis) y se recuerda en el navegador.
+   - Objetivo mensual por agente: lo fija el administrador (Configuración → «Servicios y objetivos») y se mide en convergentes (Internet)
+     activados; cada cerrador y concertador ve el suyo en su Resumen (con sus móviles activos al lado) y el supervisor ve el de todos. */
 (function () {
   function $(i) { return document.getElementById(i); }
   function n0(n) { return Number(n || 0).toLocaleString('es-PE'); }
   function pcn(a, b) { return b ? Math.round(a * 100 / b) : 0; }
   function falta(e) { return /PGRST202|42883|42P01|svc_config|mi_objetivo|admin_svc|admin_obj|sup_resumen/.test(String(e && ((e.code || '') + ' ' + (e.message || '')))); }
-  function msg(e) { return falta(e) ? 'Falta ejecutar 49_servicios_y_supervisor.sql en Supabase' : limpio((e && e.message) || ''); }
+  function msg(e) { return falta(e) ? 'Falta ejecutar 49_servicios_y_supervisor.sql (y después el 50) en Supabase' : limpio((e && e.message) || ''); }
 
   var CAT = [
-    { k: 'INTERNET', n: 'Internet', d: 'Convergente: la fibra / internet de la venta', paga: true, o: 1 },
-    { k: 'MOVIL', n: 'Móvil', d: 'Línea móvil de pago', paga: true, o: 2 },
+    { k: 'INTERNET', n: 'Internet', d: 'Convergentes: la fibra / internet de cada venta. Es lo principal.', paga: true, o: 1 },
+    { k: 'MOVIL', n: 'Móvil', d: 'Líneas móviles de pago. Se cuentan aparte, nunca junto a Internet.', paga: true, o: 2 },
     { k: 'MOVIL_GRATIS', n: 'Móvil gratis', d: 'Línea móvil sin coste', paga: false, o: 3 },
     { k: 'FIJA', n: 'Línea fija', d: 'Teléfono fijo', paga: false, o: 4 },
     { k: 'TV', n: 'Televisión', d: 'Paquete de TV', paga: false, o: 5 },
     { k: 'OTRO', n: 'Otros', d: 'Servicios sin clasificar', paga: false, o: 6 }];
-  var BASE = { CONVERGENTE: 'INTERNET', LINEA_PAGA: 'MOVIL', LINEA_GRATIS: 'MOVIL_GRATIS', LINEA_FIJA: 'FIJA', TELEVISION: 'TV' };
+  var ICO = { INTERNET: '🌐', MOVIL: '📱', MOVIL_GRATIS: '📱', FIJA: '☎️', TV: '📺', OTRO: '🧩' };
+  var BASE = {
+    CONVERGENTE: 'INTERNET', INTERNET: 'INTERNET', FIBRA: 'INTERNET',
+    LINEA_PAGA: 'MOVIL', LINEA_MOVIL: 'MOVIL', MOVIL: 'MOVIL',
+    LINEA_GRATIS: 'MOVIL_GRATIS', MOVIL_GRATIS: 'MOVIL_GRATIS',
+    LINEA_FIJA: 'FIJA', FIJA: 'FIJA', FIJO: 'FIJA',
+    TELEVISION: 'TV', TV: 'TV'
+  };
 
   /* ================= ESTILOS ================= */
   var css = document.createElement('style');
   css.textContent = [
     '.svc49-fila{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px}.svc49-fila:empty{display:none}',
-    '.svc49-btn{display:inline-flex;align-items:center;gap:7px;background:var(--card);color:var(--ink);border:1px solid var(--line2);box-shadow:var(--sh);border-radius:99px;padding:8px 15px;font-weight:600;font-size:.88em;width:auto}',
-    '.svc49-btn:hover{background:var(--acc2);color:var(--acc)}.svc49-btn b{color:var(--acc)}',
+    /* selector de una sola opción */
+    '.svc49-seg{display:inline-flex;flex-wrap:wrap;gap:4px;background:var(--bg);border:1px solid var(--line2);border-radius:99px;padding:4px;box-shadow:var(--sh)}',
+    '.svc49-seg button{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:8px 15px;font-weight:700;font-size:.88em;color:var(--mut);white-space:nowrap;transition:background .15s,color .15s}',
+    '.svc49-seg button:hover{color:var(--ink);background:var(--card)}',
+    '.svc49-seg button.on,.svc49-seg button.on:hover{background:var(--acc);color:var(--on-acc);box-shadow:0 1px 4px rgba(0,0,0,.2)}',
+    '.svc49-seg button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}',
     '.svc49-hint{color:var(--mut);font-size:.78em}',
     '.svc49-nota{background:var(--acc2);color:var(--ink);border-radius:12px;padding:8px 12px;font-size:.84em;margin:0 0 10px}',
     '.svc49-lnk{all:unset;cursor:pointer;color:var(--acc);font-weight:700;text-decoration:underline}.svc49-lnk:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}',
     '.svc49-bk{position:fixed;inset:0;z-index:9390;background:transparent}',
-    '.svc49-pop{position:fixed;z-index:9400;width:min(380px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:16px;box-shadow:var(--sh-lg);padding:16px}',
+    '.svc49-pop{position:fixed;z-index:9400;width:min(360px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:16px;box-shadow:var(--sh-lg);padding:16px}',
     '.svc49-pop h4{margin:0 0 4px;font-size:1.05em}.svc49-pop .meta{margin:0 0 10px}',
     '.svc49-lista{display:grid;gap:6px}',
     '.svc49-op{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:8px 10px;cursor:pointer;margin:0}',
     '.svc49-op:hover{background:var(--acc2)}.svc49-op input{width:auto;margin:0;flex:none}',
     '.svc49-op .t{flex:1;min-width:0}.svc49-op .t b{font-weight:700}.svc49-op .t em{font-style:normal;font-size:.72em;font-weight:700;color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent);border-radius:99px;padding:1px 7px;margin-left:4px}',
     '.svc49-op .t small{display:block;color:var(--mut);font-size:.78em}.svc49-op .n{font-style:normal;font-weight:800;font-variant-numeric:tabular-nums}',
-    '.svc49-pre{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.svc49-pre button{padding:5px 11px;font-size:.8em;width:auto}',
-    '.svc49-pie{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}.svc49-pie button{width:auto}',
-    '@media(max-width:640px){.svc49-pop{left:0!important;right:0!important;top:auto!important;bottom:0!important;width:auto;border-radius:18px 18px 0 0;max-height:86vh}.svc49-bk{background:rgba(0,0,0,.35)}}',
+    '.svc49-pie{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}.svc49-pie button{width:auto}',
+    '@media(max-width:640px){.svc49-pop{left:0!important;right:0!important;top:auto!important;bottom:0!important;width:auto;border-radius:18px 18px 0 0;max-height:86vh}.svc49-bk{background:rgba(0,0,0,.35)}.svc49-seg{width:100%}.svc49-seg button{flex:1 1 auto;justify-content:center}}',
     /* líneas que no cuentan, atenuadas en las fichas */
     '.d15-chip.off{opacity:.45}',
     /* objetivo del agente */
@@ -7839,11 +7942,13 @@ function ventaForm(l) {
     '.o49-bar{height:12px;border-radius:99px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:10px 0 6px}',
     '.o49-bar i{display:block;height:100%;background:var(--ok);border-radius:99px;transition:width .4s}',
     '.o49.listo{border-color:var(--ok)}',
+    '.o49-ap{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;border-top:1px dashed var(--line2);margin-top:10px;padding-top:9px;font-size:.92em}.o49-ap b{font-size:1.15em}',
     /* pestaña de configuración */
     '.c49 .d15-sec{margin-bottom:16px}.c49-chk{display:grid;gap:6px;max-width:520px;margin:10px 0}',
     '.c49-tbl{width:100%;border-collapse:collapse;font-size:.88em}.c49-tbl th{text-align:left;color:var(--mut);font-size:.76em;text-transform:uppercase;letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--line)}',
     '.c49-tbl td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}.c49-tbl tr:last-child td{border-bottom:0}.c49-tbl td.n,.c49-tbl th.n{text-align:right;font-variant-numeric:tabular-nums}',
     '.c49-tbl input[type=number]{width:96px;text-align:right}.c49-tbl select{width:auto;min-width:150px}.c49-gr td{background:var(--bg);font-weight:800;font-size:.8em;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}',
+    '.c49-tbl tr.c49-warn td{background:color-mix(in srgb,var(--warn) 10%,transparent)}',
     '.c49-mini{height:8px;border-radius:99px;background:var(--bg);border:1px solid var(--line);overflow:hidden;min-width:90px}.c49-mini i{display:block;height:100%;background:var(--ok)}',
     '.c49-sc{overflow-x:auto}.c49-ay{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}.c49-ay input{width:90px}.c49-ay button{width:auto}'
   ].join('');
@@ -7853,18 +7958,19 @@ function ventaForm(l) {
   var ST = { cfg: null, real: false, ok: null, busy: null, sel: null, selUid: undefined, set: null, setKey: '', conteos: null, cbs: {}, pop: null };
 
   function cfg() {
-    if (!ST.cfg) ST.cfg = { defecto: ['INTERNET', 'MOVIL'], clases: CAT.slice(), mapa: {} };
+    if (!ST.cfg) ST.cfg = { defecto: ['INTERNET'], clases: CAT.slice(), mapa: {}, unico: false };
     return ST.cfg;
   }
   function uid() { try { return (me && me.id) || null; } catch (e) { return null; } }
   function lsKey() { return 'crm_n49_sel_' + (uid() || 'anon'); }
+  /* Siempre UNA sola clase. Si llegan varias (una elección antigua guardada en el navegador), manda la primera por orden: Internet, Móvil… */
   function valida(a) {
-    var ok = cfg().clases.map(function (c) { return c.k; });
-    a = (a || []).filter(function (k, i) { return ok.indexOf(k) >= 0 && a.indexOf(k) === i; }).sort();
-    return a.length ? a : null;
+    var pedidas = Array.isArray(a) ? a : (a ? [a] : []);
+    var ordenadas = cfg().clases.map(function (c) { return c.k; }).filter(function (k) { return pedidas.indexOf(k) >= 0; });
+    return ordenadas.length ? [ordenadas[0]] : null;
   }
-  function defecto() { return valida(cfg().defecto) || ['INTERNET', 'MOVIL']; }
-  function leeSel() { try { var v = JSON.parse(localStorage.getItem(lsKey()) || 'null'); return Array.isArray(v) ? valida(v) : null; } catch (e) { return null; } }
+  function defecto() { return valida(cfg().defecto) || ['INTERNET']; }
+  function leeSel() { try { var v = JSON.parse(localStorage.getItem(lsKey()) || 'null'); return v ? valida(v) : null; } catch (e) { return null; } }
   function guardaSel(a) { try { if (a) localStorage.setItem(lsKey(), JSON.stringify(a)); else localStorage.removeItem(lsKey()); } catch (e) { } }
   function sel() {
     if (ST.selUid !== uid()) { ST.selUid = uid(); ST.sel = leeSel(); ST.set = null; }
@@ -7877,35 +7983,65 @@ function ventaForm(l) {
     return ST.set;
   }
   function norm(t) { return String(t == null ? '' : t).normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase().replace(/ /g, '_'); }
-  /* MISMA regla que svc_clase() en la base: primero lo que fijó el admin, luego el tipo conocido, luego se deduce del producto */
-  function clase(tipo, prod) {
+  /* MISMA regla que svc_clase() en la base:
+     1º lo que fijó el admin · 2º el tipo conocido · 3º la marca de MATRIZ (es_internet / es_movil) · 4º se deduce del nombre del producto */
+  function clase(tipo, prod, ei, em) {
     var n = norm(tipo), mp = cfg().mapa || {};
     if (mp[n]) return mp[n];
     if (BASE[n]) return BASE[n];
+    if (ei === true) return 'INTERNET';
+    if (em === true) return 'MOVIL';
     var u = norm(prod).replace(/_/g, ' ');
+    if (/FIBRA|INTERNET|CONVERG|ADSL|HOGAR|WIFI/.test(u)) return 'INTERNET';
     if (/(^|[^A-Z])TV([^A-Z]|$)|TELEVISION|DECO/.test(u)) return 'TV';
     if (/LINEA FIJA|TELEFONO FIJO|VOZ FIJA/.test(u)) return 'FIJA';
-    if (/FIBRA|INTERNET|HOGAR|CONVERG|ADSL|WIFI/.test(u)) return 'INTERNET';
     if (/MOVIL|CELULAR|SEGUNDA|ADICIONAL|PORTABILIDAD|LINEA/.test(u)) return 'MOVIL';
     return 'OTRO';
   }
-  function cuenta(r) { return !!setSel()[clase(r && r.tipo_producto, r && r.producto)]; }
+  function claseDe(r) { return clase(r && r.tipo_producto, r && r.producto, r && r.es_internet, r && r.es_movil); }
+  function cuenta(r) { return !!setSel()[claseDe(r)]; }
   function filtra(rows) { return (rows || []).filter(cuenta); }
-  function todos() { return sel().length >= cfg().clases.length; }
-  function nombre(k) { var c = cfg().clases.filter(function (x) { return x.k === k; })[0]; return c ? c.n : k; }
-  function etiqueta(s) { s = s || sel(); return s.length >= cfg().clases.length ? 'Todos los servicios' : s.map(nombre).join(' + '); }
-  function sufijo() { return todos() ? '' : '_' + sel().join('-'); }
-  function nota(ocultos) {
-    if (todos()) return '';
-    return '<div class="svc49-nota">🧩 Contando solo <b>' + esc(etiqueta()) + '</b>' + (ocultos > 0 ? ' · ' + n0(ocultos) + ' servicio(s) de otros tipos no entran en estas cifras' : '') +
-      '. <button type="button" class="svc49-lnk" data-svc49-abre>Cambiar</button></div>';
+  function nombre(k) { var c = cfg().clases.filter(function (x) { return x.k === k; })[0]; return c ? c.n : (k || ''); }
+  function etiqueta(s) { return nombre((s || sel())[0]); }
+  /* Nombre para las cifras: «Convergentes (Internet)», «Líneas móviles»… */
+  function etiquetaKpi(k) {
+    k = k || sel()[0];
+    return k === 'INTERNET' ? 'Convergentes (Internet)' : k === 'MOVIL' ? 'Líneas móviles' : nombre(k);
+  }
+  function etiquetaAct(k) {   // «Convergentes (Internet) activos», «Líneas móviles activas»…
+    k = k || sel()[0];
+    return k === 'INTERNET' ? 'Convergentes (Internet) activos' : k === 'MOVIL' ? 'Líneas móviles activas' : nombre(k) + ' activos';
+  }
+  function icono(k) { return ICO[k] || '🧩'; }
+  function sufijo() { return '_' + sel()[0]; }
+  /* Lo que se enseña APARTE de lo elegido: si miras Internet, los móviles; si miras cualquier otra cosa, Internet */
+  function apartede(k) { return (k || sel()[0]) === 'INTERNET' ? 'MOVIL' : 'INTERNET'; }
+  var RE_ACT = /ACTIV|INSTAL|COMPLET/;
+  function esAct(e) { return RE_ACT.test(String(e || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()); }
+  function activosDe(rows, k) {
+    var n = 0;
+    (rows || []).forEach(function (r) { if (claseDe(r) === k && esAct(r.estado)) n++; });
+    return n;
+  }
+  function nota(ocultos, raw) {
+    var k = sel()[0], ap = apartede(k);
+    return '<div class="svc49-nota">' + icono(k) + ' Viendo solo <b>' + esc(nombre(k)) + '</b>' +
+      (ocultos > 0 ? ' · ' + n0(ocultos) + ' línea(s) de otros tipos no entran en estas cifras' : '') +
+      (raw ? ' · ' + icono(ap) + ' ' + esc(nombre(ap)) + ' activos aparte: <b>' + n0(activosDe(raw, ap)) + '</b> (no se suman)' : '') + '</div>';
   }
 
-  /* ================= BOTÓN Y VENTANITA ================= */
+  /* ================= SELECTOR Y VENTANITA ================= */
+  var PRIN = ['INTERNET', 'MOVIL'];
   function btnHtml() {
-    var propio = !!(ST.sel && valida(ST.sel) && valida(ST.sel).join() !== defecto().join());
-    return '<button type="button" class="svc49-btn" data-svc49-abre aria-haspopup="dialog" title="Elige qué tipos de servicio se cuentan en los totales"><span aria-hidden="true">🧩</span> Servicios que cuentan: <b>' + esc(etiqueta()) + '</b> <span aria-hidden="true">▾</span></button>' +
-      '<span class="svc49-hint">' + (propio ? 'Elegido por ti · <button type="button" class="svc49-lnk" data-svc49-def>volver al predeterminado</button>' : 'Predeterminado') + '</span>';
+    var k = sel()[0], otro = PRIN.indexOf(k) < 0;
+    function pill(c) {
+      var on = c === k;
+      return '<button type="button" role="radio" aria-checked="' + on + '" class="' + (on ? 'on' : '') + '" data-svc49-k="' + c + '"><span aria-hidden="true">' + ICO[c] + '</span> ' + esc(nombre(c)) + '</button>';
+    }
+    var propio = !!(ST.sel && valida(ST.sel) && valida(ST.sel)[0] !== defecto()[0]);
+    return '<div class="svc49-seg" role="radiogroup" aria-label="Qué servicio quieres ver">' + pill('INTERNET') + pill('MOVIL') +
+      '<button type="button" role="radio" aria-checked="' + otro + '" class="' + (otro ? 'on' : '') + '" data-svc49-abre aria-haspopup="dialog" title="Línea fija, televisión, móvil gratis…"><span aria-hidden="true">' + (otro ? ICO[k] : '⋯') + '</span> ' + (otro ? esc(nombre(k)) : 'Otros') + ' <span aria-hidden="true">▾</span></button></div>' +
+      '<span class="svc49-hint">' + (propio ? 'Elegido por ti · <button type="button" class="svc49-lnk" data-svc49-def>volver a ' + esc(nombre(defecto()[0])) + '</button>' : 'Se ve un servicio a la vez · Internet y Móvil nunca se suman') + '</span>';
   }
   function pintaHosts() {
     Array.prototype.forEach.call(document.querySelectorAll('[data-svc49]'), function (h) { h.innerHTML = btnHtml(); });
@@ -7927,15 +8063,14 @@ function ventaForm(l) {
   function abre(btn) {
     if (ST.pop) { cierra(); return; }
     var s = sel(), bk = document.createElement('div'); bk.className = 'svc49-bk';
-    var pop = document.createElement('div'); pop.className = 'svc49-pop'; pop.id = 'svc49-pop'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', 'Servicios que cuentan');
-    pop.innerHTML = '<h4>Servicios que cuentan</h4><p class="meta">Marca qué tipos se suman en los KPIs, ventas y análisis. Los demás se siguen viendo en la ficha del cliente, pero no entran en los totales.</p><div class="svc49-lista">' +
-      cfg().clases.map(function (c) {
+    var pop = document.createElement('div'); pop.className = 'svc49-pop'; pop.id = 'svc49-pop'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', 'Otros servicios');
+    pop.innerHTML = '<h4>Otros servicios</h4><p class="meta">Son menos importantes que Internet y Móvil. Se ve uno a la vez; los demás siguen visibles en la ficha del cliente, pero no entran en los totales.</p><div class="svc49-lista">' +
+      cfg().clases.filter(function (c) { return PRIN.indexOf(c.k) < 0; }).map(function (c) {
         var nc = ST.conteos && ST.conteos[c.k];
-        return '<label class="svc49-op"><input type="checkbox" value="' + esc(c.k) + '"' + (s.indexOf(c.k) >= 0 ? ' checked' : '') + '><span class="t"><b>' + esc(c.n) + '</b>' + (c.paga ? '<em>paga comisión</em>' : '') + '<small>' + esc(c.d) + '</small></span>' +
+        return '<label class="svc49-op"><input type="radio" name="svc49-otro" value="' + esc(c.k) + '"' + (s[0] === c.k ? ' checked' : '') + '><span class="t"><b>' + ICO[c.k] + ' ' + esc(c.n) + '</b><small>' + esc(c.d) + '</small></span>' +
           (nc != null ? '<i class="n" title="Servicios de este tipo en el periodo que estás viendo">' + n0(nc) + '</i>' : '') + '</label>';
       }).join('') + '</div>' +
-      '<div class="svc49-pre"><button type="button" class="sec" data-p="def">Predeterminado (' + esc(etiqueta(defecto())) + ')</button><button type="button" class="sec" data-p="int">Solo Internet</button><button type="button" class="sec" data-p="todo">Todos</button></div>' +
-      '<div class="svc49-pie"><button type="button" class="sec" data-p="x">Cancelar</button><button type="button" data-p="ok">Aplicar</button></div>';
+      '<div class="svc49-pie"><button type="button" class="sec" data-p="x">Cerrar</button></div>';
     document.body.appendChild(bk); document.body.appendChild(pop);
     if (window.innerWidth > 640 && btn) {
       var r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
@@ -7944,42 +8079,32 @@ function ventaForm(l) {
       pop.style.left = x + 'px'; pop.style.top = y + 'px';
     }
     ST.pop = { el: pop, bk: bk, btn: btn };
-    var f = pop.querySelector('input'); if (f) f.focus();
-  }
-  function marca(arr) {
-    var p = ST.pop; if (!p) return;
-    Array.prototype.forEach.call(p.el.querySelectorAll('input[type=checkbox]'), function (i) { i.checked = arr.indexOf(i.value) >= 0; });
-  }
-  function aplica() {
-    var p = ST.pop; if (!p) return;
-    var a = Array.prototype.filter.call(p.el.querySelectorAll('input[type=checkbox]'), function (i) { return i.checked; }).map(function (i) { return i.value; });
-    if (!a.length) return toast('Marca al menos un tipo de servicio', true);
-    fijar(a); cierra();
+    var f = pop.querySelector('input:checked') || pop.querySelector('input'); if (f) f.focus();
   }
   function fijar(a) {
     var v = valida(a) || defecto();
-    ST.sel = v.join() === defecto().join() ? null : v;      // igual al predeterminado = sin elección propia (así sigue al administrador)
+    ST.sel = v[0] === defecto()[0] ? null : v;      // igual al predeterminado = sin elección propia (así sigue al administrador)
     ST.selUid = uid(); guardaSel(ST.sel); cambio();
   }
   document.addEventListener('click', function (e) {
     var t = e.target;
+    var pk = t.closest && t.closest('[data-svc49-k]');
+    if (pk) { e.preventDefault(); if (ST.pop) cierra(); fijar([pk.getAttribute('data-svc49-k')]); return; }
     var b = t.closest && t.closest('[data-svc49-abre]');
     if (b) { e.preventDefault(); abre(b); return; }
     if (t.closest && t.closest('[data-svc49-def]')) { fijar(defecto()); return; }
     var p = ST.pop;
     if (!p) return;
     var pb = t.closest && t.closest('#svc49-pop [data-p]');
-    if (pb) {
-      var k = pb.getAttribute('data-p');
-      if (k === 'x') cierra(); else if (k === 'ok') aplica();
-      else if (k === 'def') marca(defecto()); else if (k === 'int') marca(['INTERNET']); else if (k === 'todo') marca(cfg().clases.map(function (c) { return c.k; }));
-      return;
-    }
+    if (pb) { cierra(); return; }
     if (!(t.closest && t.closest('#svc49-pop'))) cierra();
+  });
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t && t.name === 'svc49-otro' && t.checked) { var k = t.value; cierra(); fijar([k]); }
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && ST.pop) { e.preventDefault(); cierra(); }
-    else if (e.key === 'Enter' && ST.pop && e.target && e.target.type === 'checkbox') { e.preventDefault(); aplica(); }
   });
   new MutationObserver(function (muts) {
     for (var i = 0; i < muts.length; i++) {
@@ -7995,7 +8120,7 @@ function ventaForm(l) {
   function normaliza(d) {
     var cl = (d && d.clases && d.clases.length ? d.clases : CAT).map(function (c) { return { k: c.k, n: c.n, d: c.d, paga: !!c.paga, o: c.o || 0 }; });
     cl.sort(function (a, b) { return a.o - b.o; });
-    return { defecto: (d && d.defecto && d.defecto.length ? d.defecto : ['INTERNET', 'MOVIL']), clases: cl, mapa: (d && d.mapa) || {} };
+    return { defecto: (d && d.defecto && d.defecto.length ? d.defecto : ['INTERNET']), clases: cl, mapa: (d && d.mapa) || {}, unico: !!(d && d.unico) };
   }
   async function carga() {
     if (ST.busy) return ST.busy;
@@ -8016,9 +8141,11 @@ function ventaForm(l) {
   function reinicia() { ST.cfg = null; ST.real = false; ST.ok = null; ST.sel = null; ST.selUid = undefined; ST.set = null; ST.conteos = null; cierra(); }
 
   window.svc49 = {
-    carga: carga, sel: sel, defecto: defecto, cuenta: cuenta, filtra: filtra, clase: clase, nombre: nombre, etiqueta: etiqueta, nota: nota, sufijo: sufijo,
-    activo: function () { return !todos(); }, cfg: cfg, pinta: pintaHosts, set: fijar,
+    carga: carga, sel: sel, defecto: defecto, cuenta: cuenta, filtra: filtra, clase: clase, claseDe: claseDe, nombre: nombre, etiqueta: etiqueta, etiquetaKpi: etiquetaKpi, etiquetaAct: etiquetaAct,
+    icono: icono, apartede: apartede, activosDe: activosDe, nota: nota, sufijo: sufijo,
+    activo: function () { return true; }, cfg: cfg, pinta: pintaHosts, set: fijar,
     ok: function () { return ST.ok; },
+    unico: function () { return !!cfg().unico; },
     setConteos: function (o) { ST.conteos = o || null; },
     alCambiar: function (id, fn) { ST.cbs[id] = fn; }
   };
@@ -8045,11 +8172,13 @@ function ventaForm(l) {
     if (!d || !d.aplica || !d.objetivo) { if (ex) ex.remove(); return; }
     var obj = d.objetivo, act = d.act, falt = Math.max(0, obj - act), ok = act >= obj;
     var rit = d.dia ? act / d.dia : 0, proy = Math.round(rit * d.dias_mes);
-    var cls = (d.clases || []).map(nombre).join(' + ');
-    var html = '<h3>🎯 Tu objetivo del mes</h3><div class="meta">Servicios activados este mes (' + esc(cls) + '), por fecha de venta</div>' +
+    var cls = (d.clases && d.clases[0]) || 'INTERNET';
+    var que = cls === 'INTERNET' ? 'Convergentes (Internet) activados' : cls === 'MOVIL' ? 'Líneas móviles activas' : nombre(cls) + ' activados';
+    var ap = d.ap_k ? '<div class="o49-ap"><span aria-hidden="true">' + icono(d.ap_k) + '</span><span>' + etiquetaAct(d.ap_k) + ' este mes: <b>' + n0(d.ap_act) + '</b></span><span class="meta">aparte, no se suman a tu objetivo</span></div>' : '';
+    var html = '<h3>🎯 Tu objetivo del mes</h3><div class="meta">' + que + ' este mes, por fecha de venta</div>' +
       '<div class="o49-v"><b>' + n0(act) + '</b><span class="meta">de ' + n0(obj) + ' · ' + pcn(act, obj) + ' %</span></div>' +
       '<div class="o49-bar" role="progressbar" aria-valuemin="0" aria-valuemax="' + obj + '" aria-valuenow="' + act + '" aria-label="Avance hacia tu objetivo"><i style="width:' + Math.min(100, pcn(act, obj)) + '%"></i></div>' +
-      '<div class="meta">' + (ok ? '🎉 ¡Objetivo cumplido! Todo lo que sumes ahora es extra.' : 'Te faltan <b>' + n0(falt) + '</b> · ' + n0(d.tra) + ' más en trámite' + (d.dia > 3 ? ' · al ritmo actual llegarías a ~' + n0(proy) + ' (estimación, solo orientativa)' : '')) + '</div>';
+      '<div class="meta">' + (ok ? '🎉 ¡Objetivo cumplido! Todo lo que sumes ahora es extra.' : 'Te faltan <b>' + n0(falt) + '</b> · ' + n0(d.tra) + ' más en trámite' + (d.dia > 3 ? ' · al ritmo actual llegarías a ~' + n0(proy) + ' (estimación, solo orientativa)' : '')) + '</div>' + ap;
     var key = html;
     if (ex && ex.getAttribute('data-h') === key) return;
     var card = document.createElement('div'); card.id = 'o49-card'; card.className = 'o49' + (ok ? ' listo' : ''); card.setAttribute('data-h', key); card.innerHTML = html;
@@ -8084,45 +8213,49 @@ function ventaForm(l) {
     s.addEventListener('click', clicAdmin); s.addEventListener('change', cambioAdmin);
   }
   function esqueleto() {
-    return '<div class="d15-sec"><div class="d15-sh"><h3>🧩 Servicios que cuentan</h3><span class="meta">Lo que se suma en los KPIs y reportes</span></div>' +
-      '<p class="meta">Solo <b>Internet</b> (convergente) y <b>Móvil</b> (línea paga) pagan comisión; la línea fija y la TV pesan menos. Elige qué ve todo el equipo por defecto. Cada persona puede cambiarlo con el botón 🧩 en sus pantallas.</p>' +
+    return '<div id="c49-av"></div>' +
+      '<div class="d15-sec"><div class="d15-sh"><h3>🧩 Qué servicio se ve por defecto</h3><span class="meta">Internet y Móvil nunca se suman</span></div>' +
+      '<p class="meta"><b>Internet</b> (convergentes) es lo principal: es lo que cuenta para los objetivos. El <b>Móvil</b> se ve aparte, como un número propio. Elige qué ve todo el equipo al entrar; cada persona puede cambiarlo con los botones 🌐 Internet / 📱 Móvil de sus pantallas.</p>' +
       '<div id="c49-def"></div></div>' +
       '<div class="d15-sec"><div class="d15-sh"><h3>🎯 Objetivo mensual por agente</h3><span class="meta">Cerradores y concertadores</span></div><div id="c49-obj"><div class="d15-vacio">Cargando…</div></div></div>' +
-      '<div class="d15-sec"><div class="d15-sh"><h3>🔎 Cómo se clasifica cada tipo de servicio</h3><span class="meta">Revísalo si ves algo en «Otros» o mal clasificado</span></div><div id="c49-dia"><div class="d15-vacio">Cargando…</div></div></div>';
+      '<div class="d15-sec"><div class="d15-sh"><h3>🔎 Cómo se clasifica cada tipo de servicio</h3><span class="meta">Revísalo si Internet sale en 0 o ves algo en «Otros»</span></div><div id="c49-dia"><div class="d15-vacio">Cargando…</div></div></div>';
   }
   async function cargaAdmin() {
     var h = $('c49'); if (!h) return;
     if (!$('c49-def')) h.innerHTML = esqueleto();
     await carga();
+    var av = $('c49-av');
+    if (av) av.innerHTML = ST.ok && !cfg().unico ? '<div class="svc49-nota">⚠️ Falta ejecutar <b>50_internet_y_movil_separados.sql</b> en Supabase: mientras tanto Internet puede salir en 0 y se pueden sumar servicios distintos.</div>' : '';
     pintaDef(); pintaObjAdmin(); pintaDiag();
   }
   function pintaDef() {
     var h = $('c49-def'); if (!h) return;
     if (ST.ok === false) { h.innerHTML = '<div class="d15-vacio">' + esc(msg(ST.err || { message: 'PGRST202' })) + '</div>'; return; }
-    var d = defecto();
-    h.innerHTML = '<div class="c49-chk">' + cfg().clases.map(function (c) {
-      return '<label class="svc49-op"><input type="checkbox" data-f="def" value="' + esc(c.k) + '"' + (d.indexOf(c.k) >= 0 ? ' checked' : '') + '><span class="t"><b>' + esc(c.n) + '</b>' + (c.paga ? '<em>paga comisión</em>' : '') + '<small>' + esc(c.d) + '</small></span></label>';
-    }).join('') + '</div><button type="button" data-a="gdef" style="width:auto">Guardar</button> <span class="meta">Hoy: <b>' + esc(etiqueta(d)) + '</b></span>';
+    var d = defecto()[0];
+    h.innerHTML = '<div class="c49-chk" role="radiogroup" aria-label="Servicio por defecto">' + cfg().clases.map(function (c) {
+      return '<label class="svc49-op"><input type="radio" name="c49def" data-f="def" value="' + esc(c.k) + '"' + (d === c.k ? ' checked' : '') + '><span class="t"><b>' + ICO[c.k] + ' ' + esc(c.n) + '</b>' + (c.k === 'INTERNET' ? '<em>principal</em>' : '') + '<small>' + esc(c.d) + '</small></span></label>';
+    }).join('') + '</div><button type="button" data-a="gdef" style="width:auto">Guardar</button> <span class="meta">Hoy se ve por defecto: <b>' + esc(nombre(d)) + '</b></span>';
   }
   async function pintaObjAdmin() {
     var h = $('c49-obj'); if (!h) return;
     var r = await sb.rpc('sup_resumen', { p_dias: 0 });
     if (r.error) { h.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
-    var lista = (r.data && r.data.objetivos) || [], m = r.data.mes || {}, cl = (r.data.clases_obj || []).map(nombre).join(' + ');
+    var lista = (r.data && r.data.objetivos) || [], m = r.data.mes || {}, cl = (r.data.clases_obj || ['INTERNET'])[0], clN = etiquetaKpi(cl).toLowerCase();
+    var apN = m.ap_k ? (m.ap_k === 'MOVIL' ? 'móviles activos' : 'convergentes activos') : 'otro servicio';
     AD.obj = lista; AD.ini = {};
     function filas(rol, tit) {
       var g = lista.filter(function (x) { return x.rol === rol; });
       if (!g.length) return '';
-      return '<tr class="c49-gr"><td colspan="4">' + tit + '</td></tr>' + g.map(function (x) {
+      return '<tr class="c49-gr"><td colspan="5">' + tit + '</td></tr>' + g.map(function (x) {
         AD.ini[x.id] = x.objetivo || 0;
         return '<tr><td><b>' + esc(x.nombre) + '</b></td><td><div class="c49-mini" title="' + x.act + ' activados"><i style="width:' + Math.min(100, pcn(x.act, x.objetivo || 0)) + '%"></i></div></td>' +
-          '<td class="n">' + n0(x.act) + ' act. · ' + n0(x.tra) + ' trám.</td><td class="n"><input type="number" min="0" max="100000" step="1" data-f="obj" data-id="' + esc(x.id) + '" data-rol="' + esc(rol) + '" value="' + (x.objetivo || '') + '" placeholder="—" aria-label="Objetivo de ' + esc(x.nombre) + '"></td></tr>';
+          '<td class="n">' + n0(x.act) + ' act. · ' + n0(x.tra) + ' trám.</td><td class="n">' + n0(x.mov || 0) + '</td><td class="n"><input type="number" min="0" max="100000" step="1" data-f="obj" data-id="' + esc(x.id) + '" data-rol="' + esc(rol) + '" value="' + (x.objetivo || '') + '" placeholder="—" aria-label="Objetivo de ' + esc(x.nombre) + '"></td></tr>';
       }).join('');
     }
-    h.innerHTML = '<p class="meta">Se mide con los servicios <b>activados</b> del mes (por fecha de venta) de tipo <b>' + esc(cl) + '</b>, igual para todos. Vale para este mes y los siguientes hasta que lo cambies. Déjalo vacío o en 0 para quitarlo. ' +
+    h.innerHTML = '<p class="meta">El objetivo se mide en <b>' + esc(clN) + ' activados</b> del mes (por fecha de venta), igual para todos. Los <b>' + esc(apN) + '</b> de cada agente se muestran al lado, pero no se suman al objetivo. Vale para este mes y los siguientes hasta que lo cambies. Déjalo vacío o en 0 para quitarlo. ' +
       'El objetivo del grupo es la suma de los cerradores' + (m.objetivo ? ': <b>' + n0(m.objetivo) + '</b>' : '') + '.</p>' +
       (lista.length ? '<div class="c49-ay"><span class="meta">Poner el mismo a todos los</span><select data-f="aytipo" style="width:auto"><option value="cerrador">cerradores</option><option value="concertador">concertadores</option></select><input type="number" min="0" max="100000" id="c49-ayv" placeholder="Ej. 30"><button type="button" class="sec" data-a="ayuda">Rellenar</button><span class="meta">(se guarda al pulsar «Guardar objetivos»)</span></div>' +
-        '<div class="c49-sc"><table class="c49-tbl"><thead><tr><th>Agente</th><th>Avance</th><th class="n">Este mes</th><th class="n">Objetivo</th></tr></thead><tbody>' + filas('cerrador', 'Cerradores') + filas('concertador', 'Concertadores') + '</tbody></table></div>' +
+        '<div class="c49-sc"><table class="c49-tbl"><thead><tr><th>Agente</th><th>Avance</th><th class="n">Este mes</th><th class="n" title="Se ven aparte, no cuentan para el objetivo">' + (m.ap_k === 'MOVIL' ? '📱 Móviles act.' : '🌐 Conv. act.') + '</th><th class="n">Objetivo</th></tr></thead><tbody>' + filas('cerrador', 'Cerradores') + filas('concertador', 'Concertadores') + '</tbody></table></div>' +
         '<p style="margin:12px 0 0"><button type="button" data-a="gobj" style="width:auto">Guardar objetivos</button></p>' : '<div class="d15-vacio">No hay cerradores ni concertadores activos.</div>');
   }
   async function pintaDiag() {
@@ -8130,13 +8263,16 @@ function ventaForm(l) {
     var r = await sb.rpc('admin_svc_diagnostico');
     if (r.error) { h.innerHTML = '<div class="d15-vacio">' + esc(msg(r.error)) + '</div>'; return; }
     var l = r.data || []; AD.diag = l;
-    h.innerHTML = '<p class="meta">Cada línea de MATRIZ trae un «tipo». Aquí ves cómo se está contando. Si un tipo nuevo no se reconoce (sale como «Otros» o con la clase equivocada), elige a mano cómo debe contarse.</p>' +
-      '<div class="c49-sc"><table class="c49-tbl"><thead><tr><th>Tipo en MATRIZ</th><th>Ejemplo</th><th class="n">Líneas</th><th>Se cuenta como</th></tr></thead><tbody>' +
+    var hayInt = l.some(function (x) { return x.clase === 'INTERNET'; });
+    h.innerHTML = (hayInt || !l.length ? '' : '<div class="svc49-nota">⚠️ Ninguna línea se está contando como <b>Internet</b>. Revisa la columna «Marca de MATRIZ» y, si hace falta, fija a mano el tipo que corresponda al convergente.</div>') +
+      '<p class="meta">Cada fila es un tipo de MATRIZ con sus marcas. «Se cuenta como» sigue este orden: lo que fijes aquí → el tipo conocido (CONVERGENTE, LINEA_PAGA…) → la marca internet/móvil de MATRIZ → el nombre del producto. Si algo sale mal clasificado, elígelo a mano.</p>' +
+      '<div class="c49-sc"><table class="c49-tbl"><thead><tr><th>Tipo en MATRIZ</th><th>Marca de MATRIZ</th><th>Ejemplo</th><th class="n">Líneas</th><th>Se cuenta como</th></tr></thead><tbody>' +
       l.map(function (x) {
         var vac = x.tipo === '(vacío)';
-        return '<tr><td><b>' + esc(x.tipo) + '</b></td><td>' + esc(x.ejemplo || '') + '</td><td class="n">' + n0(x.n) + '</td><td>' +
-          (vac ? '<span class="meta">Se deduce del nombre del producto → ' + esc(nombre(x.clase)) + '</span>' :
-            '<select data-f="mapa" data-tipo="' + esc(x.tipo) + '" aria-label="Clase de ' + esc(x.tipo) + '"><option value=""' + (x.fijado ? '' : ' selected') + '>Automático → ' + esc(nombre(x.fijado ? '' : x.clase)) + '</option>' +
+        var marca = (x.ei ? '<span class="badge b-ok">internet</span> ' : '') + (x.em ? '<span class="badge b-info">móvil</span>' : '') || '<span class="meta">—</span>';
+        return '<tr' + (x.clase === 'OTRO' ? ' class="c49-warn"' : '') + '><td><b>' + esc(x.tipo) + '</b></td><td>' + marca + '</td><td>' + esc(x.ejemplo || '') + '</td><td class="n">' + n0(x.n) + '</td><td>' +
+          (vac ? '<span class="meta">Se deduce de la marca o del producto → <b>' + esc(nombre(x.clase)) + '</b></span>' :
+            '<select data-f="mapa" data-tipo="' + esc(x.tipo) + '" aria-label="Clase de ' + esc(x.tipo) + '"><option value=""' + (x.fijado ? '' : ' selected') + '>' + (x.fijado ? 'Automático' : 'Automático → ' + esc(nombre(x.clase))) + '</option>' +
             cfg().clases.map(function (c) { return '<option value="' + esc(c.k) + '"' + (x.fijado && x.clase === c.k ? ' selected' : '') + '>' + esc(c.n) + (x.fijado && x.clase === c.k ? ' (fijado)' : '') + '</option>'; }).join('') + '</select>') + '</td></tr>';
       }).join('') + '</tbody></table></div>';
   }
@@ -8144,11 +8280,12 @@ function ventaForm(l) {
     var b = e.target.closest('[data-a]'); if (!b) return;
     var a = b.getAttribute('data-a');
     if (a === 'gdef') {
-      var v = Array.prototype.filter.call(document.querySelectorAll('#c49-def input[data-f="def"]'), function (i) { return i.checked; }).map(function (i) { return i.value; });
-      if (!v.length) return toast('Marca al menos un tipo de servicio', true);
+      var ch = document.querySelector('#c49-def input[data-f="def"]:checked');
+      if (!ch) return toast('Elige un tipo de servicio', true);
+      var v = [ch.value];
       b.disabled = true; var r = await sb.rpc('admin_svc_defecto_set', { p_clases: v }); b.disabled = false;
       if (r.error) return toast(msg(r.error), true);
-      toast('Guardado: ahora cuenta ' + etiqueta(v)); await carga(); cfg().defecto = v; cambio(); pintaDef(); pintaObjAdmin();
+      toast('Guardado: por defecto se ve ' + nombre(v[0])); await carga(); cfg().defecto = v; cambio(); pintaDef(); pintaObjAdmin();
     } else if (a === 'ayuda') {
       var t = document.querySelector('#c49-obj select[data-f="aytipo"]').value, n = $('c49-ayv').value;
       if (n === '' || +n < 0) return toast('Escribe el número que quieres poner', true);
