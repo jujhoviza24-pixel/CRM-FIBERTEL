@@ -9526,9 +9526,9 @@ function ofcCalcular(cat, sel) {
   var DE_SRV = { DISPONIBLE: 'on', OCUPADO: 'busy', EN_LLAMADA: 'call', NO_MOLESTAR: 'dnd', AUSENTE: 'away' };
   var SILENCIO = { busy: 1, call: 1, dnd: 1 };                                                                   // con estos estados no suenan ni avisan los mensajes nuevos
   var DEPTO = { concertador: 'Ventas · Concertación', cerrador: 'Ventas · Cierre', back: 'Back office', admin: 'Administración', supervisor: 'Supervisión' };
-  var PREF0 = { sonMsg: true, sonZumbido: true, conexion: true, animRecibir: true, animEnviar: true, animPaneles: true, sacudir: true, avisoTexto: true };
-  var PREF_S = { tonoPriv: 'suave', tonoGrupo: 'gota', tonoZumbido: 'clasico', tonoConex: 'conex' };   // textos guardados: el tono elegido para cada tipo de aviso
-  var SLOT_DE = { tonoPriv: 'priv', tonoGrupo: 'grupo', tonoZumbido: 'zumbido', tonoConex: 'conex' };
+  var PREF0 = { sonMsg: true, sonZumbido: true, conexion: true, animRecibir: true, animEnviar: true, animPaneles: true, sacudir: true, avisoTexto: true, sonAgenda: true };
+  var PREF_S = { tonoPriv: 'suave', tonoGrupo: 'gota', tonoZumbido: 'clasico', tonoConex: 'conex', tonoAgenda: 'alarma' };   // textos guardados: el tono elegido para cada tipo de aviso
+  var SLOT_DE = { tonoPriv: 'priv', tonoGrupo: 'grupo', tonoZumbido: 'zumbido', tonoConex: 'conex', tonoAgenda: 'agenda' };
   var VOL0 = 60;                                                                                          // volumen por defecto (0–100): 60 = el de siempre
   var REAC_RAP = ['👍', '❤', '😂', '😮', '😢', '🙏', '✅', '👀'];                      // las 8 de siempre, a un toque
   var REAC = REAC_RAP.concat(['👎', '🎉', '🔥', '👏', '💯', '😍', '🤔', '😡', '🤝', '💪', '🙌', '😅', '☕', '🚀', '⭐', '⚠']);   // las 24 permitidas (la base guarda ❤ y ⚠ sin el selector de variante)
@@ -9553,13 +9553,15 @@ function ofcCalcular(cat, sel) {
     conex: { n: 'Discreto', s: [[523, 0, .12, .035], [659, .08, .12, .035], [784, .16, .22, .035]] },
     arpegio: { n: 'Arpegio', s: [[392, 0, .1, .04], [523, .07, .1, .04], [659, .14, .1, .04], [784, .21, .26, .04]] },
     brillo: { n: 'Brillo', s: [[1568, 0, .14, .03], [2093, .08, .3, .025]] },
+    alarma: { n: 'Alarma', s: [[880, 0, .14, .07], [1175, .16, .14, .07], [880, .32, .14, .07], [1175, .48, .22, .07]] },
     silencio: { n: 'Sin sonido', s: [] }
   };
   var SLOT_TONOS = {
     tonoPriv: ['suave', 'gota', 'campana', 'burbuja', 'pluma', 'silencio'],
     tonoGrupo: ['suave', 'gota', 'campana', 'burbuja', 'pluma', 'silencio'],
     tonoZumbido: ['clasico', 'vibra', 'alerta', 'silencio'],
-    tonoConex: ['conex', 'arpegio', 'brillo', 'silencio']
+    tonoConex: ['conex', 'arpegio', 'brillo', 'silencio'],
+    tonoAgenda: ['alarma', 'campana', 'arpegio', 'alerta', 'silencio']
   };
   /* Stickers: no son imágenes, se dibujan en pantalla (emoji grande + frase sobre un degradado). Lo que viaja y se guarda es solo su nombre corto. [nombre, emoji, frase, color, palabras para buscar] */
   var STICKERS = [
@@ -9641,13 +9643,18 @@ function ofcCalcular(cat, sel) {
     revision_estado_invalido: 'Ese estado de revisión no es válido', nota_obligatoria: 'Cuéntale qué debe corregir (mínimo 3 letras)',
     tarea_ya_creada: 'Ya convertiste este mensaje en tarea', no_se_puede_tarea: 'Ese mensaje no se puede convertir en tarea', fecha_invalida: 'Esa fecha límite no es válida (máximo 400 días)',
     anuncio_repetido: 'Acabas de enviar un anuncio con ese mismo título. Espera un par de minutos', anuncio_sin_titulo: 'Escribe el título del anuncio',
-    silenciado: 'La administración te silenció: puedes leer, pero no escribir por ahora', archivada: 'Este grupo está archivado y ya no admite mensajes nuevos'
+    silenciado: 'La administración te silenció: puedes leer, pero no escribir por ahora', archivada: 'Este grupo está archivado y ya no admite mensajes nuevos',
+    agenda_invalida: 'Revisa el recordatorio: necesita un título (hasta 120 letras), una fecha válida y, si se repite, avisar como máximo 1 hora antes',
+    agenda_pasada: 'Esa hora ya pasó. Elige una fecha futura', agenda_llena: 'Ya tienes 300 recordatorios pendientes. Marca o borra alguno para crear otro', agenda_no_existe: 'Ese recordatorio ya no existe',
+    rapida_invalida: 'El atajo debe tener de 1 a 20 letras sin tilde, números, guion o guion bajo, y el texto hasta 1000 letras', rapida_repetida: 'Ya tienes una respuesta con ese atajo. Elige otro o edita la que existe',
+    rapida_llena: 'Llegaste al máximo de respuestas rápidas. Borra alguna para crear otra'
   };
   /* Un corte de red / servidor caído se puede reintentar solo; un rechazo del servidor («chat:…») no. */
   function esRed(e) { var m = String((e && e.message) || e || ''); return !/chat:/.test(m) && /Failed to fetch|NetworkError|Load failed|network|tiempo agotado|timeout|timed out|50[234]|Bad Gateway|Service Unavailable|Gateway Time/i.test(m); }
   function msgE(e) {
     var m = String((e && e.message) || e || ''), c = String((e && e.code) || '');
     var k = /chat:([a-z_]+)/.exec(m); if (k && ERR_CHAT[k[1]]) return ERR_CHAT[k[1]];
+    if (/PGRST202|PGRST205|42883|42P01|42703/.test(c + ' ' + m) && /chat_extras|chat_agenda|chat_rapida|chat_rapidas|chat_menciones/.test(m)) return 'Falta ejecutar 61_chat_agenda.sql en Supabase';
     if (/PGRST202|PGRST205|42883|42P01|42703/.test(c + ' ' + m) && /chat_crm_|chat_revision|chat_mensaje_a_tarea|chat_anunciar|chat_tareas/.test(m)) return 'Falta ejecutar 59_chat_crm.sql en Supabase';
     if (/PGRST202|PGRST205|42883|42P01|42703/.test(c + ' ' + m) && /chat_perfiles|chat_avatar_set|chat_mensaje_estado_set|chat_adjuntos_cfg|chat_puede_adjuntar|chat_adjunto_ok|chat_archivos|avatar_color|avatar_emoji|mensaje_hasta|mensaje_estado|p_adjunto|adjunto/.test(m)) return 'Falta ejecutar 58_chat_social.sql en Supabase';
     if (/PGRST202|PGRST205|42883|42P01/.test(c + ' ' + m)) return /chat_grupo|chat_miembros|chat_editar|chat_borrar|chat_reaccionar|chat_fijar|chat_conv_ajustes|p_responde_a|responde_a|reacciones|editado_at|borrado_at/.test(m) ? 'Falta ejecutar 57b_chat_funciones.sql en Supabase' : 'Falta ejecutar 57_chat_mensajeria.sql en Supabase';
@@ -9708,7 +9715,7 @@ function ofcCalcular(cat, sel) {
       grupos: {}, cfg: {}, fij: {}, fijIdx: {}, miembros: {}, miembrosCarga: {}, miembrosErr: {}, resp: null, edit: null, pop: null, modal: null, salida: null,
       perf: {}, sinSocial: false, perfT: null, perfUlt: 0, emoQ: '', emoTab: 'emo', emoRec: [], stkRec: [],
       adj: null, adjP: null, adjN: 0, band: {}, arch: {}, bl: {}, bajando: {}, xhr: {}, lb: null, aud: null, rec2: null, vel: 1, subQ: null, dragN: 0, grabPidiendo: false,
-      crm: {}, sinCrm: false, backs: null, tarea: {} };
+      crm: {}, sinCrm: false, backs: null, tarea: {}, x8: null, verAg: false, rt: null };
   }
   function cargaPrefs() {
     var p = {}; try { p = JSON.parse(lsGet('crm_chat_prefs_' + me.id) || '{}') || {}; } catch (e) { p = {}; }
@@ -9752,8 +9759,8 @@ function ofcCalcular(cat, sel) {
   /* slot: 'priv' (mensaje privado) · 'grupo' (grupo, canal o sala general) · 'zumbido' · 'conex'. fuerza = sonar aunque esté apagado (botón «Probar»). tono = probar uno concreto. */
   function suena(slot, fuerza, tono) {
     var P = C.pref;
-    if (!fuerza) { if (slot === 'zumbido' ? !P.sonZumbido : slot === 'conex' ? (!P.conexion || pasivo()) : (!P.sonMsg || pasivo())) return; }
-    var id = tono || P[slot === 'priv' ? 'tonoPriv' : slot === 'grupo' ? 'tonoGrupo' : slot === 'zumbido' ? 'tonoZumbido' : 'tonoConex'], t = TONOS[id];
+    if (!fuerza) { if (slot === 'agenda' ? !P.sonAgenda : slot === 'zumbido' ? !P.sonZumbido : slot === 'conex' ? (!P.conexion || pasivo()) : (!P.sonMsg || pasivo())) return; }
+    var id = tono || P[slot === 'agenda' ? 'tonoAgenda' : slot === 'priv' ? 'tonoPriv' : slot === 'grupo' ? 'tonoGrupo' : slot === 'zumbido' ? 'tonoZumbido' : 'tonoConex'], t = TONOS[id];
     if (!t || !t.s.length || P.vol <= 0) return;
     t.s.forEach(function (n) { nota(n[0], n[1], n[2], n[3], n[4]); });
   }
@@ -10426,8 +10433,135 @@ function ofcCalcular(cat, sel) {
     '.mz-hist li span{color:var(--mz-meta)}',
     '@media(max-width:699px){.mz-b.crm{width:100%}.mz-cb{height:34px}}'
   ].join('\n');
+  /* Fase 8A: agenda, respuestas rápidas y menciones. CSS_AG_G va FUERA de la ventana (la alerta debe verse aunque el chat esté cerrado); CSS_AG va dentro y se limita a #mz con ambito(). */
+  var CSS_AG_G = [
+    '@keyframes mz-agin{from{opacity:0;transform:translateY(-14px) scale(.97)}to{opacity:1;transform:none}}',
+    '@keyframes mz-agtimbre{0%,100%{transform:rotate(0)}15%{transform:rotate(-16deg)}30%{transform:rotate(14deg)}45%{transform:rotate(-10deg)}60%{transform:rotate(7deg)}75%{transform:rotate(-3deg)}}',
+    '#mz-agal{position:fixed;top:14px;right:14px;z-index:9070;display:grid;gap:10px;width:min(392px,calc(100vw - 28px));font:14px/1.4 Inter,"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--ink);pointer-events:none;max-height:calc(100vh - 28px);overflow:auto}',
+    '#mz-agal[hidden]{display:none}',
+    '#mz-agal>*{pointer-events:auto}',
+    '#mz-agal button{-webkit-appearance:none;appearance:none;background:none;border:0;border-radius:0;box-shadow:none;margin:0;padding:0;color:inherit;font:inherit;cursor:pointer;text-align:inherit;transform:none;transition:none;letter-spacing:normal;text-transform:none;-webkit-tap-highlight-color:transparent}',
+    '#mz-agal button:focus-visible,#mz-agal .ag-card:focus-visible{outline:2px solid var(--acc);outline-offset:2px}',
+    '#mz-agal .ag-card{border-radius:18px;background:var(--card);border:1px solid var(--line2);border-left:5px solid var(--warn);box-shadow:0 18px 50px rgba(6,18,26,.28),0 2px 8px rgba(6,18,26,.14);padding:12px 14px;animation:mz-agin .28s cubic-bezier(.2,.8,.2,1)}',
+    '#mz-agal .ag-h{display:flex;align-items:center;gap:10px}',
+    '#mz-agal .ag-ico{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;flex:none;background:var(--warn-bg);color:var(--warn)}',
+    '#mz-agal .ag-ico svg{animation:mz-agtimbre 1.1s ease 2}',
+    '#mz-agal .ag-ht{flex:1;min-width:0;line-height:1.2}',
+    '#mz-agal .ag-ht b{display:block;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink)}',
+    '#mz-agal .ag-ht small{display:block;font-size:12.5px;color:color-mix(in srgb,var(--ink) 70%,var(--card));margin-top:1px}',
+    '#mz-agal .ag-x{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex:none;color:color-mix(in srgb,var(--ink) 70%,var(--card))}',
+    '#mz-agal .ag-x:hover{background:color-mix(in srgb,var(--acc) 9%,transparent);color:var(--ink)}',
+    '#mz-agal .ag-t{margin:8px 0 0;font-size:16px;font-weight:700;line-height:1.3;overflow-wrap:anywhere}',
+    '#mz-agal .ag-n{margin:4px 0 0;font-size:13.5px;color:color-mix(in srgb,var(--ink) 78%,var(--card));white-space:pre-wrap;overflow-wrap:anywhere;max-height:92px;overflow:auto}',
+    '#mz-agal .ag-b{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:12px}',
+    '#mz-agal .ag-btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:11px;font-weight:700;font-size:13px;background:var(--acc);color:var(--on-acc)}',
+    '#mz-agal .ag-btn:hover{filter:brightness(1.08)}',
+    '#mz-agal .ag-pp{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;color:color-mix(in srgb,var(--ink) 70%,var(--card));margin-left:auto}',
+    '#mz-agal .ag-pp button{height:30px;padding:0 9px;border-radius:9px;font-weight:700;font-size:12.5px;color:var(--ink);border:1px solid var(--line2);background:var(--bg)}',
+    '#mz-agal .ag-pp button:hover{border-color:var(--acc);color:var(--acc)}',
+    '#mz-agal .ag-lnk{font-size:12.5px;font-weight:700;color:var(--acc);text-decoration:underline;text-underline-offset:2px;padding:4px 2px}',
+    '#mz-agal .ag-mas{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;border-radius:14px;background:var(--card);border:1px solid var(--line2);box-shadow:0 8px 24px rgba(6,18,26,.2);font-size:13px}',
+    '#chat23-btn.mz-agpulso::after{content:"";position:absolute;inset:0;border-radius:50%;border:3px solid var(--warn);animation:mz-pulso 1.3s ease-out infinite;pointer-events:none}',
+    '@media(max-width:699px){#mz-agal{top:8px;right:8px;left:8px;width:auto}#mz-agal .ag-pp{margin-left:0}}',
+    '@media(prefers-reduced-motion:reduce){#mz-agal .ag-card,#mz-agal .ag-ico svg,#chat23-btn.mz-agpulso::after{animation:none!important}}'
+  ].join('');
+  var CSS_AG = [
+    /* fila «Mi agenda» de la lista */
+    '.mz-agav{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--mz-grad);color:var(--on-acc)}',
+    '.mz-agav .mz-ic{width:22px;height:22px}',
+    '.mz-nb.venc{background:var(--bad);color:#fff}',
+    '#mz:is(html[data-tema=oscuro] *) .mz-nb.venc,#mz:is(html[data-tema=oscuro] *) .mz-at{color:#2a0a07}',
+    '.mz-at{flex:none;min-width:20px;height:20px;padding:0 5px;border-radius:99px;background:var(--bad);color:#fff;font-size:11.5px;font-weight:800;line-height:20px;text-align:center;margin-right:4px}',
+    /* mención dentro de un mensaje */
+    '.mz-men{font-weight:700;border-radius:6px;padding:0 3px;background:color-mix(in srgb,var(--acc) 15%,transparent);color:var(--acc)}',
+    '.mz-g.yo .mz-b .mz-men{background:rgba(255,255,255,.24);color:inherit}',
+    '.mz-men.yo{background:color-mix(in srgb,var(--warn) 28%,transparent);color:var(--ink)}',
+    /* sugerencias (/ y @) sobre el cuadro de escribir */
+    '.mz-sug{position:absolute;left:14px;right:14px;bottom:100%;margin-bottom:-4px;z-index:6;max-height:min(300px,45vh);overflow:auto;padding:6px;border-radius:16px;background:var(--card);border:1px solid var(--line2);box-shadow:var(--sh-lg);animation:mz-desliza .14s ease}',
+    '.mz-sug .t{padding:6px 10px 4px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mz-meta)}',
+    '.mz-sug [role=option]{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;cursor:pointer;min-width:0}',
+    '.mz-sug [role=option]:hover,.mz-sug [role=option].sel{background:var(--mz-sel)}',
+    '.mz-sug [role=option] .x{flex:1;min-width:0;display:grid;line-height:1.25}',
+    '.mz-sug [role=option] b{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.mz-sug [role=option] small{font-size:12.5px;color:var(--mz-meta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.mz-sug [role=option] .eq{flex:none;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:99px;background:var(--mz-tinte);border:1px solid var(--mz-borde-tinte);color:var(--acc)}',
+    '.mz-sug .vacio{padding:12px 10px;font-size:13px;color:var(--mz-meta)}',
+    '.mz-sug .pie{display:flex;justify-content:flex-end;padding:4px 4px 0;border-top:1px solid var(--line);margin-top:4px}',
+    '.mz-sug .pie button{font-size:12.5px;font-weight:700;color:var(--acc);padding:6px 8px;border-radius:9px}',
+    '.mz-sug .pie button:hover{background:var(--mz-hover)}',
+    /* pantalla «Mi agenda» */
+    '.ag-v{display:flex;flex-direction:column;min-height:0;flex:1}',
+    '.ag-b{flex:1;min-height:0;overflow-y:auto;padding:12px 18px 22px;display:block}',
+    '.ag-tabs{display:inline-flex;gap:4px;padding:4px;border-radius:14px;background:var(--mz-tinte);border:1px solid var(--mz-borde-tinte);margin-bottom:6px}',
+    '.ag-tabs button{height:32px;padding:0 14px;border-radius:10px;font-weight:700;font-size:13px;color:var(--mz-meta)}',
+    '.ag-tabs button[aria-pressed=true]{background:var(--card);color:var(--ink);box-shadow:var(--sh)}',
+    '.ag-gr{display:flex;align-items:center;gap:8px;margin:16px 0 6px;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mz-meta)}',
+    '.ag-gr.venc{color:var(--bad)}',
+    '.ag-l{list-style:none;margin:0;padding:0;display:grid;gap:8px}',
+    '.ag-it{display:flex;align-items:flex-start;gap:12px;padding:12px 12px 12px 10px;border-radius:16px;background:var(--card);border:1px solid var(--line2)}',
+    '.ag-it.venc{border-left:4px solid var(--bad)}',
+    '.ag-it.hecha .tt{text-decoration:line-through;color:var(--mz-meta)}',
+    '.ag-ok{width:30px;height:30px;border-radius:50%;flex:none;display:grid;place-items:center;border:2px solid color-mix(in srgb,var(--acc) 55%,var(--line2));color:transparent;margin-top:1px}',
+    '.ag-ok:hover{background:var(--mz-hover);color:var(--acc)}',
+    '.ag-it.hecha .ag-ok{background:var(--acc);border-color:var(--acc);color:var(--on-acc)}',
+    '.ag-ok .mz-ic{width:16px;height:16px}',
+    '.ag-tx{flex:1;min-width:0;display:grid;gap:3px}',
+    '.ag-tx .tt{font-size:14.5px;font-weight:700;line-height:1.3;overflow-wrap:anywhere}',
+    '.ag-tx .nt{font-size:13px;color:var(--mz-meta);white-space:pre-wrap;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
+    '.ag-tx .mt{font-size:12.5px;color:var(--mz-meta)}',
+    '.ag-tx .mt.venc{color:var(--bad);font-weight:700}',
+    '.ag-tx .ag-lnk{justify-self:start;font-size:12.5px;font-weight:700;color:var(--acc);text-decoration:underline;text-underline-offset:2px;padding:2px 0}',
+    '.ag-ac{display:flex;gap:0;flex:none}',
+    '.ag-ac .mz-ib{width:34px;height:34px}',
+    '.ag-ac .mz-ib.conf{width:auto;padding:0 10px;background:var(--bad);color:#fff;font-weight:700;font-size:12.5px;border-radius:10px}',
+    '.ag-pie{margin:18px 0 0;font-size:12.5px;color:var(--mz-meta);line-height:1.45}',
+    '.ag-orig{display:flex;gap:8px;align-items:flex-start;padding:9px 12px;border-radius:12px;background:var(--mz-tinte);border:1px solid var(--mz-borde-tinte);font-size:12.5px;color:var(--mz-meta);margin-bottom:12px;overflow-wrap:anywhere}',
+    '.ag-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}',
+    '.ag-chips button{height:30px;padding:0 11px;border-radius:99px;font-size:12.5px;font-weight:700;color:var(--acc);border:1px solid color-mix(in srgb,var(--acc) 40%,var(--line2))}',
+    '.ag-chips button:hover{background:var(--mz-hover)}',
+    '.ag-dos{display:grid;grid-template-columns:1fr 1fr;gap:12px}',
+    '.ag-h2{font-size:12.5px;margin-top:4px;min-height:18px;color:var(--bad);font-weight:600}',
+    '.mz-fld input[type=datetime-local]{display:block;width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;background:var(--bg);border:1px solid var(--line2);font-size:14px;line-height:1.4;color:var(--ink)}',
+    '.mz-fld input[type=datetime-local]:focus{border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 16%,transparent);background:var(--card);outline:none}',
+    /* administrar respuestas rápidas */
+    '.rp-s{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:14px 0 6px}',
+    '.rp-s h4{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mz-meta);margin:0}',
+    '.rp-l{list-style:none;margin:0;padding:0;display:grid;gap:6px}',
+    '.rp-it{display:flex;align-items:flex-start;gap:8px;padding:9px 8px 9px 12px;border-radius:14px;background:var(--bg);border:1px solid var(--line2)}',
+    '.rp-t{flex:1;min-width:0;display:grid;gap:2px}',
+    '.rp-t b{font-size:13.5px;font-weight:800;color:var(--acc)}',
+    '.rp-t span{font-size:13px;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}',
+    '.rp-ac{display:flex;flex:none}',
+    '.rp-ac .mz-ib{width:32px;height:32px}',
+    '.rp-ac .mz-ib.conf{width:auto;padding:0 10px;background:var(--bad);color:#fff;font-weight:700;font-size:12.5px;border-radius:10px}',
+    '.rp-vacio{padding:12px;border-radius:14px;border:1px dashed var(--line2);font-size:13px;color:var(--mz-meta)}',
+    '.rp-at{display:flex;align-items:center;gap:0;border-radius:12px;background:var(--bg);border:1px solid var(--line2);overflow:hidden}',
+    '.rp-at:focus-within{border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 16%,transparent);background:var(--card)}',
+    '.rp-at span{padding:0 0 0 12px;font-weight:800;color:var(--acc)}',
+    '.rp-at input{flex:1;min-width:0;padding:10px 12px 10px 4px!important;border:0!important;background:transparent!important;box-shadow:none!important;font-size:14px}',
+    '.rp-at input:focus-visible{outline:none}',
+    '.ag-it.mz-flash{animation:mz-flash 1.1s ease 1}',
+    '.ag-h2.ok{color:var(--mz-meta);font-weight:500}',
+    '.ag-sg{margin:8px 0 0;font-size:12.5px;color:var(--mz-meta)}',
+    /* aviso «Sin conexión en vivo» con botón de detalle y panel de diagnóstico */
+    '.mz-banner .mz-bnb{flex:none;margin-left:2px;padding:3px 6px;border-radius:7px;font-size:12.5px;font-weight:800;color:inherit;text-decoration:underline;text-underline-offset:2px}',
+    '.mz-banner .mz-bnb:hover{background:color-mix(in srgb,var(--warn) 14%,transparent)}',
+    '.mz-banner{top:72px;color:color-mix(in srgb,var(--warn) 80%,var(--ink))}',
+    '.rt-l{display:grid;gap:0;margin:0 0 10px}',
+    '.rt-f{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px}',
+    '.rt-f span{color:var(--mz-meta)}',
+    '.rt-f b{font-weight:700;text-align:right;overflow-wrap:anywhere}',
+    '.rt-f b.ok{color:color-mix(in srgb,var(--ok) 70%,var(--ink))}',
+    '.rt-f b.mal{color:var(--bad)}',
+    '.rt-p{margin:10px 0 0;padding:10px 12px;border-radius:12px;background:var(--warn-bg);color:color-mix(in srgb,var(--warn) 80%,var(--ink));font-size:13px;line-height:1.45;overflow-wrap:anywhere}',
+    '.rt-p.ok{background:var(--ok-bg);color:color-mix(in srgb,var(--ok) 70%,var(--ink))}',
+    '.rt-p code{display:block;margin-top:6px;padding:8px 10px;border-radius:8px;background:var(--card);color:var(--ink);font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;user-select:all}',
+    '.rt-b{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}',
+    '.rt-h{margin:12px 0 0;padding:0;list-style:none;font-size:12px;color:var(--mz-meta);display:grid;gap:3px;max-height:110px;overflow:auto}',
+    '@media(max-width:699px){.ag-b{padding:10px 12px 18px}.ag-dos{grid-template-columns:1fr}.mz-sug{left:8px;right:8px}.mz-banner{white-space:normal;max-width:calc(100% - 24px);flex-wrap:wrap;justify-content:center;border-radius:18px;padding:8px 12px;text-align:center}}'
+  ].join('\n');
   var estilo = document.createElement('style'); estilo.id = 'mz57-css';
-  estilo.textContent = CSS_KEYS + CSS_GLOBAL + ambito(CSS_DENTRO + '\n' + CSS_CRM);
+  estilo.textContent = CSS_KEYS + CSS_GLOBAL + CSS_AG_G + ambito(CSS_DENTRO + '\n' + CSS_CRM + '\n' + CSS_AG);
   document.head.appendChild(estilo);
 
   /* ================= DATOS ================= */
@@ -10553,7 +10687,7 @@ function ofcCalcular(cat, sel) {
     }
     var yo = R.yo && DE_SRV[R.yo.estado];
     if (yo && yo !== C.st) { C.st = yo; lsSet('crm_chat_estado_' + me.id, yo); if (C.chP) { try { C.chP.track({ nombre: perfil.nombre, st: yo, t: Date.now() }); } catch (e) { } } }
-    C.cargadoEn = Date.now(); boton();
+    C.cargadoEn = Date.now(); boton(); cargaExtras(false);
     return true;
   }
   /* ----- Perfiles: color, icono y mensaje de estado de cada persona. SIEMPRE salen de la base (la presencia en vivo la puede escribir cualquiera, por eso no se usa para esto). ----- */
@@ -10647,7 +10781,7 @@ function ofcCalcular(cat, sel) {
     C.resaltar = id;
   }
   function marca(key) {
-    C.nl[key] = 0;
+    C.nl[key] = 0; limpiaMen(key);
     if (compartida(key)) { var lg = C.msgs[key] || [], u = lg[lg.length - 1]; if (u && !u._est) C.ultLeido[key] = u.created_at; }
     else (C.msgs[key] || []).forEach(function (m) { if (m.de !== me.id && !m.leido_at && !m._est) m.leido_at = new Date().toISOString(); });
     boton();
@@ -10719,14 +10853,14 @@ function ofcCalcular(cat, sel) {
     return o + esc(s.slice(i));
   }
   /* Convierte el texto del mensaje en HTML seguro: todo se escapa y solo los enlaces http/https se vuelven pulsables. */
-  function textoHtml(raw, q) {
+  function textoHtml(raw, q, msg) {
     var partes = String(raw == null ? '' : raw).split(/(https?:\/\/[^\s<>"']+)/i), h = '';
     for (var i = 0; i < partes.length; i++) {
       var p = partes[i]; if (!p) continue;
       if (i % 2 === 1) {
         var cola = (/[.,;:!?)\]]+$/.exec(p) || [''])[0], u = cola ? p.slice(0, p.length - cola.length) : p;
         h += '<a href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + esc(u) + '</a>' + esc(cola);
-      } else h += resaltar(p, q);
+      } else h += conMenciones(p, q, msg);
     }
     return h;
   }
@@ -10800,10 +10934,10 @@ function ofcCalcular(cat, sel) {
     else if (!r) prev = gen ? 'Todo el equipo' : g ? esc((g.tipo === 'CANAL' ? 'Canal' : 'Grupo') + ' · ' + g.miembros + (g.miembros === 1 ? ' miembro' : ' miembros')) : esc(txtMsgEstado(id) || deptoDe(id));
     else if (r.tipo === 'SISTEMA') prev = esc(r.cuerpo);
     else prev = (r._est === 'error' ? '<em style="color:var(--bad)">No enviado:</em> ' : r.de === me.id ? '<em>Tú:</em> ' : ((gen || g) ? '<em>' + esc(nombreDe(r.de).split(' ')[0]) + ':</em> ' : '')) + esc(previa(r));
-    return '<div class="mz-rw"><button type="button" class="mz-row' + (n ? ' nuevo' : '') + (cf.silenciado ? ' mudo' : '') + '" data-a="abrir" data-id="' + esc(id) + '"' + (C.peer === id ? ' aria-current="true"' : '') + ' aria-label="' + esc(nombre + (n ? ', ' + n + ' sin leer' : '') + (cf.silenciado ? ', silenciada' : '') + (cf.fijado ? ', fijada' : '')) + '">' +
+    return '<div class="mz-rw"><button type="button" class="mz-row' + (n ? ' nuevo' : '') + (cf.silenciado ? ' mudo' : '') + '" data-a="abrir" data-id="' + esc(id) + '"' + (C.peer === id ? ' aria-current="true"' : '') + ' aria-label="' + esc(nombre + (n ? ', ' + n + ' sin leer' : '') + (menDe(id) ? ', te mencionaron' : '') + (cf.silenciado ? ', silenciada' : '') + (cf.fijado ? ', fijada' : '')) + '">' +
       avConv(id, 44) +
       '<div class="mz-rt"><div class="mz-rn"><b>' + esc(nombre) + '</b>' + iconosFila(id) + (r ? '<time>' + esc(tiempoCorto(r.created_at)) + '</time>' : '') + '</div>' +
-      '<div class="mz-rp"><span>' + prev + '</span>' + (n ? '<i class="mz-nb' + (cf.silenciado ? ' mut' : '') + '" aria-hidden="true">' + (n > 99 ? '99+' : n) + '</i>' : '') + '</div></div></button>' + masBtn(id, nombre) + '</div>';
+      '<div class="mz-rp"><span>' + prev + '</span>' + badgeAt(id) + (n ? '<i class="mz-nb' + (cf.silenciado ? ' mut' : '') + '" aria-hidden="true">' + (n > 99 ? '99+' : n) + '</i>' : '') + '</div></div></button>' + masBtn(id, nombre) + '</div>';
   }
   function filaContacto(c) {
     return '<div class="mz-rw"><button type="button" class="mz-row" data-a="abrir" data-id="' + esc(c.id) + '"' + (C.peer === c.id ? ' aria-current="true"' : '') + '>' +
@@ -10819,7 +10953,7 @@ function ofcCalcular(cat, sel) {
     var cl = claves(), conConv = {}; cl.forEach(function (i) { conConv[i] = 1; });
     var fij = [GEN].concat(cl).filter(function (k) { return (C.cfg[k] || {}).fijado; }).sort(porRecientes);
     var resto = cl.filter(function (k) { return !(C.cfg[k] || {}).fijado; }).sort(porRecientes);
-    var h = '';
+    var h = filaAgenda();
     if (fij.length) h += titulo('Fijadas') + fij.map(filaConv).join('');
     h += titulo('Conversaciones') + (fij.indexOf(GEN) < 0 ? filaConv(GEN) : '') + resto.map(filaConv).join('');
     var libres = C.cont.filter(function (c) { return !conConv[c.id]; });
@@ -10899,6 +11033,7 @@ function ofcCalcular(cat, sel) {
     else if (s) s.remove();
     b.setAttribute('aria-label', (C.open ? 'Cerrar' : 'Abrir') + ' Fibertel Messenger' + (n ? ', ' + n + (n === 1 ? ' mensaje sin leer' : ' mensajes sin leer') : ''));
     b.title = 'Messenger' + (n ? ' · ' + n + ' sin leer' : '');
+    agPulso();
     if (C.open) pintaLista();
   }
 
@@ -10941,7 +11076,7 @@ function ofcCalcular(cat, sel) {
     if (nota) {   // silenciado por la administración, grupo archivado, lector de un grupo o miembro de un canal: puede leer, pero no escribir
       return '<div class="mz-comp" id="mz-comp"><div class="mz-solo" role="note">' + ic(IC.info, 18) + '<span>' + esc(nota) + '</span></div></div>';
     }
-    return '<div class="mz-comp" id="mz-comp"><span class="mz-cuenta" id="mz-cuenta" hidden></span><div id="mz-ctxc"></div><div class="mz-band" id="mz-band" hidden></div>' +
+    return '<div class="mz-comp" id="mz-comp"><span class="mz-cuenta" id="mz-cuenta" hidden></span><div id="mz-ctxc"></div><div class="mz-band" id="mz-band" hidden></div><div class="mz-sug" id="mz-sug" hidden></div>' +
       '<div class="mz-emo" id="mz-emo" role="dialog" aria-label="Emojis y stickers" hidden>' +
         '<div class="mz-emt" role="tablist" aria-label="Qué quieres insertar"><button type="button" role="tab" id="mz-tab-emo" data-a="emotab" data-v="emo" aria-selected="true" aria-controls="mz-emb">Emojis</button>' +
         '<button type="button" role="tab" id="mz-tab-stk" data-a="emotab" data-v="stk" aria-selected="false" aria-controls="mz-emb" tabindex="-1">Stickers</button></div>' +
@@ -10950,8 +11085,9 @@ function ofcCalcular(cat, sel) {
       '<div class="mz-caja" id="mz-caja"><button type="button" class="mz-ib" id="mz-emob" data-a="emo" aria-label="Emojis y stickers" title="Emojis y stickers" aria-expanded="false" aria-haspopup="true">' + ic(IC.cara) + '</button>' +
       (off ? '' : '<button type="button" class="mz-ib" id="mz-clip" data-a="adjuntar" aria-label="Adjuntar foto o archivo" title="Adjuntar foto o archivo">' + ic(IC.clip) + '</button>') +
       (off ? '' : btnCrm(k)) +
+      (off ? '' : btnRap()) +
       (comp || off ? '' : '<button type="button" class="mz-ib mz-bz" id="mz-bz" data-a="zumbido" aria-label="Enviar zumbido" title="Enviar zumbido (llama la atención de ' + esc(nombreDe(k)) + ')">' + ic(IC.campana) + '<span class="cd" id="mz-cd" hidden></span></button>') +
-      '<label class="mz-sr" for="mz-in">Escribe un mensaje</label><textarea id="mz-in" rows="1" maxlength="' + MAXLEN + '"' + (off ? ' disabled' : '') + ' data-minus autocomplete="off" placeholder="' + (off ? 'Esta persona ya no está activa' : k === GEN ? 'Escribe a todo el equipo…' : g ? (g.tipo === 'CANAL' ? 'Publica en el canal…' : 'Escribe al grupo…') : 'Escribe un mensaje…') + '"></textarea>' +
+      '<label class="mz-sr" for="mz-in">Escribe un mensaje</label><textarea id="mz-in" rows="1" maxlength="' + MAXLEN + '"' + (off ? ' disabled' : '') + ' data-minus aria-autocomplete="list" autocomplete="off" placeholder="' + (off ? 'Esta persona ya no está activa' : k === GEN ? 'Escribe a todo el equipo…' : g ? (g.tipo === 'CANAL' ? 'Publica en el canal…' : 'Escribe al grupo…') : 'Escribe un mensaje…') + '"></textarea>' +
       (off ? '' : '<button type="button" class="mz-ib mz-mic" id="mz-mic" data-a="grabar" aria-label="Grabar nota de voz" title="Grabar nota de voz">' + ic(IC.mic) + '</button>') +
       '<button type="button" class="mz-send" id="mz-send" data-a="enviar" aria-label="Enviar mensaje" title="Enviar (Enter)" disabled>' + ic(IC.envia) + '</button></div>' +
       (off ? '' : '<div class="mz-caja mz-grab" id="mz-grab" role="group" aria-label="Grabando nota de voz" hidden>' +
@@ -10983,7 +11119,7 @@ function ofcCalcular(cat, sel) {
   /* Cambia la cabecera y el cuadro de escribir sin tocar los mensajes (por ejemplo cuando cambia mi papel en un grupo). */
   function repintaChrome() {
     var M = $('mz-main'); if (!M || !C.peer || !C.open) return;
-    C.emo = false;
+    C.emo = false; sugCierra();
     var h = M.querySelector('.mz-ch'), c = $('mz-comp'), i = $('mz-in'), val = i ? i.value : null, foco = !!(i && document.activeElement === i);
     if (h) h.outerHTML = cabecera();
     if (c) {
@@ -11041,7 +11177,7 @@ function ofcCalcular(cat, sel) {
     if (m.tipo === 'STICKER') return htmlSticker(m.cuerpo);
     if (m.tipo === 'IMAGEN' || m.tipo === 'AUDIO' || m.tipo === 'ARCHIVO') return htmlAdjunto(m, q);
     if (m.tipo === 'TARJETA') return (esCard(m) || esAnuncio(m)) ? htmlTarjeta(m, q) : '<div class="mz-t">' + esc(m.cuerpo || 'Tarjeta') + '</div>';
-    return '<div class="mz-t">' + textoHtml(m.cuerpo, q) + '</div>';
+    return '<div class="mz-t">' + textoHtml(m.cuerpo, q, m) + '</div>';
   }
   function htmlMsgs() {
     var l = C.msgs[C.peer] || [], k = C.peer, gen = k === GEN, comp = compartida(k), q = C.busq.on ? C.busq.q.trim() : '', h = '', ult = null, ultT = 0, ultD = null;
@@ -11102,7 +11238,8 @@ function ofcCalcular(cat, sel) {
   }
   function pintaMain() {
     var M = $('mz-main'); if (!M) return;
-    if (!C.peer) { M.innerHTML = vacioMain(); return; }
+    sugCierra();
+    if (!C.peer) { if (C.verAg && !X().sin) { M.innerHTML = htmlAgenda(); } else { C.verAg = false; M.innerHTML = vacioMain(); } return; }
     M.innerHTML = cabecera() + barraBusq() + '<div id="mz-fijc"></div><div class="mz-lienzo"><div class="mz-ms" id="mz-ms" role="log" aria-label="Mensajes" tabindex="0"></div><button type="button" class="mz-abajo" id="mz-abajo" data-a="abajo" hidden></button></div>' +
       '<div class="mz-ty" id="mz-ty"></div>' + compositor();
     var i = $('mz-in'); if (i) { i.value = C.borr[C.peer] || ''; autoTam(); }
@@ -11172,6 +11309,7 @@ function ofcCalcular(cat, sel) {
   function autoTam() { var i = $('mz-in'); if (!i) return; i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 140) + 'px'; }
   function actualizaEnvio() {
     var i = $('mz-in'), s = $('mz-send'), c = $('mz-cuenta'); if (!i || !s) return;
+    sugAlVaciar();
     var n = i.value.length, vacioT = !i.value.trim(), conArch = bandejaDe(C.peer).length > 0, cj = $('mz-caja');
     s.disabled = vacioT && !conArch; if (cj) cj.classList.toggle('tiene', !vacioT || conArch);
     if (c) { c.hidden = n < MAXLEN - 300; c.textContent = n + '/' + MAXLEN; c.classList.toggle('max', n >= MAXLEN); }
@@ -11208,6 +11346,7 @@ function ofcCalcular(cat, sel) {
       filaTono('tonoPriv', 'Mensajes privados') + filaTono('tonoGrupo', 'Grupos, canales y sala general') +
       interruptor('sonZumbido', 'Sonido del zumbido', 'Suena cuando envías o recibes un zumbido.') + filaTono('tonoZumbido', 'Zumbido') +
       interruptor('conexion', 'Aviso de compañero que se conecta', 'Un aviso discreto con tono corto cuando alguien entra en línea.') + filaTono('tonoConex', 'Compañero conectado') +
+      (X().sin ? '' : interruptor('sonAgenda', 'Alerta sonora de la agenda', 'Suena cuando llega la hora de un recordatorio de tu agenda. Suena aunque estés en «Ocupado» o «No molestar»: la pediste tú.') + filaTono('tonoAgenda', 'Recordatorio de la agenda')) +
       '<div class="mz-vol"><label for="mz-vol">Volumen de los sonidos</label><input type="range" id="mz-vol" min="0" max="100" step="5" value="' + C.pref.vol + '" data-q="vol" aria-valuetext="' + C.pref.vol + ' por ciento"><output id="mz-volo" for="mz-vol">' + C.pref.vol + '%</output></div>' +
       '<h4>Efectos visuales</h4>' +
       interruptor('animRecibir', 'Animación al recibir un mensaje', 'El mensaje y el botón del chat se animan al llegar uno nuevo.') +
@@ -11229,7 +11368,7 @@ function ofcCalcular(cat, sel) {
     guardaBorrador();
     var cambia = C.peer !== peer, cache = C.cargado[peer] ? C.msgs[peer] : null;
     C.edit = null; if (cambia) { C.resp = null; cierraPop(); cancelaGrab(); cierraLB(); }
-    C.peer = peer; C.vista = 'conv'; C.emo = false; C.busq = { on: false, q: '', i: 0, n: 0 }; C.nuevos = 0; C.resaltar = op.resaltar || null; C.errConv = null; C.cargaConv = !cache;
+    C.peer = peer; C.verAg = false; C.vista = 'conv'; C.emo = false; C.busq = { on: false, q: '', i: 0, n: 0 }; C.nuevos = 0; C.resaltar = op.resaltar || null; C.errConv = null; C.cargaConv = !cache;
     if (cambia) delete C.divisor[peer];
     pintaMain(); aplicaVista(); pintaLista(); pintaInfo();
     if (esGrupo(peer)) cargaMiembros(peer);
@@ -11244,7 +11383,7 @@ function ofcCalcular(cat, sel) {
     pintaMsgs({ inicio: true }); pintaInfo(); pintaLista();
     var i = $('mz-in'); if (i && window.innerWidth > 700 && !C.resaltar) i.focus();
   }
-  function cerrarConv() { guardaBorrador(); cancelaGrab(); cierraLB(); C.peer = null; C.resp = null; C.edit = null; cierraPop(); C.vista = 'lista'; C.busq = { on: false, q: '', i: 0, n: 0 }; pintaMain(); aplicaVista(); pintaLista(); }
+  function cerrarConv() { guardaBorrador(); cancelaGrab(); cierraLB(); C.peer = null; C.verAg = false; C.resp = null; C.edit = null; cierraPop(); C.vista = 'lista'; C.busq = { on: false, q: '', i: 0, n: 0 }; pintaMain(); aplicaVista(); pintaLista(); }
 
   /* ----- Cola de envío: lo que no se pudo enviar por falta de red se guarda en este navegador y se reintenta solo.
      Es seguro reintentar: cada mensaje lleva su client_id y la base no crea dos con el mismo. ----- */
@@ -11404,6 +11543,7 @@ function ofcCalcular(cat, sel) {
       if (lejos && m.tipo !== 'ZUMBIDO') C.nuevos++;
       pintaMsgs(); marca(peer); pintaTyping(); pintaLista();
     } else { if (m.tipo !== 'ZUMBIDO') C.nl[peer] = (C.nl[peer] || 0) + 1; boton(); pintaLista(); }
+    menNuevo(m, peer, viendo);
     var g = C.grupos[peer], quien = nombreDe(m.de) + (peer === GEN ? ' (sala general)' : g ? ' · ' + g.nombre : ''), callada = silenciada(peer);
     if (m.tipo === 'ZUMBIDO') {
       if (pasivo() || callada) return;
@@ -11579,6 +11719,7 @@ function ofcCalcular(cat, sel) {
         var id = ' data-id="' + esc(m.id) + '"';
         if (puedeEscribir(k)) h += itemPop('responder', IC.responder, 'Responder', id);
         if (m.tipo === 'TEXTO') h += itemPop('copiar', IC.copiar, 'Copiar texto', id);
+        if (!X().sin && CONTENIDO[m.tipo] && !m._est && !m.borrado_at) h += itemPop('ag-msg', IC.agenda, 'Recordarme este mensaje', id);
         if (m.adjunto && m.adjunto.id && !m._est && !m.borrado_at) h += itemPop('descarga', IC.descarga, 'Descargar', id);
         if (crmVisible(m) && m.crm.t === 'VENTA' && !m._est) h += itemPop('crm-copiar', IC.copiar, 'Copiar código de la venta', id);
         if (esRolBack() && (m.tipo === 'TEXTO' || esTarjeta(m)) && !m._est) h += itemPop('atarea', IC.tarea, 'Convertir en tarea', id);
@@ -11597,6 +11738,9 @@ function ofcCalcular(cat, sel) {
     } else if (p.tipo === 'crm') {
       itemsCrm(k).forEach(function (x) { h += itemPop(x[0], x[1], x[2]); });
       P.setAttribute('aria-label', 'Compartir, ayuda y anuncios');
+    } else if (p.tipo === 'agpos') {
+      AG_POSP_MENU.forEach(function (x) { h += itemPop('ag-posp', IC.reloj, 'Posponer ' + x[1], ' data-id="' + esc(p.id) + '" data-m="' + x[0] + '"'); });
+      P.setAttribute('aria-label', 'Posponer el aviso');
     } else if (p.tipo === 'miembro') {
       var g = C.grupos[k], mb = (C.miembros[k] || []).filter(function (x) { return x.id === p.id; })[0];
       if (!g || !mb) { C.pop = null; P.hidden = true; P.innerHTML = ''; return; }
@@ -11865,7 +12009,7 @@ function ofcCalcular(cat, sel) {
       C.open = true; w.hidden = false; w.classList.remove('mz-sale');
       if (anim('animPaneles')) { w.classList.remove('mz-entra'); void w.offsetWidth; w.classList.add('mz-entra'); }
       document.body.classList.add('mz-abierto');
-      C.vista = C.peer ? 'conv' : 'lista'; aplicaVista(); pintaMe(); pintaLista(); pintaInfo();
+      C.vista = (C.peer || C.verAg) ? 'conv' : 'lista'; aplicaVista(); pintaMe(); pintaLista(); pintaInfo();
       if (C.peer) { if (!C.cargado[C.peer]) abrirConv(C.peer); else { pintaMain(); pintaMsgs({ inicio: true }); if (!document.hidden) marca(C.peer); } }
       else pintaMain();
       if (!sinFoco && window.innerWidth > 700) setTimeout(function () { var q = $('mz-q'), i = $('mz-in'); (C.peer && i ? i : q) && (C.peer && i ? i : q).focus(); }, 60);
@@ -11908,13 +12052,15 @@ function ofcCalcular(cat, sel) {
     if (anim('animRecibir')) { var f = document.querySelector('#mz .mz-row[data-id="' + id + '"]'); if (f) { f.classList.add('mz-flash'); setTimeout(function () { f.classList.remove('mz-flash'); }, 1100); } }
   }
   function banner(v) { var b = $('mz-banner'); if (b) b.hidden = !v; }
-  function estadoRed(s) {
+  function estadoRed(s, err, detectado) {
     if (C.cerrando) return;
+    if (!detectado) rtAnota('msgs', s, err);
     if (s === 'SUBSCRIBED') {
-      var estabaCaido = C.caido; C.conectado = true; C.caido = false; banner(false);
+      var estabaCaido = C.caido; C.conectado = true; C.caido = false; banner(false); rtPara();   // el aviso se quita SOLO cuando el canal está de verdad unido
       if (estabaCaido || C.cargadoEn) resync();      // puede haber un hueco entre la carga inicial y la suscripción, o durante la caída
     } else if (s === 'CLOSED' || s === 'CHANNEL_ERROR' || s === 'TIMED_OUT') {
-      if (C.conectado && !C.caido) { C.caido = true; banner(true); }
+      if (!C.caido) { C.caido = true; banner(true); }
+      rtEmpieza();                                   // y se vigila: si no vuelve, se reconecta con pausas cada vez más largas
     }
   }
   /* Tras una caída de conexión o de sueño del equipo: vuelve a pedir lo que pudo perderse (personas, resumen con «sin leer», la conversación abierta)
@@ -11935,6 +12081,7 @@ function ofcCalcular(cat, sel) {
   }
   /* «Latido»: una vez por minuto, con la pantalla visible, compara con la base. Si el tiempo real se cayó sin avisar, aquí se recupera lo perdido. */
   async function latir() {
+    rtLatido();
     if (document.hidden || C.cerrando || !C.cargadoEn) return;
     C.ultimaVez = Date.now();
     if (!(await cargaTodo())) return;
@@ -11948,26 +12095,7 @@ function ofcCalcular(cat, sel) {
     crmPide();
     pintaLista();
   }
-  function suscribir() {
-    C.chM = sb.channel('chat-msgs-' + me.id)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_mensajes' }, function (pl) { try { llego(pl.new); } catch (x) { console.error(x); } })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_mensajes' }, function (pl) { try { actualizado(pl.new); } catch (x) { console.error(x); } })
-      .subscribe(function (s) { try { estadoRed(s); } catch (x) { console.error(x); } });
-    var ch = C.chP = sb.channel('chat-presencia', { config: { presence: { key: me.id } } });
-    ch.on('presence', { event: 'sync' }, function () {
-      var st = ch.presenceState(), antes = C.on, nuevo = {};
-      Object.keys(st).forEach(function (k) { var m = st[k] && st[k][0]; nuevo[k] = (m && ESTADOS[m.st]) ? m.st : 'on'; });
-      C.on = nuevo; Object.keys(nuevo).forEach(function (k) { C.ws[k] = nuevo[k]; });
-      if (!C.primeraPres) Object.keys(nuevo).forEach(function (k) { if (k !== me.id && !antes[k]) { try { conectado(k); } catch (e) { } } });
-      C.primeraPres = false;
-      if (C.open) { pintaLista(); actualizaZumbidoBtn(); var e2 = $('mz-es'); if (e2) e2.innerHTML = lineaEstado(); if (C.peer === GEN || (C.peer && !$('mz-info').hidden)) pintaInfo(); }
-    }).on('broadcast', { event: 'typing' }, function (pl) {
-      var d = pl && pl.payload; if (!d || d.para !== me.id) return;
-      C.typ[d.de] = Date.now(); pintaTyping(); setTimeout(pintaTyping, 4200);
-    }).on('broadcast', { event: 'perfil' }, function (pl) {
-      var d = pl && pl.payload; if (d && d.de && d.de !== me.id) perfilesSoon();
-    }).subscribe(function (s) { if (s === 'SUBSCRIBED') { try { ch.track({ nombre: perfil.nombre, st: C.st, t: Date.now() }); } catch (e) { } } });
-  }
+  function suscribir() { suscribirMsgs(); suscribirPres(); }
 
   /* ================= EVENTOS ================= */
   /* ================= ARCHIVOS, FOTOS Y NOTAS DE VOZ (Fase 4B) =================
@@ -12621,9 +12749,10 @@ function ofcCalcular(cat, sel) {
   function esTactil() { try { return window.matchMedia('(hover: none)').matches; } catch (e) { return false; } }
   function clic(e) {
     var t = e.target;
+    if (C.x8) { if (C.x8.sug && !t.closest('#mz-sug') && !t.closest('#mz-in') && !t.closest('[data-a="rapmenu"]')) sugCierra(); agFuera(t); }
     if (C.emo && !t.closest('#mz-emo') && !t.closest('#mz-emob')) cierraEmo();
     if (C.menu && !t.closest('#mz-menu') && !t.closest('#mz-st')) menuEstado(false);
-    if (C.pop && !t.closest('#mz-pop') && !t.closest('[data-a="msgmenu"],[data-a="menuconv"],[data-a="menumiembro"],[data-a="crmmenu"]')) cierraPop();
+    if (C.pop && !t.closest('#mz-pop') && !t.closest('[data-a="msgmenu"],[data-a="menuconv"],[data-a="menumiembro"],[data-a="crmmenu"],[data-a="ag-posmenu"]')) cierraPop();
     var b = t.closest('[data-a]');
     if (!b) {   // en pantallas táctiles no hay «pasar el ratón»: tocar el globo de un mensaje abre sus acciones
       var gl = t.closest('.mz-b'), fila = gl && gl.closest('.mz-g[data-mid]');
@@ -12632,7 +12761,7 @@ function ofcCalcular(cat, sel) {
     }
     var a = b.getAttribute('data-a'), enPop = !!t.closest('#mz-pop');
     if (enPop && a !== 'reacmas') cierraPop(true);
-    if (clicCrm(a, b)) return;
+    if (clicCrm(a, b) || clicAg(a, b, e)) return;
     switch (a) {
       case 'cerrar': abrirVentana(false); break;
       case 'abrir': abrirConv(b.getAttribute('data-id'), { resaltar: b.getAttribute('data-m') || null }); break;
@@ -12687,7 +12816,7 @@ function ofcCalcular(cat, sel) {
       case 'aj-cerrar': ajustes(false); break;
       case 'probar': var kpr = b.getAttribute('data-k'); C.gesto = true;
         if (C.pref.vol <= 0) aviso('El volumen está en 0: súbelo para oír el tono');
-        else if (C.pref[kpr === 'priv' ? 'tonoPriv' : kpr === 'grupo' ? 'tonoGrupo' : kpr === 'zumbido' ? 'tonoZumbido' : 'tonoConex'] === 'silencio') aviso('Ese aviso está en «Sin sonido»');
+        else if (C.pref[kpr === 'priv' ? 'tonoPriv' : kpr === 'grupo' ? 'tonoGrupo' : kpr === 'zumbido' ? 'tonoZumbido' : kpr === 'agenda' ? 'tonoAgenda' : 'tonoConex'] === 'silencio') aviso('Ese aviso está en «Sin sonido»');
         else suena(kpr, true);
         break;
       case 'reintentar-msg': var tm = (C.msgs[C.peer] || []).filter(function (x) { return x.id === b.getAttribute('data-id'); })[0]; if (tm) { tm._est = 'enviando'; tm._viejo = false; if (!C.cola.some(function (x) { return x.client_id === tm.client_id; })) colaAgrega(tm, C.peer); pintaMsgs(); if (tm._arch) encolaSubida(C.peer, tm); else enviaFila(C.peer, tm); } break;
@@ -12900,10 +13029,10 @@ function ofcCalcular(cat, sel) {
     e.preventDefault(); n.focus(); n.click();
   }
   function entrada(e) {
-    if (entradaCrm(e)) return;
+    if (entradaCrm(e) || entradaAg(e)) return;
     var id = e.target.id;
     if (id === 'mz-q') { C.q = e.target.value; buscaMsgs(); pintaLista(); }
-    else if (id === 'mz-in') { autoTam(); actualizaEnvio(); avisaEscribiendo(); guardaBorrador(); }
+    else if (id === 'mz-in') { autoTam(); actualizaEnvio(); avisaEscribiendo(); guardaBorrador(); sugEvalua(); }
     else if (id === 'mz-bqi') { C.busq.q = e.target.value; pintaMsgs(); C.busq.i = 1e9; marcaBusqueda(true); }
     else if (C.modal && id === 'mz-gn') { C.modal.nombre = e.target.value; C.modal.err = ''; actualizaModalBtn(); }
     else if (C.modal && id === 'mz-gd') { C.modal.desc = e.target.value; C.modal.err = ''; actualizaModalBtn(); }
@@ -12914,7 +13043,7 @@ function ofcCalcular(cat, sel) {
   }
   function cambio(e) {
     var t = e.target, p = t.getAttribute && t.getAttribute('data-p'), q = t.getAttribute && t.getAttribute('data-q');
-    if (cambioCrm(e)) return;
+    if (cambioCrm(e) || cambioAg(e)) return;
     if (t.id === 'mz-file') { var fl = Array.prototype.slice.call(t.files || []); t.value = ''; preparaArchivos(fl, C.peer); return; }
     if (q === 'vol') { C.pref.vol = Math.max(0, Math.min(100, Math.round(+t.value || 0))); guardaPrefs(); t.setAttribute('aria-valuetext', C.pref.vol + ' por ciento'); C.gesto = true; suena('priv', true); return; }
     if (q && q in PREF_S) { if (SLOT_TONOS[q].indexOf(t.value) >= 0) { C.pref[q] = t.value; guardaPrefs(); C.gesto = true; suena(SLOT_DE[q], true); } return; }
@@ -12948,6 +13077,7 @@ function ofcCalcular(cat, sel) {
     }
   }
   function teclaEntrada(e) {
+    if (sugTecla(e)) return;
     if (e.target.id === 'mz-in' && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); enviar('TEXTO'); }
     else if (e.target.id === 'mz-bqi' && e.key === 'Enter') { e.preventDefault(); if (C.busq.n) { C.busq.i = (C.busq.i + (e.shiftKey ? -1 : 1) + C.busq.n) % C.busq.n; marcaBusqueda(true); } }
   }
@@ -12967,7 +13097,8 @@ function ofcCalcular(cat, sel) {
     var t = e.target;
     if (document.querySelector('.k-ov')) return;
     if (t && t !== document.body && t !== document.documentElement && t.closest && !t.closest('#mz') && !t.closest('#chat23-btn')) return;
-    if (C.modal) { cierraModal(); }
+    if (C.x8 && C.x8.sug) { sugCierra(); }
+    else if (C.modal) { if (!escAg()) cierraModal(); }
     else if (C.pop) { cierraPop(true); }
     else if (C.emo) { cierraEmo(); var eb = $('mz-emob'); if (eb) eb.focus(); }
     else if (C.menu) { menuEstado(false); var sb3 = $('mz-st'); if (sb3) sb3.focus(); }
@@ -12978,10 +13109,10 @@ function ofcCalcular(cat, sel) {
     else abrirVentana(false);
     e.preventDefault();
   }
-  function visible() { if (!document.hidden && C.open && C.peer) marca(C.peer); if (!document.hidden && Date.now() - C.ultimaVez > 60000) resync(); if (document.hidden) C.ultimaVez = Date.now(); }
+  function visible() { if (!document.hidden) { tickAgenda(); if (C.caido) rtVigila(); } if (!document.hidden && C.open && C.peer) marca(C.peer); if (!document.hidden && Date.now() - C.ultimaVez > 60000) resync(); if (document.hidden) C.ultimaVez = Date.now(); }
   function gesto() { C.gesto = true; }
-  function enLineaNav() { resync(); }
-  function sinRed() { if (C.conectado && !C.caido) { C.caido = true; banner(true); } }
+  function enLineaNav() { resync(); if (C.caido) { rtEmpieza(); RT().proximo = Date.now() + 2500; } }
+  function sinRed() { if (C.conectado && !C.caido) { C.caido = true; banner(true); } if (C.caido) rtEmpieza(); }
 
   /* ================= FASE 5: EL CRM DENTRO DEL CHAT =================
      Tarjetas de venta y de cliente, revisiones, convertir un mensaje en tarea del back, pedir ayuda y anuncios del administrador.
@@ -13404,7 +13535,7 @@ function ofcCalcular(cat, sel) {
       }
       return { titulo: 'Historial de la revisión', ok: 'Cerrar', cuerpo: cuerpo };
     }
-    return null;
+    return modalAg(M);
   }
   /* ----- Política de privacidad: la escribe la base con los valores reales en vigor ----- */
   function plazoPol(n) { n = +n || 0; return n > 0 ? 'se borran a los ' + n + ' días' : 'no se borran solos'; }
@@ -13419,6 +13550,7 @@ function ofcCalcular(cat, sel) {
       '<section><h4>Cuánto tiempo se guardan</h4><ul><li>Chats privados: ' + plazoPol(r.privadas) + '.</li><li>Grupos y canales: ' + plazoPol(r.grupos) + '.</li><li>Sala general: ' + plazoPol(r.general) + '.</li></ul><p>' + (r.conservar_fijados ? 'Los mensajes fijados se conservan aunque pase el plazo. ' : '') + 'Tú puedes eliminar tus mensajes durante ' + (p.borrar_propio_horas || 24) + ' horas y editarlos durante ' + (p.editar_minutos || 15) + ' minutos.</p></section>' +
       '<section><h4>Archivos, fotos y audios</h4><p>Se guardan en ' + esc(a.almacen || 'el Google Drive de la empresa') + '. Documentos y fotos hasta ' + (a.max_mb || 10) + ' MB; audios hasta ' + (a.max_audio_mb || 20) + ' MB; hasta ' + (a.por_dia || 100) + ' archivos cada 24 horas por persona. Quienes están en la conversación pueden abrirlos y descargarlos.</p></section>' +
       '<section><h4>Qué anota la administración</h4><p>' + (p.auditoria ? 'Queda un registro de las acciones de administración (grupos creados o archivados, personas añadidas o quitadas, silencios, cambios de configuración). <b>Nunca</b> guarda lo que escribes.' : '') + ' La administración puede impedir temporalmente que alguien escriba y puede archivar grupos.</p></section>' +
+      (p.agenda ? '<section><h4>Tu agenda, las respuestas rápidas y las menciones</h4><ul><li>Tu agenda es <b>privada</b>: ni el administrador ni los supervisores pueden verla.</li><li>La alerta suena y aparece <b>mientras tengas el CRM abierto</b>; si estaba cerrado, te avisa al entrar de lo que venció.</li><li>Si alguien te escribe con @ en un grupo, un canal o la Sala general, te llega un aviso a la campana <b>sin el texto del mensaje</b>. «@todos» solo lo usan la administración, la supervisión o quien administra ese grupo.</li></ul></section>' : '') +
       '<section><h4>Un límite que ningún sistema puede evitar</h4><p>Lo que ves en pantalla puede ser fotografiado o copiado por quien lo vea. Cuida a quién le compartes información de clientes.</p></section></div>';
   }
   async function abrirPolitica() {
@@ -13438,6 +13570,7 @@ function ofcCalcular(cat, sel) {
     else if (t === 'anuncio') { var x = $('mz-ant'), y = $('mz-anx'); if (x) x.value = M.tt || ''; if (y) y.value = M.tx || ''; }
     else if (t === 'tarea') { var a1 = $('mz-tat'), a2 = $('mz-taf'); if (a1) a1.value = M.tt || ''; if (a2) a2.value = M.vence || ''; pintaTareaAsig(); }
     else if (t === 'revision') { var r1 = $('mz-rvt'); if (r1) r1.value = M.nota || ''; }
+    else modalAgPost(M);
   }
   /* ¿Se puede pulsar el botón principal de la ventana? Devuelve {listo, etiqueta, aviso} o null si no es una ventana de este bloque. */
   function modalCrmBtn(M) {
@@ -13448,7 +13581,7 @@ function ofcCalcular(cat, sel) {
     if (t === 'tarea') return { listo: M.tt.trim().length >= 1 && !!M.vence, etiqueta: 'Crear tarea' };
     if (t === 'revision') return { listo: (M.nota || '').trim().length >= 3 && M.nota.length <= MAX_RESP, etiqueta: 'Enviar observaciones' };
     if (t === 'revhist') return { listo: true, etiqueta: 'Cerrar' };
-    return null;
+    return modalAgBtn(M);
   }
   async function okModalCrm(M) {
     var t = M.tipo;
@@ -13457,7 +13590,7 @@ function ofcCalcular(cat, sel) {
     if (t === 'anuncio') return enviaAnuncio(M);
     if (t === 'tarea') return creaTarea(M);
     if (t === 'revision') return enviaObservaciones(M);
-    return true;
+    return okModalAg(M);
   }
   /* Lo que se escribe en los campos de las ventanas de este bloque. Devuelve true si el campo era de aquí. */
   function entradaCrm(e) {
@@ -13516,9 +13649,861 @@ function ofcCalcular(cat, sel) {
   async function abrirCon(uid) {
     if (!uid || uid === me.id || C.cerrando) return false;
     for (var i = 0; i < 40 && !C.cargadoEn; i++) await new Promise(function (r) { setTimeout(r, 100); });
-    if (!contacto(uid) && !C.convId[uid]) return false;
+    if (C.cerrando) return false;
+    if (contacto(uid) || C.convId[uid]) { if (!C.open) abrirVentana(true, true); await abrirConv(uid); return true; }   // una persona
+    var k = keyDeConvAny(uid);                                                                                          // una conversación (te mencionaron)
+    if (k) { if (!C.open) abrirVentana(true, true); await abrirConv(k); return true; }
+    var A = X(); if (A.sin) return false;                                                                               // un recordatorio de la agenda
+    if (!agPorId(uid)) await cargaExtras(true);
+    if (C.cerrando) return false;
+    if (agPorId(uid)) { abrirAgenda(uid); return true; }
+    await agCargaHechas(true);
+    if (agPorId(uid)) { abrirAgenda(uid, 'hechas'); return true; }
+    return false;
+  }
+
+  /* ================= FASE 8A: AGENDA CON ALERTA · RESPUESTAS RÁPIDAS («/») · MENCIONES (@) · CONEXIÓN EN VIVO =================
+     REQUIERE haber ejecutado 61_chat_agenda.sql. Sin él todo lo demás del chat funciona igual y estas funciones se ocultan solas (no hay error).
+     · Mi agenda: recordatorios PRIVADOS (solo los ve su dueño; ni el administrador ni el supervisor). Cada uno tiene título, nota, fecha y hora, cuánto antes avisar y si se repite.
+       La alerta (tarjeta en pantalla + sonido) salta mientras el CRM está abierto. Si estaba cerrado, salta al entrar con lo que venció. Un solo aparato la reclama: con dos abiertos suena en uno.
+     · «Recordarme este mensaje»: crea un recordatorio enlazado al mensaje.
+     · «/»: inserta una respuesta rápida en la caja de escribir (NO la envía). · «@»: menciona a alguien en un grupo, canal o la Sala general (el aviso a la campana lo decide la base).
+     · Conexión en vivo: el aviso «Sin conexión en vivo» se quita cuando el canal está de verdad unido, reconecta solo y explica el motivo en «Ver detalle». */
+  IC.agenda = '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M9 16l2 2 4-4"/>';
+  IC.rayo = '<path d="M13 2L3 14h9l-1 8 10-12h-9z"/>';
+  var T_EXTRAS = 20000, AG_FALTA = /PGRST202|PGRST205|42883|42P01/, MAX_SUG = 8, MAX_ALERTAS = 3;
+  var AG_ANTES = [[0, 'A la hora'], [5, '5 minutos antes'], [10, '10 minutos antes'], [15, '15 minutos antes'], [30, '30 minutos antes'], [60, '1 hora antes'], [1440, '1 día antes']];
+  var AG_REP = [['NO', 'No se repite'], ['DIARIO', 'Cada día'], ['SEMANAL', 'Cada semana']];
+  var AG_POSP = [[5, '5 min'], [15, '15 min'], [60, '1 h']];
+  var AG_POSP_MENU = [[5, '5 minutos'], [15, '15 minutos'], [60, '1 hora'], [180, '3 horas'], [1440, 'Mañana (24 horas)']];
+  var AG_GRUPOS = [['venc', 'Vencidos'], ['hoy', 'Hoy'], ['man', 'Mañana'], ['sem', 'Esta semana'], ['mas', 'Más adelante']];
+  var SQL_PUB = "do $$ begin\n  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')\n     and not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'chat_mensajes') then\n    alter publication supabase_realtime add table public.chat_mensajes;\n  end if;\nend $$;";
+
+  function X() {
+    return C.x8 || (C.x8 = { items: [], hechas: null, hechasErr: null, off: 0, cargado: false, sin: false, tab: 'pend', cola: [], disp: {}, T: null, tn: null, rap: { propias: [], equipo: [] }, menRaw: [], men: {}, menT: null,
+      sug: null, ultimo: 0, errCarga: null, confBorra: null, resalta: null, mr: {}, carga: null, ver: 0, ultSon: 0, firma: '', minAct: 0, obs: null });
+  }
+  function arr(x) { return Array.isArray(x) ? x : []; }
+  function ahoraAg() { return Date.now() + (X().off || 0); }
+  function syncReloj(d) { if (d && d.ahora) { var so = Date.parse(d.ahora); if (!isNaN(so)) X().off = so - Date.now(); } }
+  /* La base manda las fechas como texto; aquí pasan a milisegundos. */
+  function agItem(d) {
+    if (!d || !d.id) return null;
+    var t = function (v) { var n = v ? Date.parse(v) : NaN; return isNaN(n) ? null : n; };
+    return { id: d.id, titulo: String(d.titulo || ''), nota: d.nota ? String(d.nota) : '', cuando: t(d.cuando) || 0, antes: +d.antes_min || 0, repetir: (d.repetir === 'DIARIO' || d.repetir === 'SEMANAL') ? d.repetir : 'NO',
+      avisar: t(d.avisar_at), avisada: t(d.avisada_at), hecha: t(d.hecha_at), conv: d.conv_id || null, msg: d.mensaje_id || null };
+  }
+  function agPorId(id) {
+    var A = X(), i, l = A.items; for (i = 0; i < l.length; i++) if (l[i].id === id) return l[i];
+    l = A.hechas || []; for (i = 0; i < l.length; i++) if (l[i].id === id) return l[i];
+    return null;
+  }
+  function agUpsert(it) {
+    var A = X(); if (!it) return; var i;
+    for (i = 0; i < A.items.length; i++) if (A.items[i].id === it.id) { A.items.splice(i, 1); break; }
+    if (A.hechas) A.hechas = A.hechas.filter(function (x) { return x.id !== it.id; });
+    if (it.hecha) { if (A.hechas) A.hechas.unshift(it); return; }
+    A.items.push(it); A.items.sort(function (a, b) { return a.cuando - b.cuando; });
+  }
+  function agQuita(id) {
+    var A = X(); A.items = A.items.filter(function (x) { return x.id !== id; }); if (A.hechas) A.hechas = A.hechas.filter(function (x) { return x.id !== id; });
+    A.cola = A.cola.filter(function (c) { return c.id !== id; });
+  }
+  function agDia(ms) { var d = new Date(ms); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); }
+  function agGrupo(it, ahora) {
+    if (it.cuando < ahora) return 'venc';
+    var dias = Math.round((agDia(it.cuando) - agDia(ahora)) / 86400000);
+    return dias <= 0 ? 'hoy' : dias === 1 ? 'man' : dias < 7 ? 'sem' : 'mas';
+  }
+  function agCuando(ms) {
+    var d = new Date(ms), dd = Math.round((agDia(ms) - agDia(ahoraAg())) / 86400000), h = hhmm(ms);
+    if (dd === 0) return 'Hoy, ' + h; if (dd === 1) return 'Mañana, ' + h; if (dd === -1) return 'Ayer, ' + h;
+    return d.toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '') + ', ' + h;
+  }
+  function durCorta(m) {
+    m = Math.max(1, Math.round(m)); if (m < 60) return m + ' min';
+    var h = Math.floor(m / 60); if (h < 24) return h + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '');
+    var d = Math.floor(h / 24); return d + (d === 1 ? ' día' : ' días');
+  }
+  function durSeg(ms) { var s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + ' s' : durCorta(s / 60); }
+  function aInputLocal(ms) { var d = new Date(ms); function p(n) { return (n < 10 ? '0' : '') + n; } return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+  function deInputLocal(v) { var m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)/.exec(v || ''); if (!m) return NaN; return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], 0, 0).getTime(); }
+  function keyDeConvAny(cid) {   // de qué conversación del navegador es este id: sala general, grupo/canal o chat privado (la llave es la otra persona)
+    if (!cid) return null; if (cid === C.general || cid === C.convId[GEN]) return GEN;
+    if (C.grupos[cid]) return cid;
+    var ks = Object.keys(C.convId); for (var i = 0; i < ks.length; i++) if (C.convId[ks[i]] === cid) return ks[i];
+    return null;
+  }
+
+  /* ----- Carga: agenda, respuestas rápidas y menciones, todo en una sola llamada (la base lo reúne en chat_extras) ----- */
+  function aplicaMenciones() {
+    var A = X(), o = {}; arr(A.menRaw).forEach(function (x) { var k = keyDeConvAny(x.conversacion_id); if (k && compartida(k) && +x.n > 0) o[k] = { n: +x.n, msg: x.mensaje_id }; });
+    A.men = o;
+  }
+  function menDe(k) { var A = C.x8; return !!(A && A.men && A.men[k] && !(C.open && C.peer === k && !document.hidden)); }
+  function limpiaMen(k) { var A = C.x8; if (A && A.men && A.men[k]) { delete A.men[k]; } }
+  function agFilaFirma() {
+    var A = X(), ahora = ahoraAg(), v = 0; A.items.forEach(function (i) { if (i.cuando < ahora) v++; });
+    return v + '/' + A.items.length + '/' + (A.items[0] ? A.items[0].id : '');
+  }
+  function agRefresca(lista) {
+    if (!C.open) { boton(); return; }
+    X().firma = agFilaFirma();
+    if (lista !== false) pintaLista();
+    if (C.verAg && !C.peer && !C.pop) pintaAg();
+  }
+  async function cargaExtras(forzar) {
+    var A = X(), C0 = C;
+    if (A.sin || C.cerrando) return false;
+    if (A.carga) return A.carga;
+    if (!forzar && Date.now() - A.ultimo < T_EXTRAS) return true;
+    A.ultimo = Date.now();
+    var v0 = A.ver;
+    A.carga = (async function () {
+      var r = await llama('chat_extras', {}, 10000);
+      if (C !== C0 || C.cerrando) return false;
+      A.carga = null;
+      if (r.error || !r.data || r.data.ok !== true) {
+        var cod = String((r.error && r.error.code) || '') + ' ' + String((r.error && r.error.message) || '');
+        if (r.error && AG_FALTA.test(cod)) {   // todavía no se ejecutó 61_chat_agenda.sql: estas funciones se ocultan y el chat sigue como siempre
+          A.sin = true; A.items = []; A.cola = []; pintaAlertas(); agPulso();
+          if (C.open) { pintaLista(); if (C.verAg) { cierraAgenda(); } else if (C.peer) repintaChrome(); }
+        } else A.errCarga = r.error ? msgE(r.error) : 'Respuesta vacía';
+        if (C.verAg && !C.peer) pintaAg();
+        return false;
+      }
+      var d = r.data; A.errCarga = null; A.cargado = true; syncReloj(d);
+      if (A.ver === v0) A.items = arr(d.agenda).map(agItem).filter(Boolean); else A.ultimo = 0;   // si cambiaste algo mientras llegaba la respuesta, no se pisa: se vuelve a pedir enseguida
+      A.rap = { propias: arr(d.rapidas && d.rapidas.propias), equipo: arr(d.rapidas && d.rapidas.equipo) };
+      A.menRaw = arr(d.menciones); aplicaMenciones();
+      A.firma = agFilaFirma();
+      if (C.open) { pintaLista(); if (C.verAg && !C.peer && !C.pop) pintaAg(); }
+      tickAgenda(); boton();
+      return true;
+    })();
+    return A.carga;
+  }
+  async function agCargaHechas(forzar) {
+    var A = X(), C0 = C; if (A.hechas && !forzar) return;
+    var r = await llama('chat_agenda_listar', { p_hechas: true }, 10000);
+    if (C !== C0) return;
+    if (r.error || !r.data) A.hechasErr = msgE(r.error); else { A.hechasErr = null; A.hechas = arr(r.data.items).map(agItem).filter(Boolean); syncReloj(r.data); }
+    if (C.verAg && !C.peer) pintaAg();
+  }
+
+  /* ----- Alertas: el reloj las dispara en el momento justo; la base decide qué aparato la reclama ----- */
+  function sonidoAg() { var A = X(); if (Date.now() - A.ultSon < 2500) return; A.ultSon = Date.now(); suena('agenda'); }
+  function subAlerta(it) {
+    var ahora = ahoraAg(), dif = (it.cuando - ahora) / 60000, cuando = agCuando(it.cuando);
+    if (Math.abs(dif) < 1) return 'Ahora · ' + hhmm(it.cuando);
+    return (dif > 0 ? 'En ' + durCorta(dif) : 'Hace ' + durCorta(-dif)) + ' · ' + cuando;
+  }
+  function htmlAlerta(it) {
+    var rep = it.repetir !== 'NO', k = it.conv ? keyDeConvAny(it.conv) : null;
+    return '<div class="ag-h"><span class="ag-ico">' + ic(IC.reloj, 20) + '</span><div class="ag-ht"><b>Recordatorio</b><small>' + esc(subAlerta(it)) + '</small></div>' +
+      '<button type="button" class="ag-x" data-a="ag-cerrar" aria-label="Cerrar este aviso (el recordatorio sigue en tu agenda)" title="Cerrar aviso">' + ic(IC.x, 18) + '</button></div>' +
+      '<p class="ag-t">' + esc(it.titulo) + '</p>' + (it.nota ? '<p class="ag-n">' + esc(it.nota) + '</p>' : '') +
+      (!C.gesto && C.pref.sonAgenda ? '<p class="ag-n">Para que suene, haz clic una vez en cualquier parte de la página.</p>' : '') +
+      '<div class="ag-b"><button type="button" class="ag-btn" data-a="ag-hecha">' + ic(IC.ok, 16) + (rep ? 'Hecha · pasa a la siguiente' : 'Hecha') + '</button>' +
+      (k ? '<button type="button" class="ag-lnk" data-a="ag-ir">' + (it.msg ? 'Ir al mensaje' : 'Ir a la conversación') + '</button>' : '') +
+      '<span class="ag-pp" role="group" aria-label="Posponer el aviso">Posponer ' + AG_POSP.map(function (x) { return '<button type="button" data-a="ag-posp" data-m="' + x[0] + '" aria-label="Posponer ' + x[1] + '">' + x[1] + '</button>'; }).join('') + '</span></div>';
+  }
+  function pintaAlertas() {
+    var cont = $('mz-agal'), A = X(); if (!cont) return;
+    var lista = A.cola.slice(0, MAX_ALERTAS), ids = {}, foco = document.activeElement, enAl = !!(foco && foco !== document.body && cont.contains(foco));
+    lista.forEach(function (c) { ids['mz-agc-' + c.id] = 1; });
+    Array.prototype.slice.call(cont.children).forEach(function (el) { if (el.id !== 'mz-agmas' && !ids[el.id]) cont.removeChild(el); });
+    var prev = null;
+    lista.forEach(function (c) {
+      var it = agPorId(c.id); if (!it) return;
+      var el = $('mz-agc-' + c.id);
+      if (!el) { el = document.createElement('div'); el.id = 'mz-agc-' + c.id; el.className = 'ag-card'; el.setAttribute('data-id', c.id); el.setAttribute('role', 'group'); el.innerHTML = htmlAlerta(it); }
+      el.setAttribute('aria-label', 'Recordatorio: ' + it.titulo);
+      var ref = prev ? prev.nextSibling : cont.firstChild;
+      if (el.parentNode !== cont || el !== ref) cont.insertBefore(el, ref);
+      prev = el;
+    });
+    var mas = $('mz-agmas'), resto = A.cola.length - lista.length;
+    if (resto > 0) {
+      if (!mas) { mas = document.createElement('div'); mas.id = 'mz-agmas'; mas.className = 'ag-mas'; cont.appendChild(mas); }
+      mas.innerHTML = '<span>' + resto + (resto === 1 ? ' recordatorio más' : ' recordatorios más') + '</span><button type="button" class="ag-lnk" data-a="ag-verlos">Ver mi agenda</button>';
+    } else if (mas) mas.remove();
+    if (enAl && !cont.contains(document.activeElement)) { var f = cont.querySelector('button') || $('chat23-btn'); if (f && f.focus) { try { f.focus(); } catch (e) { } } }
+  }
+  function actualizaTextosAlertas() {
+    var A = X(); A.cola.slice(0, MAX_ALERTAS).forEach(function (c) {
+      var it = agPorId(c.id), el = $('mz-agc-' + c.id); if (!it || !el) return;
+      var s = el.querySelector('.ag-ht small'), t = subAlerta(it); if (s && s.textContent !== t) s.textContent = t;
+    });
+  }
+  function agTitulo() {   // el aviso de la campana del CRM también reescribe el título («(2) CRM…»): se vigila para que el ⏰ no se pierda
+    var A = C.x8; if (!A) return;
+    var t = document.title || '', con = t.indexOf('⏰ ') === 0, hay = A.cola.length > 0;
+    if (hay && !con) document.title = '⏰ ' + t; else if (!hay && con) document.title = t.slice(2);
+  }
+  function agPulso() {
+    var A = X(), b = $('chat23-btn'); if (b) b.classList.toggle('mz-agpulso', A.cola.length > 0);
+    agTitulo();
+  }
+  function muestraAg(it, local) {
+    var A = X(); if (!it || it.hecha) return;
+    var ya = A.cola.some(function (x) { return x.id === it.id; });
+    if (!ya) A.cola.push({ id: it.id, t0: Date.now(), s: 0, local: !!local });
+    pintaAlertas(); agPulso();
+    if (!ya) { sonidoAg(); anuncia('Recordatorio: ' + it.titulo); }
+  }
+  function quitaCard(id) { var A = X(); A.cola = A.cola.filter(function (c) { return c.id !== id; }); pintaAlertas(); agPulso(); }
+  async function disparaAg(it) {
+    var A = X(), C0 = C; A.disp[it.id] = Date.now();
+    var r = await llama('chat_agenda_disparar', { p_id: it.id }, 8000);
+    if (C !== C0 || C.cerrando) return;
+    if (!r.error && r.data && r.data.ok) {
+      if (r.data.ya) { cargaExtras(true); return; }   // otro aparato tuyo la reclamó primero (o ya cambió): aquí no suena
+      var n = agItem(r.data.item); if (n) { A.ver++; agUpsert(n); muestraAg(n, false); agRefresca(true); }
+      return;
+    }
+    muestraAg(it, true);   // sin red o con un fallo: la alerta salta igual con la hora de este aparato y se vuelve a intentar anotar en la base
+  }
+  function tickAgenda() {
+    var A = C.x8; if (!A || C.cerrando || A.sin || !A.cargado) return;
+    clearTimeout(A.tn);
+    var ahora = ahoraAg(), n = 0, minimo = Infinity;
+    A.items.slice().forEach(function (it) {
+      if (it.hecha || it.avisar == null) return;
+      if (it.avisar <= ahora + 1500) {
+        var d = A.disp[it.id]; if (d && Date.now() - d < 30000) return;
+        if (n >= 5) { minimo = Math.min(minimo, ahora + 3000); return; }
+        n++; disparaAg(it);
+      } else minimo = Math.min(minimo, it.avisar);
+    });
+    var cambio = false;
+    A.cola = A.cola.filter(function (c) { if (agPorId(c.id)) return true; cambio = true; return false; });
+    A.cola.forEach(function (c) { if (c.s < 2 && Date.now() - c.t0 > 45000 * (c.s + 1)) { c.s++; sonidoAg(); } });
+    if (cambio) { pintaAlertas(); agPulso(); } else if (A.cola.length) actualizaTextosAlertas();
+    var min = Math.floor(ahora / 60000);
+    if (min !== A.minAct) {   // cambió el minuto: los «venció hace…» y los contadores de la lista se actualizan
+      A.minAct = min;
+      if (C.open) { var f = agFilaFirma(); if (f !== A.firma) { A.firma = f; pintaLista(); } if (C.verAg && !C.peer && !C.pop && !C.modal) pintaAg(); }
+    }
+    if (minimo < Infinity && minimo - ahora < 3600000) A.tn = setTimeout(tickAgenda, Math.max(300, minimo - ahora + 150));
+  }
+
+  /* ----- Acciones sobre un recordatorio ----- */
+  async function agHecha(id, deshacer) {
+    var A = X(), it = agPorId(id); if (!it) return;
+    A.ver++; if (!deshacer) quitaCard(id);
+    var r = await llama('chat_agenda_hecha', { p_id: id, p_hecha: !deshacer });
+    if (r.error || !r.data || !r.data.item) { aviso(msgE(r.error), true); cargaExtras(true); return; }
+    syncReloj(r.data); var n = agItem(r.data.item); A.ver++; agUpsert(n); A.disp[id] = 0;
+    aviso(deshacer ? 'Recordatorio reabierto' : r.data.proxima ? 'Hecho. Te lo recordaré otra vez: ' + agCuando(n.cuando) : 'Recordatorio marcado como hecho');
+    agRefresca(true); setTimeout(tickAgenda, 200);
+  }
+  async function agPosponer(id, min) {
+    var A = X(), it = agPorId(id); if (!it) return;
+    var r = await llama('chat_agenda_posponer', { p_id: id, p_min: min });
+    if (r.error || !r.data || !r.data.item) { aviso(msgE(r.error), true); if (/agenda_no_existe/.test(String(r.error && r.error.message))) { agQuita(id); agRefresca(true); pintaAlertas(); agPulso(); } return; }
+    syncReloj(r.data); A.ver++; agUpsert(agItem(r.data.item)); A.disp[id] = 0; quitaCard(id);
+    aviso('Te lo recuerdo en ' + (min >= 1440 ? '24 horas' : min >= 60 ? (min / 60) + (min === 60 ? ' hora' : ' horas') : min + ' minutos'));
+    agRefresca(true); setTimeout(tickAgenda, 200);
+  }
+  async function agBorrar(id) {
+    var A = X(); A.confBorra = null; A.ver++;
+    var r = await llama('chat_agenda_borrar', { p_id: id });
+    if (r.error) { aviso(msgE(r.error), true); agRefresca(true); return; }
+    agQuita(id); pintaAlertas(); agPulso(); aviso('Recordatorio borrado'); agRefresca(true);
+  }
+  function agIr(id) {
+    var it = agPorId(id); if (!it) return; var k = keyDeConvAny(it.conv);
+    quitaCard(id);
+    if (!k) { aviso('Ya no participas en esa conversación', true); return; }
+    abrirConv(k, { resaltar: it.msg || null });
+  }
+
+  /* ----- Pantalla «Mi agenda» ----- */
+  function filaAgenda() {
+    var A = X(); if (A.sin) return '';
+    var ahora = ahoraAg(), venc = 0; A.items.forEach(function (i) { if (i.cuando < ahora) venc++; });
+    var pend = A.items.length, prox = null; for (var j = 0; j < A.items.length; j++) if (A.items[j].cuando >= ahora) { prox = A.items[j]; break; }
+    var prev = !A.cargado ? (A.errCarga ? 'No se pudo cargar' : 'Tus recordatorios con alerta') : prox ? 'Próximo: ' + prox.titulo + ' · ' + agCuando(prox.cuando) : pend ? 'Tienes recordatorios vencidos' : 'Sin recordatorios pendientes';
+    var badge = venc ? '<i class="mz-nb venc" aria-hidden="true">' + venc + '</i>' : pend ? '<i class="mz-nb mut" aria-hidden="true">' + pend + '</i>' : '';
+    return '<div class="mz-rw"><button type="button" class="mz-row" data-a="ag-abrir"' + (C.verAg ? ' aria-current="true"' : '') + ' aria-label="Mi agenda' + (venc ? ', ' + venc + (venc === 1 ? ' vencido' : ' vencidos') : '') + (pend ? ', ' + pend + (pend === 1 ? ' pendiente' : ' pendientes') : '') + '">' +
+      '<span class="mz-agav" aria-hidden="true">' + ic(IC.agenda, 22) + '</span>' +
+      '<div class="mz-rt"><div class="mz-rn"><b>Mi agenda</b></div><div class="mz-rp"><span>' + esc(prev) + '</span>' + badge + '</div></div></button></div>';
+  }
+  function cabAgenda() {
+    return '<div class="mz-ch" role="group" aria-label="Mi agenda"><button type="button" class="mz-ib mz-atras" data-a="ag-atras" aria-label="Volver a la lista">' + ic(IC.atras) + '</button>' +
+      '<span class="mz-agav" aria-hidden="true">' + ic(IC.agenda, 22) + '</span>' +
+      '<div class="mz-ct"><b>Mi agenda</b><span class="est">' + ic(IC.candado, 13) + ' Privada: solo tú la ves</span></div>' +
+      '<button type="button" class="mz-ib" data-a="rap-admin" aria-label="Mis respuestas rápidas" title="Respuestas rápidas (escribe «/» en el chat)">' + ic(IC.rayo) + '</button>' +
+      '<button type="button" class="mz-btn chico" data-a="ag-nuevo">' + ic(IC.mas2, 16) + 'Nuevo</button></div>';
+  }
+  function htmlItemAg(it, hechaVista, ahora) {
+    var A = X(), venc = !hechaVista && it.cuando < ahora, conf = A.confBorra === 'ag:' + it.id, k = it.conv ? keyDeConvAny(it.conv) : null;
+    var meta = agCuando(it.cuando) + (venc ? ' · venció hace ' + durCorta((ahora - it.cuando) / 60000) : '') + (it.antes ? ' · aviso ' + (AG_ANTES.filter(function (x) { return x[0] === it.antes; })[0] || [0, ''])[1].toLowerCase() : '') +
+      (it.repetir !== 'NO' ? ' · se repite ' + (it.repetir === 'DIARIO' ? 'cada día' : 'cada semana') : '') + (hechaVista && it.hecha ? ' · hecha ' + agCuando(it.hecha).toLowerCase() : '');
+    return '<li class="ag-it' + (venc ? ' venc' : '') + (hechaVista ? ' hecha' : '') + (A.resalta === it.id ? ' mz-flash' : '') + '" id="mz-agi-' + esc(it.id) + '">' +
+      '<button type="button" class="ag-ok" data-a="' + (hechaVista ? 'ag-deshacer' : 'ag-hecha') + '" data-id="' + esc(it.id) + '" aria-label="' + (hechaVista ? 'Volver a pendiente: ' : 'Marcar como hecho: ') + esc(it.titulo) + '" title="' + (hechaVista ? 'Volver a pendiente' : 'Marcar como hecho') + '">' + ic(IC.ok, 16) + '</button>' +
+      '<div class="ag-tx"><span class="tt">' + esc(it.titulo) + '</span>' + (it.nota ? '<span class="nt">' + esc(it.nota) + '</span>' : '') +
+      '<span class="mt' + (venc ? ' venc' : '') + '">' + esc(meta) + '</span>' +
+      (k ? '<button type="button" class="ag-lnk" data-a="ag-ir" data-id="' + esc(it.id) + '">' + (it.msg ? 'Ir al mensaje' : 'Ir a la conversación') + '</button>' : '') + '</div>' +
+      '<div class="ag-ac">' + (hechaVista ? '' : '<button type="button" class="mz-ib" data-a="ag-posmenu" data-id="' + esc(it.id) + '" aria-haspopup="menu" aria-label="Posponer el aviso: ' + esc(it.titulo) + '" title="Posponer el aviso">' + ic(IC.reloj, 18) + '</button>' +
+        '<button type="button" class="mz-ib" data-a="ag-edit" data-id="' + esc(it.id) + '" aria-label="Editar: ' + esc(it.titulo) + '" title="Editar">' + ic(IC.lapiz, 18) + '</button>') +
+      (conf ? '<button type="button" class="mz-ib conf" data-a="ag-borra" data-id="' + esc(it.id) + '" aria-label="Confirmar: borrar ' + esc(it.titulo) + '">¿Borrar?</button>' :
+        '<button type="button" class="mz-ib" data-a="ag-borra" data-id="' + esc(it.id) + '" aria-label="Borrar: ' + esc(it.titulo) + '" title="Borrar">' + ic(IC.papelera, 18) + '</button>') + '</div></li>';
+  }
+  function htmlAgenda() {
+    var A = X(), ahora = ahoraAg(), pend = A.tab !== 'hechas', h = '<div class="ag-v">' + cabAgenda() + '<div class="ag-b" id="mz-agb" role="region" aria-label="Tus recordatorios" tabindex="0">';
+    h += '<div class="ag-tabs" role="group" aria-label="Qué recordatorios ver"><button type="button" data-a="ag-tab" data-v="pend" aria-pressed="' + pend + '">Pendientes' + (A.items.length ? ' (' + A.items.length + ')' : '') + '</button>' +
+      '<button type="button" data-a="ag-tab" data-v="hechas" aria-pressed="' + !pend + '">Hechas</button></div>';
+    if (pend) {
+      if (!A.cargado && A.errCarga) h += vacio(IC.alerta, 'No se pudo cargar tu agenda', A.errCarga, '<button type="button" class="mz-btn chico" data-a="ag-reint">' + ic(IC.otra, 16) + 'Reintentar</button>');
+      else if (!A.cargado) h += '<div class="mz-buscando" role="status">Cargando tu agenda…</div>';
+      else if (!A.items.length) h += vacio(IC.agenda, 'Tu agenda está libre', 'Crea un recordatorio y te avisaré con una alerta y un sonido a la hora que elijas.', '<button type="button" class="mz-btn chico" data-a="ag-nuevo">' + ic(IC.mas2, 16) + 'Nuevo recordatorio</button>');
+      else {
+        var gr = {}; A.items.forEach(function (it) { var g = agGrupo(it, ahora); (gr[g] = gr[g] || []).push(it); });
+        AG_GRUPOS.forEach(function (g) {
+          var l = gr[g[0]]; if (!l || !l.length) return;
+          h += '<h4 class="ag-gr' + (g[0] === 'venc' ? ' venc' : '') + '">' + g[1] + ' (' + l.length + ')</h4><ul class="ag-l" aria-label="' + g[1] + '">' + l.map(function (it) { return htmlItemAg(it, false, ahora); }).join('') + '</ul>';
+        });
+      }
+    } else if (A.hechasErr) h += vacio(IC.alerta, 'No se pudieron cargar', A.hechasErr, '<button type="button" class="mz-btn chico" data-a="ag-reint">' + ic(IC.otra, 16) + 'Reintentar</button>');
+    else if (A.hechas === null) h += '<div class="mz-buscando" role="status">Cargando…</div>';
+    else if (!A.hechas.length) h += vacio(IC.ok, 'Aún no has marcado ninguno como hecho', 'Aquí verás los últimos 50.');
+    else h += '<ul class="ag-l" style="margin-top:12px" aria-label="Hechas">' + A.hechas.map(function (it) { return htmlItemAg(it, true, ahora); }).join('') + '</ul>';
+    h += '<p class="ag-pie">Tu agenda es privada: ni el administrador ni los supervisores pueden verla. La alerta suena mientras tengas el CRM abierto en el navegador; si lo abres después de la hora, te avisa al entrar de lo que venció.</p></div></div>';
+    return h;
+  }
+  function pintaAg() {
+    var M = $('mz-main'); if (!M || !C.verAg || C.peer) return;
+    var A = X(), b = $('mz-agb'), top = b ? b.scrollTop : 0, f = document.activeElement, sel = null;
+    if (f && M.contains(f)) sel = f.id === 'mz-agb' ? '#mz-agb' : selectorFoco(f);
+    M.innerHTML = htmlAgenda();
+    var b2 = $('mz-agb'); if (b2) b2.scrollTop = top;
+    if (A.resalta) {
+      var el = $('mz-agi-' + A.resalta); A.resalta = null;
+      if (el) { try { el.scrollIntoView({ block: 'center' }); } catch (e) { } setTimeout(function () { if (el.classList) el.classList.remove('mz-flash'); }, 1300); }
+    }
+    if (sel) { var n = document.querySelector('#mz ' + sel) || $('mz-agb'); if (n && n.focus) { try { n.focus({ preventScroll: true }); } catch (e) { } } }
+  }
+  function abrirAgenda(resalta, tab) {
+    var A = X(); if (A.sin) return;
     if (!C.open) abrirVentana(true, true);
-    await abrirConv(uid); return true;
+    guardaBorrador(); cancelaGrab(); cierraLB(); C.peer = null; C.resp = null; C.edit = null; C.busq = { on: false, q: '', i: 0, n: 0 }; cierraPop(); sugCierra();
+    C.verAg = true; C.vista = 'conv'; A.resalta = resalta || null; A.confBorra = null; A.tab = tab === 'hechas' ? 'hechas' : 'pend';
+    pintaMain(); aplicaVista(); pintaLista(); pintaInfo();
+    cargaExtras(true); if (A.tab === 'hechas') agCargaHechas(true);
+    var b = $('mz-agb'); if (b && window.innerWidth > 700) b.focus();
+  }
+  function cierraAgenda() { C.verAg = false; C.vista = 'lista'; X().confBorra = null; pintaMain(); aplicaVista(); pintaLista(); }
+
+  /* ----- Ventana: nuevo / editar recordatorio (y «Recordarme este mensaje») ----- */
+  function abrirAgModal(op) {
+    var it = op.item, A = X(), M;
+    if (it) M = { tipo: 'agenda', key: '_ag', id: it.id, editar: true, titulo: it.titulo, nota: it.nota || '', cuando: aInputLocal(it.cuando), antes: it.antes, rep: it.repetir, conv: null, msg: null, orig: '', err: '', enviando: false, enfoque: '#mz-agt' };
+    else {
+      var base = Math.ceil((ahoraAg() + 3600000) / 300000) * 300000;
+      M = { tipo: 'agenda', key: '_ag', id: uuid(), editar: false, titulo: '', nota: '', cuando: aInputLocal(base), antes: 0, rep: 'NO', conv: null, msg: null, orig: '', err: '', enviando: false, enfoque: '#mz-agt' };
+      if (op.m) {
+        M.titulo = 'Revisar mensaje de ' + (op.m.de === me.id ? 'mí' : nombreDe(op.m.de)); M.nota = etiquetaTipo(op.m).slice(0, 500); M.conv = idConv(C.peer); M.msg = op.m.id;
+        M.orig = (op.m.de === me.id ? 'Tu mensaje' : 'Mensaje de ' + nombreDe(op.m.de)) + ' en ' + nombreConv(C.peer) + ': ' + etiquetaTipo(op.m).replace(/\s+/g, ' ').slice(0, 120);
+      }
+    }
+    if (it && (it.msg || it.conv)) M.orig = 'Enlazado a un mensaje del chat';
+    abreModal(M);
+  }
+  function modalAg(M) {
+    if (M.tipo === 'agenda') {
+      var antes = AG_ANTES.filter(function (x) { return M.rep === 'NO' || x[0] <= 60; });
+      return { titulo: M.editar ? 'Editar recordatorio' : 'Nuevo recordatorio', ok: M.editar ? 'Guardar cambios' : 'Guardar recordatorio', cuerpo:
+        (M.orig ? '<div class="ag-orig">' + ic(IC.responder, 16) + '<span>' + esc(M.orig) + '</span></div>' : '') +
+        '<div class="mz-fld"><label for="mz-agt">Qué quieres recordar</label><input id="mz-agt" data-minus autocomplete="off" maxlength="120" placeholder="Ej.: Llamar al cliente para confirmar la instalación"></div>' +
+        '<div class="mz-fld"><label for="mz-agn">Nota <span class="op">(opcional)</span></label><textarea id="mz-agn" data-minus rows="3" maxlength="1000" placeholder="Detalles, teléfono, qué decirle…"></textarea></div>' +
+        '<div class="mz-fld"><label for="mz-agc">Cuándo</label><input id="mz-agc" type="datetime-local" aria-describedby="mz-agh">' +
+        '<div class="ag-chips" role="group" aria-label="Atajos de hora"><button type="button" data-a="ag-chip" data-v="15">En 15 min</button><button type="button" data-a="ag-chip" data-v="60">En 1 hora</button><button type="button" data-a="ag-chip" data-v="180">En 3 horas</button><button type="button" data-a="ag-chip" data-v="man">Mañana 9:00</button></div>' +
+        '<div class="ag-h2" id="mz-agh" role="status"></div></div>' +
+        '<div class="ag-dos"><div class="mz-fld"><label for="mz-aga">Avisarme</label><select id="mz-aga">' + antes.map(function (x) { return '<option value="' + x[0] + '"' + (M.antes === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></div>' +
+        '<div class="mz-fld"><label for="mz-agr">Repetir</label><select id="mz-agr">' + AG_REP.map(function (x) { return '<option value="' + x[0] + '"' + (M.rep === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></div></div>' +
+        (M.rep !== 'NO' ? '<p class="ag-sg">Al marcarlo como hecho, pasa solo a la siguiente fecha. Con repetición el aviso puede adelantarse hasta 1 hora.</p>' : '') +
+        '<p class="ag-sg">La hora es la de este equipo. Solo tú ves tus recordatorios.</p>' };
+    }
+    if (M.tipo === 'rapidas') return { titulo: M.vista === 'editar' ? (M.esNuevo ? (M.eq ? 'Nueva respuesta del equipo' : 'Nueva respuesta rápida') : 'Editar respuesta rápida') : 'Respuestas rápidas', ok: 'Guardar', cuerpo: M.vista === 'editar' ? htmlRapEdita(M) : htmlRapLista(M) };
+    if (M.tipo === 'conexion') return { titulo: 'Estado de la conexión en vivo', ok: 'Cerrar', cuerpo: htmlConexion(M) };
+    return null;
+  }
+  function actualizaHintAg(M) {
+    var h = $('mz-agh'); if (!h || !M || M.tipo !== 'agenda') return;
+    var ms = deInputLocal(M.cuando), orig = M.editar ? agPorId(M.id) : null, ahora = ahoraAg(), txt, malo = false;
+    if (isNaN(ms)) { txt = 'Elige la fecha y la hora.'; malo = true; }
+    else if ((!orig || orig.cuando !== ms) && ms < ahora - 300000) { txt = 'Esa hora ya pasó. Elige una fecha futura.'; malo = true; }
+    else { var av = ms - M.antes * 60000; txt = av <= ahora ? 'El aviso saltará enseguida.' : 'Te avisaré: ' + agCuando(av) + '.'; }
+    h.textContent = txt; h.classList.toggle('ok', !malo);
+  }
+  function modalAgPost(M) {
+    if (M.tipo === 'agenda') {
+      var t = $('mz-agt'), n = $('mz-agn'), c = $('mz-agc'); if (t) t.value = M.titulo; if (n) n.value = M.nota; if (c) c.value = M.cuando; actualizaHintAg(M);
+    } else if (M.tipo === 'rapidas' && M.vista === 'editar') {
+      var a = $('mz-rpa'), x = $('mz-rpt'); if (a) a.value = M.atajo; if (x) x.value = M.texto; actualizaCuentaRap(M);
+    }
+  }
+  function modalAgBtn(M) {
+    if (M.tipo === 'agenda') {
+      var ms = deInputLocal(M.cuando);
+      return { listo: M.titulo.trim().length >= 1 && M.titulo.length <= 120 && (M.nota || '').length <= 1000 && !isNaN(ms), etiqueta: M.editar ? 'Guardar cambios' : 'Guardar recordatorio' };
+    }
+    if (M.tipo === 'rapidas') return M.vista !== 'editar' ? { listo: true, etiqueta: 'Cerrar' } : { listo: !!atajoNorm(M.atajo) && M.texto.trim().length >= 1 && M.texto.length <= 1000, etiqueta: 'Guardar' };
+    if (M.tipo === 'conexion') return { listo: true, etiqueta: 'Cerrar' };
+    return null;
+  }
+  async function okModalAg(M) {
+    if (M.tipo === 'agenda') return guardaAg(M);
+    if (M.tipo === 'rapidas') return guardaRap(M);
+    return true;
+  }
+  async function guardaAg(M) {
+    var A = X(), ms = deInputLocal(M.cuando), t = M.titulo.trim(), n = (M.nota || '').trim();
+    if (!t || t.length > 120) { M.err = 'Escribe qué quieres recordar (hasta 120 letras)'; return false; }
+    if (isNaN(ms)) { M.err = 'Elige la fecha y la hora'; return false; }
+    var orig = M.editar ? agPorId(M.id) : null;
+    if ((!orig || orig.cuando !== ms) && ms < ahoraAg() - 300000) { M.err = ERR_CHAT.agenda_pasada; return false; }
+    var r = await llama('chat_agenda_guardar', { p_id: M.id, p_titulo: t, p_nota: n || null, p_cuando: new Date(ms).toISOString(), p_antes: M.antes, p_repetir: M.rep, p_conv: M.editar ? null : (M.conv || null), p_mensaje: M.editar ? null : (M.msg || null) });
+    if (r.error || !r.data || !r.data.item) { M.err = msgE(r.error) + (esRed(r.error) ? '. Puedes volver a pulsar «Guardar»: no se duplicará.' : ''); return false; }
+    syncReloj(r.data); var it = agItem(r.data.item); A.ver++; agUpsert(it); A.disp[it.id] = 0;
+    aviso(M.editar ? 'Recordatorio actualizado' : 'Recordatorio guardado');
+    agRefresca(true); setTimeout(tickAgenda, 200);
+    return true;
+  }
+
+  /* ----- Respuestas rápidas: se administran en una ventana y se usan escribiendo «/» ----- */
+  function atajoNorm(s) {
+    var v = plano(String(s || '').trim()).replace(/^\/+/, '').replace(/\s+/g, '-');
+    return /^[a-z0-9_-]{1,20}$/.test(v) ? v : '';
+  }
+  function actualizaCuentaRap(M) { var c = $('mz-rpc'); if (c) c.textContent = (M.texto || '').length + '/1000'; }
+  function htmlRapItems(l, propias) {
+    var A = X(), mod = moderador();
+    if (!l.length) return '<div class="rp-vacio">' + (propias ? 'Aún no tienes ninguna. Ejemplo: el atajo «saludo» con el texto de tu saludo; luego escribes «/saludo» en el chat.' : 'La administración todavía no publicó ninguna.') + '</div>';
+    return '<ul class="rp-l">' + l.map(function (r) {
+      var puede = propias || mod, conf = A.confBorra === 'rp:' + r.id;
+      return '<li class="rp-it"><div class="rp-t"><b>/' + esc(r.atajo) + '</b><span>' + esc(r.texto) + '</span></div>' + (puede ? '<div class="rp-ac"><button type="button" class="mz-ib" data-a="rp-edit" data-id="' + esc(r.id) + '" data-eq="' + (propias ? 0 : 1) + '" aria-label="Editar /' + esc(r.atajo) + '" title="Editar">' + ic(IC.lapiz, 17) + '</button>' +
+        (conf ? '<button type="button" class="mz-ib conf" data-a="rp-borra" data-id="' + esc(r.id) + '" data-eq="' + (propias ? 0 : 1) + '" aria-label="Confirmar: borrar /' + esc(r.atajo) + '">¿Borrar?</button>' : '<button type="button" class="mz-ib" data-a="rp-borra" data-id="' + esc(r.id) + '" data-eq="' + (propias ? 0 : 1) + '" aria-label="Borrar /' + esc(r.atajo) + '" title="Borrar">' + ic(IC.papelera, 17) + '</button>') + '</div>' : '') + '</li>';
+    }).join('') + '</ul>';
+  }
+  function htmlRapLista() {
+    var A = X(), mod = moderador();
+    return '<p class="mz-mtexto">Escribe «/» en la caja del chat y elige una: el texto se pega para que lo revises, <b>no se envía solo</b>.</p>' +
+      '<div class="rp-s"><h4>Mías (' + A.rap.propias.length + '/50)</h4><button type="button" class="mz-btn chico" data-a="rp-nueva" data-eq="0">' + ic(IC.mas2, 16) + 'Nueva</button></div>' + htmlRapItems(A.rap.propias, true) +
+      '<div class="rp-s"><h4>Del equipo (' + A.rap.equipo.length + ')</h4>' + (mod ? '<button type="button" class="mz-btn chico" data-a="rp-nueva" data-eq="1">' + ic(IC.mas2, 16) + 'Nueva del equipo</button>' : '') + '</div>' + htmlRapItems(A.rap.equipo, false);
+  }
+  function htmlRapEdita(M) {
+    return '<div class="mz-fld"><label for="mz-rpa">Atajo</label><div class="rp-at"><span aria-hidden="true">/</span><input id="mz-rpa" data-minus autocomplete="off" maxlength="21" placeholder="saludo" aria-describedby="mz-rpah"></div><small id="mz-rpah" class="ag-sg">De 1 a 20 letras sin tilde, números, guion o guion bajo. Los espacios pasan a guion.</small></div>' +
+      '<div class="mz-fld"><label for="mz-rpt">Texto</label><textarea id="mz-rpt" data-minus rows="5" maxlength="1000" placeholder="Lo que se pegará en la caja del chat"></textarea><small class="ag-sg" id="mz-rpc" aria-live="off">0/1000</small></div>' +
+      (M.eq ? '<p class="ag-sg"><b>Respuesta del equipo:</b> la verán todas las personas del chat (solo administración y supervisión pueden crearla o cambiarla).</p>' : '');
+  }
+  function rpVista(M, vista, foco) {
+    M.vista = vista; M.solo = vista !== 'editar'; M.err = ''; M.enviando = false; pintaModal();
+    var O = $('mz-modal'), f = O && O.querySelector(foco || (vista === 'editar' ? '#mz-rpa' : 'button')); if (f) f.focus();
+  }
+  async function abrirRapidas() {
+    var A = X(); if (A.sin) return;
+    abreModal({ tipo: 'rapidas', key: '_rp', vista: 'lista', solo: true, err: '', enviando: false, enfoque: 'button' });
+    if (!A.cargado) { await cargaExtras(true); if (C.modal && C.modal.tipo === 'rapidas' && C.modal.vista === 'lista') pintaModal(); }
+  }
+  function rpEditar(M, r, eq) { M.id = r ? r.id : uuid(); M.eq = eq; M.esNuevo = !r; M.atajo = r ? r.atajo : ''; M.texto = r ? r.texto : ''; rpVista(M, 'editar'); }
+  async function guardaRap(M) {
+    var A = X(), at = atajoNorm(M.atajo), tx = M.texto.trim();
+    if (!at) { M.err = ERR_CHAT.rapida_invalida; return false; }
+    if (!tx || tx.length > 1000) { M.err = 'Escribe el texto (hasta 1000 letras)'; return false; }
+    var r = await llama('chat_rapida_guardar', { p_id: M.id, p_atajo: at, p_texto: tx, p_equipo: !!M.eq });
+    if (r.error || !r.data || !r.data.item) { M.err = msgE(r.error); return false; }
+    var it = r.data.item, lista = it.equipo ? A.rap.equipo : A.rap.propias, j = -1;
+    for (var i = 0; i < lista.length; i++) if (lista[i].id === it.id) { j = i; break; }
+    var f = { id: it.id, atajo: it.atajo, texto: it.texto }; if (j >= 0) lista[j] = f; else lista.push(f);
+    lista.sort(function (a, b) { return a.atajo < b.atajo ? -1 : a.atajo > b.atajo ? 1 : 0; });
+    aviso('Respuesta rápida guardada'); rpVista(M, 'lista');
+    return false;   // la ventana sigue abierta, ahora en la lista
+  }
+  async function borraRap(id, eq) {
+    var A = X(); A.confBorra = null;
+    var r = await llama('chat_rapida_borrar', { p_id: id });
+    if (r.error) { aviso(msgE(r.error), true); if (C.modal && C.modal.tipo === 'rapidas') pintaModal(); return; }
+    A.rap.propias = A.rap.propias.filter(function (x) { return x.id !== id; }); A.rap.equipo = A.rap.equipo.filter(function (x) { return x.id !== id; });
+    aviso('Respuesta rápida borrada'); if (C.modal && C.modal.tipo === 'rapidas') { var f = document.activeElement; pintaModal(); var O = $('mz-modal'), b = O && O.querySelector('button'); if (b) b.focus(); }
+  }
+  function escAg() {   // Esc dentro de la edición de una respuesta rápida: vuelve a la lista en vez de cerrar todo
+    var M = C.modal; if (M && M.tipo === 'rapidas' && M.vista === 'editar') { rpVista(M, 'lista'); return true; }
+    return false;
+  }
+  function agFuera(t) {   // un clic en cualquier otro sitio cancela el «¿Borrar?»
+    var A = C.x8; if (!A || !A.confBorra) return;
+    var b = t.closest && t.closest('[data-a="ag-borra"],[data-a="rp-borra"]');
+    if (b && b.getAttribute('data-id') === A.confBorra.slice(3)) return;
+    A.confBorra = null; if (C.verAg && !C.peer) pintaAg(); if (C.modal && C.modal.tipo === 'rapidas') pintaModal();
+  }
+
+  /* ----- «/» y «@»: sugerencias sobre la caja de escribir ----- */
+  function menGente(k) {   // personas a quienes se puede mencionar en esta conversación (sin mí)
+    var l = [];
+    if (k === GEN) l = C.cont.map(function (c) { return { id: c.id, nombre: c.nombre, rol: c.rol, rc: '' }; });
+    else if (esGrupo(k)) l = arr(C.miembros[k]).map(function (x) { return { id: x.id, nombre: x.nombre, rol: x.rol, rc: x.rol_chat, activo: x.activo }; });
+    return l.filter(function (x) { return x.id !== me.id && x.activo !== false; });
+  }
+  function puedeTodosDe(k, uid) {
+    var r = uid === me.id ? perfil.rol : rolDe(uid);
+    if (r === 'admin' || r === 'supervisor') return true;
+    if (k === GEN) return false;
+    var m = arr(C.miembros[k]).filter(function (x) { return x.id === uid; })[0];
+    return !!(m && m.rol_chat === 'ADMIN');
+  }
+  function puedeTodos(k) { return !!k && compartida(k) && puedeTodosDe(k, me.id); }
+  function sugRapidas(q, manual) {
+    var A = X(), todas = A.rap.propias.map(function (r) { return { id: r.id, atajo: r.atajo, texto: r.texto, eq: false }; }).concat(A.rap.equipo.map(function (r) { return { id: r.id, atajo: r.atajo, texto: r.texto, eq: true }; }));
+    if (!q) return manual ? todas.slice(0, 20) : todas.slice(0, MAX_SUG);
+    var a = [], b = [];
+    todas.forEach(function (r) { var p = r.atajo.indexOf(q); if (p === 0) a.push(r); else if (p > 0 || (q.length >= 3 && plano(r.texto).indexOf(q) >= 0)) b.push(r); });
+    return a.concat(b).slice(0, MAX_SUG);
+  }
+  function sugGente(k, qn) {
+    var a = [], b = [];
+    if (qn.length <= 5 && puedeTodos(k) && 'todos'.indexOf(qn) === 0) a.push({ todos: true, nombre: 'todos' });
+    menGente(k).forEach(function (x) {
+      var n = plano(x.nombre).replace(/\s+/g, ' ');
+      if (!qn || n.indexOf(qn) === 0) a.push(x); else if ((' ' + n).indexOf(' ' + qn) >= 0) b.push(x);
+    });
+    var ord = function (p, q) { return String(p.nombre).localeCompare(String(q.nombre), 'es'); };
+    a.sort(function (p, q) { return p.todos ? -1 : q.todos ? 1 : ord(p, q); }); b.sort(ord);
+    return a.concat(b).slice(0, MAX_SUG);
+  }
+  function sugEvalua() {
+    var A = X(), inp = $('mz-in'), k = C.peer, S = null, m;
+    if (inp && k && !inp.disabled && !C.edit && !A.sin && !C.modal) {
+      var pos = inp.selectionStart == null ? inp.value.length : inp.selectionStart, antes = inp.value.slice(0, pos);
+      if ((m = /^\/([^\s\/]{0,20})$/.exec(antes))) {
+        var qn = plano(m[1]).replace(/^\/+/, ''), its = sugRapidas(qn, false);
+        if (its.length || (!qn && !A.rap.propias.length && !A.rap.equipo.length)) S = { modo: '/', q: qn, ini: 0, fin: pos, items: its };
+      } else if (compartida(k) && (m = /(?:^|\s)@([^\s@]*(?: [^\s@]*)?)$/.exec(antes))) {
+        var q2 = plano(m[1]).replace(/\s+/g, ' '), its2 = sugGente(k, q2);
+        if (esGrupo(k) && !C.miembros[k]) cargaMiembros(k).then(function () { if (C.peer === k && X().sug && X().sug.modo === '@') sugEvalua(); });
+        if (its2.length) S = { modo: '@', q: q2, ini: pos - m[1].length - 1, fin: pos, items: its2 };
+      }
+    }
+    var ant = A.sug; if (S) S.i = (ant && ant.modo === S.modo && ant.q === S.q && ant.i < S.items.length) ? ant.i : 0;
+    A.sug = S; sugPinta();
+  }
+  function sugCierra() { var A = C.x8; if (!A || !A.sug) return; A.sug = null; sugPinta(); }
+  function sugPinta() {
+    var el = $('mz-sug'), inp = $('mz-in'), S = C.x8 && C.x8.sug; if (!el) return;
+    if (!S) {
+      el.hidden = true; el.innerHTML = '';
+      if (inp) { inp.removeAttribute('aria-controls'); inp.removeAttribute('aria-activedescendant'); }
+      return;
+    }
+    var h = '';
+    if (S.items.length) {
+      h = '<div class="t" id="mz-sug-t">' + (S.modo === '/' ? 'Respuestas rápidas' : 'Mencionar a…') + '</div><div role="listbox" id="mz-sug-l" aria-labelledby="mz-sug-t">' + S.items.map(function (x, i) {
+        var sel = i === S.i;
+        return S.modo === '/'
+          ? '<div role="option" id="mz-sug-' + i + '" class="' + (sel ? 'sel' : '') + '" aria-selected="' + sel + '" data-a="sug-pick" data-i="' + i + '"><span class="x"><b>/' + esc(x.atajo) + '</b><small>' + esc(x.texto.replace(/\s+/g, ' ').slice(0, 90)) + '</small></span>' + (x.eq ? '<span class="eq">Equipo</span>' : '') + '</div>'
+          : '<div role="option" id="mz-sug-' + i + '" class="' + (sel ? 'sel' : '') + '" aria-selected="' + sel + '" data-a="sug-pick" data-i="' + i + '">' + (x.todos ? av('todos', 'Todos', 28, true) : av(x.id, x.nombre, 28, false)) +
+            '<span class="x"><b>' + (x.todos ? '@todos' : esc(bonito(x.nombre))) + '</b><small>' + (x.todos ? 'Avisa a todos los miembros' : esc(DEPTO[x.rol] || x.rol || '')) + '</small></span></div>';
+      }).join('') + '</div>';
+    } else h = '<div class="vacio" role="status">Aún no tienes respuestas rápidas. Crea la primera con «Administrar».</div>';
+    if (S.modo === '/') h += '<div class="pie"><button type="button" data-a="rap-admin">Administrar respuestas</button></div>';
+    el.innerHTML = h; el.hidden = false;
+    if (inp) { if (S.items.length) { inp.setAttribute('aria-controls', 'mz-sug-l'); inp.setAttribute('aria-activedescendant', 'mz-sug-' + S.i); } else { inp.removeAttribute('aria-controls'); inp.removeAttribute('aria-activedescendant'); } }
+    var s = el.querySelector('.sel'); if (s && s.scrollIntoView) { try { s.scrollIntoView({ block: 'nearest' }); } catch (e) { } }
+  }
+  function sugInserta(texto, desde, hasta) {
+    var i = $('mz-in'); if (!i) return;
+    var nuevo = i.value.slice(0, desde) + texto + i.value.slice(hasta);
+    if (nuevo.length > MAXLEN) { aviso('No cabe: el mensaje pasaría de ' + MAXLEN + ' letras', true); return; }
+    i.value = nuevo; var pos = desde + texto.length; i.focus(); try { i.setSelectionRange(pos, pos); } catch (e) { }
+    autoTam(); actualizaEnvio(); guardaBorrador();
+  }
+  function sugElige(i) {
+    var A = X(), S = A.sug; if (!S || !S.items[i]) return; var it = S.items[i];
+    if (S.modo === '/') sugInserta(it.texto, S.ini, S.fin); else sugInserta('@' + (it.todos ? 'todos' : bonito(it.nombre)) + ' ', S.ini, S.fin);
+    sugCierra();
+  }
+  function sugTecla(e) {
+    var S = C.x8 && C.x8.sug, t = e.target; if (!S || !t || t.id !== 'mz-in' || e.isComposing || !S.items.length) return false;
+    var n = S.items.length;
+    if (e.key === 'ArrowDown') { e.preventDefault(); S.i = (S.i + 1) % n; sugPinta(); return true; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); S.i = (S.i - 1 + n) % n; sugPinta(); return true; }
+    if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); sugElige(S.i); return true; }
+    return false;
+  }
+  function sugManual() {
+    var A = X(), inp = $('mz-in'); if (!inp || inp.disabled) return;
+    if (A.sug && A.sug.manual) { sugCierra(); inp.focus(); return; }
+    var pos = inp.selectionStart == null ? inp.value.length : inp.selectionStart; inp.focus();
+    A.sug = { modo: '/', manual: true, q: '', ini: pos, fin: pos, items: sugRapidas('', true), i: 0 }; sugPinta();
+  }
+  function sugAlVaciar() { var A = C.x8; if (A && A.sug && !A.sug.manual) { var i = $('mz-in'); if (!i || !i.value) sugCierra(); } }
+  function btnRap() {
+    if (X().sin) return '';
+    return '<button type="button" class="mz-ib" id="mz-rapb" data-a="rapmenu" aria-label="Respuestas rápidas" title="Respuestas rápidas (también puedes escribir «/»)">' + ic(IC.rayo) + '</button>';
+  }
+
+  /* ----- Menciones: cómo se ven en el mensaje, y la marca @ en la lista ----- */
+  function menNombres(k) {
+    var A = X(), g = menGente(k), sig = k + ':' + g.length + ':' + (g.length ? g[0].id + g[g.length - 1].id : '');
+    if (A.mr[k] && A.mr[k].sig === sig) return A.mr[k].l;
+    var l = [], norm = function (s) { return plano(s).replace(/\s+/g, ' ').trim(); }, conteo = {}, todos = g.concat([{ id: me.id, nombre: perfil.nombre, yo: true }]);
+    todos.forEach(function (x) { var p = norm(x.nombre).split(' ')[0]; conteo[p] = (conteo[p] || 0) + 1; });
+    todos.forEach(function (x) {
+      var n = norm(x.nombre), p = n.split(' ')[0]; if (n.length < 2) return;
+      l.push({ t: n, yo: !!x.yo });
+      if (conteo[p] === 1 && p.length >= 3 && p !== n) l.push({ t: p, yo: !!x.yo });
+    });
+    l.push({ t: 'todos', todos: true }); l.push({ t: 'todas', todos: true });
+    l.sort(function (a, b) { return b.t.length - a.t.length; });
+    A.mr[k] = { sig: sig, l: l }; return l;
+  }
+  function conMenciones(p, q, msg) {
+    var k = C.peer; if (!msg || !k || !compartida(k) || p.indexOf('@') < 0) return resaltar(p, q);
+    var pl = plano(p), cands = menNombres(k), rangos = [], i = 0;
+    while ((i = pl.indexOf('@', i)) >= 0) {
+      if (i === 0 || /\s/.test(pl.charAt(i - 1))) {
+        for (var j = 0; j < cands.length; j++) {
+          var c = cands[j], fin = i + 1 + c.t.length;
+          if (pl.substr(i + 1, c.t.length) === c.t && !/[a-z0-9]/.test(pl.charAt(fin) || ' ')) {
+            if (c.todos && !puedeTodosDe(k, msg.de)) continue;
+            rangos.push([i, fin, !!(c.yo || c.todos)]); i = fin - 1; break;
+          }
+        }
+      }
+      i++;
+    }
+    if (!rangos.length) return resaltar(p, q);
+    var h = '', pos = 0;
+    rangos.forEach(function (r) { h += resaltar(p.slice(pos, r[0]), q) + '<span class="mz-men' + (r[2] ? ' yo' : '') + '">' + resaltar(p.slice(r[0], r[1]), q) + '</span>'; pos = r[1]; });
+    return h + resaltar(p.slice(pos), q);
+  }
+  function badgeAt(id) { return menDe(id) ? '<i class="mz-at" aria-hidden="true">@</i>' : ''; }
+  function menNuevo(m, peer, viendo) {   // llegó un texto con «@» a una conversación compartida que no estoy mirando: la base dice si me mencionaron
+    var A = C.x8; if (!A || A.sin || viendo || m.tipo !== 'TEXTO' || String(m.cuerpo || '').indexOf('@') < 0 || !compartida(peer)) return;
+    clearTimeout(A.menT);
+    A.menT = setTimeout(async function () {
+      var C0 = C, r = await llama('chat_menciones_pendientes', {}, 8000);
+      if (C !== C0 || C.cerrando || r.error || !Array.isArray(r.data)) return;
+      A.menRaw = r.data; aplicaMenciones(); if (C.open) pintaLista();
+    }, 1200);
+  }
+
+  /* ----- Conexión en vivo: el aviso se quita solo, reconecta con pausas crecientes y explica el motivo ----- */
+  var ESTADO_CANAL = { joined: 'Conectado', joining: 'Conectando…', errored: 'Con error', closed: 'Cerrado', leaving: 'Cerrando' };
+  var ESTADO_AVISO = { SUBSCRIBED: 'Conectado', CLOSED: 'Cerrado', CHANNEL_ERROR: 'Error del canal', TIMED_OUT: 'Tiempo agotado', RECONECTANDO: 'Reconexión pedida' };
+  function RT() { return C.rt || (C.rt = { gen: 0, msgs: null, pres: null, log: [], intentos: 0, proximo: 0, v: null }); }
+  function textoErrRt(err) {
+    if (!err) return ''; var m = typeof err === 'string' ? err : (err.message || err.reason || '');
+    if (!m) { try { m = JSON.stringify(err); } catch (e) { m = String(err); } }
+    return String(m).replace(/\s+/g, ' ').slice(0, 300);
+  }
+  function rtAnota(cual, s, err) {
+    var R = RT(), t = textoErrRt(err); R[cual] = { estado: s, err: t, at: Date.now() };
+    R.log.push({ at: Date.now(), c: cual === 'pres' ? 'Presencia' : 'Mensajes', s: s, e: t }); if (R.log.length > 10) R.log.shift();
+    if (s !== 'SUBSCRIBED') { try { console.warn('[Messenger] tiempo real (' + cual + '): ' + s + (t ? ' · ' + t : '')); } catch (e) { } }
+  }
+  function rtSano() { return !!(C.chM && C.chM.state === 'joined'); }
+  function rtEmpieza() {
+    var R = RT(); if (R.v) return;
+    R.intentos = 0; R.proximo = Date.now() + 15000;   // primero se le da tiempo a la propia librería para reconectar
+    R.v = setInterval(rtVigila, 3000);
+  }
+  function rtPara() { var R = C.rt; if (!R) return; if (R.v) { clearInterval(R.v); R.v = null; } R.intentos = 0; }
+  function rtVigila() {
+    if (C.cerrando) { rtPara(); return; }
+    if (!C.caido) { rtPara(); return; }
+    var R = RT();
+    if (navigator.onLine !== false && rtSano()) { estadoRed('SUBSCRIBED', null, true); return; }   // el canal ya está unido otra vez aunque no llegó el aviso: se quita el cartel y se recupera lo perdido
+    if (document.hidden || navigator.onLine === false || Date.now() < R.proximo) return;
+    R.intentos++; R.proximo = Date.now() + Math.min(300000, 20000 * Math.pow(2, R.intentos - 1));   // 20 s, 40 s, 80 s, 160 s, 5 min…
+    rtReconecta('auto');
+  }
+  function rtLatido() {
+    if (C.caido) { rtVigila(); return; }
+    var ch = C.chM; if (C.conectado && ch && (ch.state === 'errored' || ch.state === 'closed')) { C.caido = true; banner(true); rtEmpieza(); }
+  }
+  function rtReconecta(motivo) {
+    var R = RT(), viejo = C.chM; C.chM = null; R.gen++;
+    try { if (viejo) sb.removeChannel(viejo); } catch (e) { }
+    rtAnota('msgs', 'RECONECTANDO', motivo === 'manual' ? 'Reintento pedido por ti' : motivo === 'auto' ? 'Reintento automático n.º ' + R.intentos : motivo);
+    suscribirMsgs();
+    var cp = C.chP;
+    if (cp && cp.state && cp.state !== 'joined' && cp.state !== 'joining') { C.chP = null; try { sb.removeChannel(cp); } catch (e) { } suscribirPres(); }
+  }
+  function rtLimpia() { rtPara(); var A = C.x8; if (A) { clearInterval(A.T); clearTimeout(A.tn); clearTimeout(A.menT); } }
+  function suscribirMsgs() {
+    var R = RT(), ch = sb.channel('chat-msgs-' + me.id + (R.gen ? '-' + R.gen : ''));
+    C.chM = ch;
+    ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_mensajes' }, function (pl) { try { llego(pl.new); } catch (x) { console.error(x); } })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_mensajes' }, function (pl) { try { actualizado(pl.new); } catch (x) { console.error(x); } })
+      .subscribe(function (s, err) { if (C.chM !== ch) return; try { estadoRed(s, err); } catch (x) { console.error(x); } });
+  }
+  function suscribirPres() {
+    var ch = C.chP = sb.channel('chat-presencia', { config: { presence: { key: me.id } } });
+    ch.on('presence', { event: 'sync' }, function () {
+      var st = ch.presenceState(), antes = C.on, nuevo = {};
+      Object.keys(st).forEach(function (k) { var m = st[k] && st[k][0]; nuevo[k] = (m && ESTADOS[m.st]) ? m.st : 'on'; });
+      C.on = nuevo; Object.keys(nuevo).forEach(function (k) { C.ws[k] = nuevo[k]; });
+      if (!C.primeraPres) Object.keys(nuevo).forEach(function (k) { if (k !== me.id && !antes[k]) { try { conectado(k); } catch (e) { } } });
+      C.primeraPres = false;
+      if (C.open) { pintaLista(); actualizaZumbidoBtn(); var e2 = $('mz-es'); if (e2) e2.innerHTML = lineaEstado(); if (C.peer === GEN || (C.peer && !$('mz-info').hidden)) pintaInfo(); }
+    }).on('broadcast', { event: 'typing' }, function (pl) {
+      var d = pl && pl.payload; if (!d || d.para !== me.id) return;
+      C.typ[d.de] = Date.now(); pintaTyping(); setTimeout(pintaTyping, 4200);
+    }).on('broadcast', { event: 'perfil' }, function (pl) {
+      var d = pl && pl.payload; if (d && d.de && d.de !== me.id) perfilesSoon();
+    }).subscribe(function (s, err) {
+      if (C.chP !== ch) return; try { rtAnota('pres', s, err); } catch (e) { }
+      if (s === 'SUBSCRIBED') { try { ch.track({ nombre: perfil.nombre, st: C.st, t: Date.now() }); } catch (e) { } }
+    });
+  }
+  function rtInforme(M) {
+    var R = RT(), d = M && M.d, f = function (t) { return hhmm(t) + ' ' + new Date(t).toLocaleDateString('es-PE'); }, L = [];
+    L.push('Informe de conexión del chat · ' + f(Date.now()) + ' · rol ' + (perfil.rol || '?'));
+    L.push('Internet del navegador: ' + (navigator.onLine === false ? 'SIN conexión' : 'conectado') + ' · pestaña ' + (document.hidden ? 'oculta' : 'visible'));
+    L.push('Canal de mensajes: ' + (C.chM ? (ESTADO_CANAL[C.chM.state] || C.chM.state || '?') : 'no existe') + ' · aviso de caída: ' + (C.caido ? 'sí' : 'no'));
+    if (R.msgs) L.push('Último aviso del canal: ' + R.msgs.estado + ' hace ' + durSeg(Date.now() - R.msgs.at) + (R.msgs.err ? ' · ' + R.msgs.err : ''));
+    L.push('Presencia: ' + (C.chP ? (ESTADO_CANAL[C.chP.state] || C.chP.state || '?') : 'no existe') + (R.pres && R.pres.err ? ' · ' + R.pres.err : ''));
+    L.push('Reintentos automáticos: ' + R.intentos);
+    if (d) { L.push('Base de datos: ' + (d.ping.ok ? 'responde en ' + d.ping.ms + ' ms' : 'NO responde (' + d.ping.texto + ')')); L.push('Sesión: ' + (d.haySesion ? (d.sesionHasta ? 'vence a las ' + hhmm(d.sesionHasta) : 'activa') : 'sin sesión')); }
+    if (R.log.length) { L.push('Historial:'); R.log.forEach(function (x) { L.push('  ' + hhmm(x.at) + ' ' + x.c + ' ' + x.s + (x.e ? ' · ' + x.e : '')); }); }
+    L.push('Navegador: ' + String(navigator.userAgent || '').slice(0, 140));
+    return L.join('\n');
+  }
+  function rtPistas(M) {
+    var R = RT(), d = M.d, p = [], e = String((R.msgs && R.msgs.err) || '') + ' ' + String((R.pres && R.pres.err) || '') + ' ' + String((d && d.ping && !d.ping.ok && d.ping.texto) || '');
+    if (navigator.onLine === false) p.push({ t: 'Este equipo no tiene internet. Cuando vuelva, el chat se reconecta solo.' });
+    else if (d && d.ping && !d.ping.ok) p.push({ t: 'El CRM no logra hablar con la base de datos. Revisa tu internet o si el proyecto de Supabase está pausado o caído.' });
+    if (d && d.haySesion === false) p.push({ t: 'Tu sesión ya no es válida. Recarga la página (Ctrl+F5) e inicia sesión de nuevo.' });
+    else if (d && d.sesionHasta && d.sesionHasta < Date.now()) p.push({ t: 'Tu sesión venció. Recarga la página (Ctrl+F5) e inicia sesión de nuevo.' });
+    if (/mismatch|unable to subscribe|bindings|publication/i.test(e)) p.push({ t: 'Supabase no está enviando los cambios de la tabla de mensajes. Pega esto en Supabase → SQL Editor y pulsa Run (no borra nada):', code: SQL_PUB });
+    else if (/token|jwt|expired|unauthor/i.test(e)) p.push({ t: 'La conexión en vivo no aceptó tu sesión. Recarga con Ctrl+F5 e inicia sesión de nuevo.' });
+    else if (/time.?out|timed out/i.test(e) || (R.msgs && R.msgs.estado === 'TIMED_OUT')) p.push({ t: 'La conexión en vivo tarda demasiado en responder. Suele ser internet inestable, una VPN, un antivirus o un bloqueador de anuncios que bloquea las conexiones «wss://».' });
+    if (!p.length && C.caido) p.push({ t: 'La conexión en vivo se cayó, pero tu internet y la base de datos responden. El chat sigue funcionando y se actualiza cada minuto; el CRM intenta reconectar solo con pausas cada vez más largas. Si pasa de 5 minutos, recarga con Ctrl+F5 y envía este informe a quien te da soporte.' });
+    return p;
+  }
+  function htmlConexion(M) {
+    var R = RT(), d = M.d, ch = C.chM ? C.chM.state : '', ahora = Date.now(), on = navigator.onLine !== false;
+    var fila = function (k, v, c) { return '<div class="rt-f"><span>' + esc(k) + '</span><b' + (c ? ' class="' + c + '"' : '') + '>' + esc(v) + '</b></div>'; };
+    var h = '<div class="rt-l" role="group" aria-label="Estado de la conexión">';
+    h += fila('Internet de este equipo', on ? 'Conectado' : 'Sin conexión', on ? 'ok' : 'mal');
+    h += fila('Mensajes en vivo', ESTADO_CANAL[ch] || ch || 'Sin datos', ch === 'joined' ? 'ok' : 'mal');
+    h += fila('Aviso de «sin conexión»', C.caido ? 'Activo' : 'No', C.caido ? 'mal' : 'ok');
+    if (R.msgs) { h += fila('Último aviso del canal', (ESTADO_AVISO[R.msgs.estado] || R.msgs.estado) + ' · hace ' + durSeg(ahora - R.msgs.at)); if (R.msgs.err) h += fila('Detalle técnico', R.msgs.err); }
+    h += fila('Presencia (quién está en línea)', C.chP ? (ESTADO_CANAL[C.chP.state] || C.chP.state || 'Sin datos') : 'No iniciada', C.chP && C.chP.state === 'joined' ? 'ok' : 'mal');
+    if (R.pres && R.pres.err) h += fila('Detalle de presencia', R.pres.err);
+    h += fila('Reintentos automáticos', R.intentos ? R.intentos + (C.caido && R.proximo > ahora ? ' · el próximo en ' + durSeg(R.proximo - ahora) : '') : 'Ninguno');
+    if (d == null) h += fila('Base de datos', 'Comprobando…');
+    else {
+      h += fila('Base de datos', d.ping.ok ? 'Responde en ' + d.ping.ms + ' ms' : 'No responde: ' + d.ping.texto, d.ping.ok ? 'ok' : 'mal');
+      h += fila('Tu sesión', d.haySesion ? (d.sesionHasta ? 'Vence a las ' + hhmm(d.sesionHasta) : 'Activa') : 'No hay sesión', d.haySesion ? 'ok' : 'mal');
+    }
+    h += '</div>';
+    if (!C.caido && ch === 'joined') h += '<p class="rt-p ok">Todo en orden: el chat está recibiendo mensajes en vivo.</p>';
+    rtPistas(M).forEach(function (x) { h += '<div class="rt-p">' + esc(x.t) + (x.code ? '<code tabindex="0" aria-label="Código para pegar en Supabase">' + esc(x.code) + '</code>' : '') + '</div>'; });
+    h += '<div class="rt-b"><button type="button" class="mz-btn chico" data-a="rt-reintentar">' + ic(IC.otra, 16) + 'Reintentar ahora</button><button type="button" class="mz-btn sec chico" data-a="rt-copiar">' + ic(IC.copiar, 16) + 'Copiar informe</button></div>';
+    if (R.log.length) h += '<ul class="rt-h" aria-label="Últimos eventos">' + R.log.slice().reverse().map(function (x) { return '<li>' + esc(hhmm(x.at) + ' · ' + x.c + ' · ' + (ESTADO_AVISO[x.s] || x.s) + (x.e ? ' · ' + x.e : '')) + '</li>'; }).join('') + '</ul>';
+    return h;
+  }
+  async function rtMide(M) {
+    var C0 = C, t0 = Date.now(), r = await llama('chat_resumen', {}, 8000), ms = Date.now() - t0, ses = null;
+    try { var g = await sb.auth.getSession(); ses = g && g.data && g.data.session; } catch (e) { }
+    if (C !== C0 || C.modal !== M) return;
+    M.d = { ping: r.error ? { ok: false, texto: msgE(r.error), ms: ms } : { ok: true, ms: ms }, haySesion: !!ses, sesionHasta: ses && ses.expires_at ? ses.expires_at * 1000 : null };
+    var foco = document.activeElement, a = foco && foco.getAttribute && foco.getAttribute('data-a');
+    pintaModal();
+    var O = $('mz-modal'), f = O && (a && O.querySelector('[data-a="' + a + '"]') || O.querySelector('button')); if (f) f.focus();
+  }
+  function abrirConexion() {
+    var M = { tipo: 'conexion', solo: true, key: '_rt', d: null, err: '', enviando: false, enfoque: 'button' };
+    abreModal(M); rtMide(M);
+  }
+
+  /* ----- Pulsaciones de este bloque (devuelve true si la acción era de aquí) ----- */
+  function clicAlerta(e) {
+    var b = e.target.closest && e.target.closest('[data-a]'); if (!b) return;
+    var a = b.getAttribute('data-a'), card = b.closest('.ag-card'), id = card ? card.getAttribute('data-id') : null; C.gesto = true;
+    if (a === 'ag-hecha') agHecha(id, false);
+    else if (a === 'ag-posp') agPosponer(id, +b.getAttribute('data-m'));
+    else if (a === 'ag-ir') agIr(id);
+    else if (a === 'ag-cerrar') quitaCard(id);
+    else if (a === 'ag-verlos') { X().cola = []; pintaAlertas(); agPulso(); abrirAgenda(); }
+  }
+  function clicAg(a, b, e) {
+    var id = b.getAttribute('data-id'), A = X();
+    switch (a) {
+      case 'ag-abrir': abrirAgenda(); return true;
+      case 'ag-atras': cierraAgenda(); return true;
+      case 'ag-nuevo': abrirAgModal({}); return true;
+      case 'ag-reint': A.errCarga = null; A.hechasErr = null; pintaAg(); cargaExtras(true).then(function () { if (A.tab === 'hechas') agCargaHechas(true); }); return true;
+      case 'ag-tab': A.tab = b.getAttribute('data-v') === 'hechas' ? 'hechas' : 'pend'; A.confBorra = null; pintaAg(); if (A.tab === 'hechas') agCargaHechas(true); return true;
+      case 'ag-hecha': agHecha(id, false); return true;
+      case 'ag-deshacer': agHecha(id, true); return true;
+      case 'ag-edit': var it = agPorId(id); if (it) abrirAgModal({ item: it }); return true;
+      case 'ag-borra': if (A.confBorra === 'ag:' + id) agBorrar(id); else { A.confBorra = 'ag:' + id; pintaAg(); } return true;
+      case 'ag-ir': agIr(id); return true;
+      case 'ag-posmenu': if (C.pop && C.pop.tipo === 'agpos' && C.pop.id === id) cierraPop(true); else abrePop({ tipo: 'agpos', id: id }, b); return true;
+      case 'ag-posp': agPosponer(id, +b.getAttribute('data-m')); return true;
+      case 'ag-msg': var mm = msgPorId(C.peer, id); if (mm) abrirAgModal({ m: mm }); return true;
+      case 'ag-chip':
+        if (C.modal && C.modal.tipo === 'agenda') {
+          var v = b.getAttribute('data-v'), ms;
+          if (v === 'man') { var d = new Date(ahoraAg()); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); ms = d.getTime(); } else ms = Math.ceil((ahoraAg() + (+v) * 60000) / 60000) * 60000;
+          C.modal.cuando = aInputLocal(ms); C.modal.err = ''; var ci = $('mz-agc'); if (ci) ci.value = C.modal.cuando; actualizaHintAg(C.modal); actualizaModalBtn();
+        } return true;
+      case 'rap-admin': sugCierra(); abrirRapidas(); return true;
+      case 'rapmenu': sugManual(); return true;
+      case 'sug-pick': sugElige(+b.getAttribute('data-i')); return true;
+      case 'rp-nueva': if (C.modal && C.modal.tipo === 'rapidas') rpEditar(C.modal, null, b.getAttribute('data-eq') === '1'); return true;
+      case 'rp-edit': if (C.modal && C.modal.tipo === 'rapidas') { var eq = b.getAttribute('data-eq') === '1', l = eq ? A.rap.equipo : A.rap.propias, r = l.filter(function (x) { return x.id === id; })[0]; if (r) rpEditar(C.modal, r, eq); } return true;
+      case 'rp-borra': if (A.confBorra === 'rp:' + id) borraRap(id, b.getAttribute('data-eq') === '1'); else { A.confBorra = 'rp:' + id; if (C.modal && C.modal.tipo === 'rapidas') { pintaModal(); var O = $('mz-modal'), nb = O && O.querySelector('[data-a="rp-borra"][data-id="' + id + '"]'); if (nb) nb.focus(); } } return true;
+      case 'mod-cerrar': if (C.modal && C.modal.tipo === 'rapidas' && C.modal.vista === 'editar') { rpVista(C.modal, 'lista'); return true; } return false;
+      case 'rt-detalle': abrirConexion(); return true;
+      case 'rt-reintentar': RT().intentos = 0; rtReconecta('manual'); aviso('Reconectando…'); if (C.modal && C.modal.tipo === 'conexion') { var Mx = C.modal; setTimeout(function () { if (C.modal === Mx) rtMide(Mx); }, 3500); } return true;
+      case 'rt-copiar': copiar(rtInforme(C.modal)); return true;
+    }
+    return false;
+  }
+  function entradaAg(e) {
+    var id = e.target.id, M = C.modal; if (!M) return false;
+    if (M.tipo === 'agenda') {
+      if (id === 'mz-agt') { M.titulo = e.target.value; M.err = ''; actualizaModalBtn(); return true; }
+      if (id === 'mz-agn') { M.nota = e.target.value; M.err = ''; actualizaModalBtn(); return true; }
+      if (id === 'mz-agc') { M.cuando = e.target.value; M.err = ''; actualizaHintAg(M); actualizaModalBtn(); return true; }
+    } else if (M.tipo === 'rapidas' && M.vista === 'editar') {
+      if (id === 'mz-rpa') { M.atajo = e.target.value; M.err = ''; actualizaModalBtn(); return true; }
+      if (id === 'mz-rpt') { M.texto = e.target.value; M.err = ''; actualizaCuentaRap(M); actualizaModalBtn(); return true; }
+    }
+    return false;
+  }
+  function cambioAg(e) {
+    var t = e.target, M = C.modal; if (!M || M.tipo !== 'agenda') return false;
+    if (t.id === 'mz-agc') { M.cuando = t.value; M.err = ''; actualizaHintAg(M); actualizaModalBtn(); return true; }
+    if (t.id === 'mz-aga') { M.antes = +t.value || 0; actualizaHintAg(M); return true; }
+    if (t.id === 'mz-agr') { M.rep = t.value; if (M.rep !== 'NO' && M.antes > 60) M.antes = 60; M.err = ''; pintaModal(); var s = $('mz-agr'); if (s) s.focus(); return true; }
+    return false;
+  }
+  function keyupAg(e) { if (e.target && e.target.id === 'mz-in' && /^(ArrowLeft|ArrowRight|Home|End)$/.test(e.key)) sugEvalua(); }
+  function montaAg() {
+    var A = X();
+    if (!$('mz-agal')) {
+      var d = document.createElement('div'); d.id = 'mz-agal'; d.setAttribute('role', 'region'); d.setAttribute('aria-label', 'Recordatorios de tu agenda'); d.setAttribute('aria-live', 'assertive'); d.setAttribute('aria-atomic', 'false');
+      d.addEventListener('click', clicAlerta); document.body.appendChild(d);
+    }
+    A.T = setInterval(tickAgenda, 10000);
+    try { var tt = document.querySelector('title'); if (tt && window.MutationObserver) { A.obs = new MutationObserver(agTitulo); A.obs.observe(tt, { childList: true, characterData: true, subtree: true }); } } catch (e) { }
+    var w = $('mz');
+    if (w) {
+      w.addEventListener('keyup', keyupAg);
+      w.addEventListener('mousedown', function (e) { if (e.target.closest && e.target.closest('#mz-sug')) e.preventDefault(); });   // elegir una sugerencia no le quita el cursor a la caja
+    }
+  }
+  function quitaAg() {
+    rtLimpia(); var d = $('mz-agal'); if (d) d.remove();
+    var A = C.x8; if (A && A.obs) { try { A.obs.disconnect(); } catch (e) { } A.obs = null; }
+    if ((document.title || '').indexOf('⏰ ') === 0) document.title = document.title.slice(2);
   }
 
   /* ================= MONTAJE ================= */
@@ -13551,7 +14536,7 @@ function ofcCalcular(cat, sel) {
       '<section class="mz-main" id="mz-main" aria-label="Conversación"></section>' +
       '<aside class="mz-info" id="mz-info" aria-label="Información de la conversación"></aside></div>' +
       '<div class="mz-fl" id="mz-pop" role="menu" hidden></div><div class="mz-mod" id="mz-modal" data-a="mod-fondo" hidden></div>' +
-      '<div class="mz-banner" id="mz-banner" role="status" hidden>' + ic(IC.alerta, 16) + 'Sin conexión en vivo. Reconectando…</div>' +
+      '<div class="mz-banner" id="mz-banner" role="status" hidden>' + ic(IC.alerta, 16) + '<span>Sin conexión en vivo. Reconectando…</span><button type="button" class="mz-bnb" data-a="rt-detalle">Ver detalle</button></div>' +
       '<div class="mz-toasts" id="mz-toasts"></div><div class="mz-sr" id="mz-live" role="status" aria-live="polite"></div>';
     w.addEventListener('click', clic); w.addEventListener('input', entrada); w.addEventListener('change', cambio); w.addEventListener('keydown', teclaEntrada); w.addEventListener('keydown', teclaChatK);
     w.addEventListener('keydown', teclaMsgs); w.addEventListener('keydown', teclaEmo); w.addEventListener('keydown', teclaRadio); w.addEventListener('contextmenu', menuContextual);
@@ -13565,10 +14550,10 @@ function ofcCalcular(cat, sel) {
     window.addEventListener('online', enLineaNav); window.addEventListener('offline', sinRed);
     C.globales = true; aplicaPrefs(); boton(); pintaMe(); pintaLista(); pintaMain();
     cargaTodo().then(function () { C.cargaCont = false; C.ultimaVez = Date.now(); pintaMe(); pintaLista(); if (C.cargadoEn) { llama('chat_entregar', {}); reintentaCola(); } });
-    suscribir(); C.latido = setInterval(latir, CADA);
+    suscribir(); C.latido = setInterval(latir, CADA); montaAg();
   }
   function quitar() {
-    C.cerrando = true;
+    C.cerrando = true; quitaAg();
     try { if (C.chM) sb.removeChannel(C.chM); if (C.chP) sb.removeChannel(C.chP); } catch (e) { }
     clearInterval(C.buzzT); clearInterval(C.latido); clearTimeout(C.resyncT); clearTimeout(C.colaT); clearTimeout(C.entregaT); clearTimeout(C.refrescaT); clearTimeout(C.busqT); clearTimeout(C.perfT); clearTimeout(C.silT);
     Object.keys(C.markT).forEach(function (k) { clearTimeout(C.markT[k]); });
@@ -13593,7 +14578,9 @@ function ofcCalcular(cat, sel) {
   });
   var oL = window.loginView;
   if (typeof oL === 'function') window.loginView = function () { quitar(); return oL.apply(this, arguments); };
-  window.mz57 = { montar: montar, quitar: quitar, abrir: function (v) { abrirVentana(v !== false); }, estado: function () { return C; }, latir: latir, abrirCon: abrirCon };
+  window.mz57 = { montar: montar, quitar: quitar, abrir: function (v) { abrirVentana(v !== false); }, estado: function () { return C; }, latir: latir, abrirCon: abrirCon,
+    x8: function () { return X(); }, tick: tickAgenda, extras: cargaExtras, abrirAgenda: abrirAgenda, rt: function () { return RT(); }, rtVigila: rtVigila,
+    informe: function () { return rtInforme(C.modal && C.modal.tipo === 'conexion' ? C.modal : {}); }, msgE: msgE };
 })();
 
   /* 60 · ADMIN CHAT   Requiere el SQL 60_chat_admin.sql (y, para limpiar el Drive, el OfertasCRM.gs nuevo con «Nueva versión»).
@@ -13831,7 +14818,8 @@ function ofcCalcular(cat, sel) {
   /* ----- Auditoría ----- */
   var ACC = { GRUPO_CREADO: 'Creó un grupo o canal', GRUPO_RENOMBRADO: 'Cambió el nombre de un grupo', GRUPO_ARCHIVADO: 'Archivó un grupo', GRUPO_RESTAURADO: 'Restauró un grupo', GRUPO_ELIMINADO: 'Eliminó un grupo', MIEMBRO_ANADIDO: 'Añadió a una persona', MIEMBRO_QUITADO: 'Quitó a una persona',
     MIEMBRO_SALIO: 'Salió de un grupo', ROL_CAMBIADO: 'Cambió un papel', MENSAJE_MODERADO: 'Retiró un mensaje', ANUNCIO_ENVIADO: 'Envió un anuncio', SILENCIO_APLICADO: 'Silenció a una persona', SILENCIO_QUITADO: 'Quitó un silencio',
-    CONFIG_CAMBIADA: 'Cambió la configuración', RETENCION_EJECUTADA: 'Aplicó la conservación', DRIVE_LIMPIEZA: 'Limpió archivos del Drive' };
+    CONFIG_CAMBIADA: 'Cambió la configuración', RETENCION_EJECUTADA: 'Aplicó la conservación', DRIVE_LIMPIEZA: 'Limpió archivos del Drive',
+    RESPUESTA_EQUIPO_CREADA: 'Creó una respuesta rápida del equipo', RESPUESTA_EQUIPO_EDITADA: 'Editó una respuesta rápida del equipo', RESPUESTA_EQUIPO_BORRADA: 'Borró una respuesta rápida del equipo' };
   var DET = { antes: 'antes', despues: 'después', motivo: 'motivo', horas: 'horas', hasta: 'hasta', miembros: 'miembros', mensajes: 'mensajes', archivos: 'archivos', bytes: 'bytes', total: 'total', privadas: 'privadas', grupos: 'grupos', general: 'general', destino: 'destino', rol: 'papel', tipo: 'tipo', creada_at: 'creado', archivada_at: 'archivado',
     usuario_nombre: 'persona', rol_chat: 'papel en el grupo', autor_nombre: 'autor', urgente: 'urgente' };
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
