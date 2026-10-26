@@ -1918,7 +1918,7 @@ function ventaForm(l) {
   function macro(e) {
     e = N(e);
     if (/ACTIV|INSTAL|COMPLET/.test(e)) return 'ACT';
-    if (/CANCEL|DECOMIS|ANUL|BAJA/.test(e)) return 'CAI';
+    if (/CANCEL|DESCONE|ANUL|BAJA/.test(e)) return 'CAI';
     if (/INCID|CONTRAOF|SCORING/.test(e)) return 'INC';
     return 'TRA';
   }
@@ -2519,7 +2519,7 @@ function ventaForm(l) {
   function mac(e) {
     e = N(e);
     if (/ACTIV|INSTAL|COMPLET/.test(e)) return 'ACT';
-    if (/CANCEL|DECOMIS|ANUL|BAJA/.test(e)) return 'CAI';
+    if (/CANCEL|DESCONE|ANUL|BAJA/.test(e)) return 'CAI';
     if (/INCID|CONTRAOF|SCORING|KAO/.test(e)) return 'INC';
     return 'TRA';
   }
@@ -2545,7 +2545,7 @@ function ventaForm(l) {
     // Usa fecha_venta cuando ya está completada; si una fila aún no la tiene, la ubica por la fecha de su estado (así nunca queda vacío)
     var filtro = 'and(fecha_venta.gte.' + A + ',fecha_venta.lt.' + B + '),and(fecha_venta.is.null,fecha_estado.gte.' + R[0] + ',fecha_estado.lt.' + R[1] + ')';
     // «Contar por fecha de activación»: las líneas que se activaron o cayeron en el periodo, aunque la venta sea de un mes anterior (si falta la fecha del estado, vale la de la venta)
-    var ESTF = 'or(estado.ilike.*activ*,estado.ilike.*instal*,estado.ilike.*complet*,estado.ilike.*cancel*,estado.ilike.*decomis*,estado.ilike.*anul*,estado.ilike.*baja*)';
+    var ESTF = 'or(estado.ilike.*activ*,estado.ilike.*instal*,estado.ilike.*complet*,estado.ilike.*cancel*,estado.ilike.*descone*,estado.ilike.*anul*,estado.ilike.*baja*)';
     if (s.b === 'act') filtro = 'and(fecha_estado.gte.' + R[0] + ',fecha_estado.lt.' + R[1] + ',' + ESTF + '),and(fecha_estado.is.null,fecha_venta.gte.' + A + ',fecha_venta.lt.' + B + ',' + ESTF + ')';
     var rows = await todo(function () {
       return sb.from('ventas_sync').select('*').or(filtro)
@@ -3461,7 +3461,7 @@ function ventaForm(l) {
   function tonoE(e) {
     e = N(e);
     if (/ACTIV|INSTAL|COMPLET/.test(e) && !/DESACTIV|INACTIV|NO ACTIV/.test(e)) return 'b-ok';
-    if (/CANCEL|DECOMIS|ANUL|BAJA|CAIDA|CAÍDA/.test(e)) return 'b-bad';
+    if (/CANCEL|DESCONE|ANUL|BAJA|CAIDA|CAÍDA/.test(e)) return 'b-bad';
     if (/INCID|CONTRAOF|SCORING|KAO/.test(e)) return 'b-warn';
     return 'b-info';
   }
