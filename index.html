@@ -5858,6 +5858,7 @@ function ventaForm(l) {
       ['con', '💬', 'Contraoferta', ['pa'], 'CONTRA'],
       ['inc', '🛠️', 'Incidencias', ['inc']],
       ['ofe', '✉️', 'Ofertas', ['ofe']],
+      ['cha', '🛡️', 'Admin chat', ['cha']],
       ['pag', '💳', 'Pagos', ['liq', 'pe']],
       ['cfg', '⚙️', 'Configuración', ['cfg', 'svo', 'equ', 'pb', 'in', 'sue', 'com', 'reg', 'nt', 'sa']]
     ],
@@ -6800,7 +6801,7 @@ function ventaForm(l) {
   }
 
   /* ================= PANTALLA DEL SUPERVISOR ================= */
-  var TABS = [['pan', '📊', 'Panel de KPIs'], ['rep', '📈', 'Agentes'], ['cli', '👥', 'Clientes'], ['tar', '✅', 'Tareas del equipo'], ['seg', '👁', 'Seguimiento'], ['inc', '🛠️', 'Incidencias'], ['ofe', '✉️', 'Ofertas']];
+  var TABS = [['pan', '📊', 'Panel de KPIs'], ['rep', '📈', 'Agentes'], ['cli', '👥', 'Clientes'], ['tar', '✅', 'Tareas del equipo'], ['seg', '👁', 'Seguimiento'], ['inc', '🛠️', 'Incidencias'], ['ofe', '✉️', 'Ofertas'], ['cha', '🛡️', 'Admin chat']];
   var tmr = null;
   /* cuando alguien cambia el botón 🧩: el panel se vuelve a pedir y las fichas de clientes se repintan (sin volver a pedir nada) */
   function alCambiarSvc() {
@@ -6817,6 +6818,7 @@ function ventaForm(l) {
     else if (k === 'rep') { if (window.rep53) window.rep53.monta($('s46-rep')); else if ($('s46-rep')) $('s46-rep').innerHTML = '<div class="s46-vacio">Falta pegar el bloque 53 en index.html</div>'; }
     else if (k === 'inc') { if (window.inc54) window.inc54.monta($('s46-inc')); else if ($('s46-inc')) $('s46-inc').innerHTML = '<div class="s46-vacio">Falta pegar el bloque 54 en index.html</div>'; }
     else if (k === 'ofe') { if (window.ofe56) window.ofe56.monta($('s46-ofe')); else if ($('s46-ofe')) $('s46-ofe').innerHTML = '<div class="s46-vacio">Falta pegar el bloque 56 en index.html</div>'; }
+    else if (k === 'cha') { if (window.cha60) window.cha60.monta($('s46-cha')); else if ($('s46-cha')) $('s46-cha').innerHTML = '<div class="s46-vacio">Falta pegar el bloque 60 en index.html</div>'; }
   }
   window.supervisorView = function () {
     var main = $('main'); if (!main) return;
@@ -6829,7 +6831,7 @@ function ventaForm(l) {
     NOTAS = {}; BORR = {}; CONTRA = {}; CR = {};
     main.innerHTML = '<div class="s46" id="s46"><div class="s46-hero"><small style="opacity:.85;text-transform:capitalize">' + esc(hoy) + '</small><h2>Hola, ' + esc(nombre) + '</h2><p>Supervisor · ves cómo va el grupo y lo que suben los concertadores, comentas, llamas, pasas clientes de un cerrador a otro y repartes las tareas del back. No editas estados ni ves comisiones.</p></div>' +
       '<div class="s46-tabs" id="s46-tabs" role="tablist">' + TABS.map(function (t) { return '<button type="button" class="s46-t" role="tab" data-k="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + (t[0] === 'inc' ? '<b class="p37-nb" style="display:none;margin-left:6px;min-width:18px;padding:0 6px;border-radius:99px;background:var(--bad);color:#fff;font-size:.72em;text-align:center;font-weight:800"></b>' : '') + '</button>'; }).join('') + '</div>' +
-      '<section id="s46-p-pan"></section><section id="s46-p-rep" hidden><div id="s46-rep"></div></section><section id="s46-p-inc" hidden><div id="s46-inc"></div></section><section id="s46-p-ofe" hidden><div id="s46-ofe"></div></section><section id="s46-p-cli" hidden><div class="s46-sec"><div class="s46-sh"><h3>Clientes de los concertadores</h3><span class="meta">Con su historial: puedes llamar, comentar y cambiar de cerrador</span></div><div id="s46-cl"></div></div></section><section id="s46-p-tar" hidden><div id="s46-tz"></div></section><section id="s46-p-seg" hidden><div class="s46-sec"><div class="s46-sh"><h3>Seguimiento de clientes</h3><span class="meta">Clientes con algún servicio sin OK</span></div><div id="s46-seg"></div></div></section></div>';
+      '<section id="s46-p-pan"></section><section id="s46-p-rep" hidden><div id="s46-rep"></div></section><section id="s46-p-inc" hidden><div id="s46-inc"></div></section><section id="s46-p-ofe" hidden><div id="s46-ofe"></div></section><section id="s46-p-cha" hidden><div id="s46-cha"></div></section><section id="s46-p-cli" hidden><div class="s46-sec"><div class="s46-sh"><h3>Clientes de los concertadores</h3><span class="meta">Con su historial: puedes llamar, comentar y cambiar de cerrador</span></div><div id="s46-cl"></div></div></section><section id="s46-p-tar" hidden><div id="s46-tz"></div></section><section id="s46-p-seg" hidden><div class="s46-sec"><div class="s46-sh"><h3>Seguimiento de clientes</h3><span class="meta">Clientes con algún servicio sin OK</span></div><div id="s46-seg"></div></div></section></div>';
     KP.host = $('s46-p-pan'); ganchosPanel(KP.host); ganchosTz($('s46-p-tar')); ganchosSeg($('s46-p-seg')); ganchosComun($('s46-p-seg'), pintaSeg); ganchosCl($('s46-p-cli'));
     alCambiarSvc();
     $('s46-tabs').addEventListener('click', function (e) { var b = e.target.closest('.s46-t'); if (b) irSup(b.getAttribute('data-k')); });
@@ -9510,7 +9512,7 @@ function ofcCalcular(cat, sel) {
      · sonidos: un tono distinto para mensajes privados, grupos/canales/sala general, zumbido y compañero conectado (se pueden apagar uno a uno) y volumen propio; los tonos los fabrica el navegador;
      · selector de emojis con buscador en español, recientes y categorías; 27 stickers que se dibujan en pantalla (no son imágenes); 24 reacciones (8 a un toque y «+» para el resto), hasta 12 distintas por mensaje.
    Fase 4B (archivos): fotos (se reducen solas), PDF, Word, Excel, PowerPoint, texto, CSV, ZIP y notas de voz. Se guardan en TU Google Drive (carpeta «FIBERTEL Chat - archivos») a través del servicio de Apps Script de Ofertas;
-   Supabase solo guarda la ficha (nombre, tipo, tamaño, miniatura). Hasta 10 MB por archivo y 100 por persona cada 24 horas. Hace falta haber actualizado OfertasCRM.gs (ver instrucciones en ese archivo).
+   Supabase solo guarda la ficha (nombre, tipo, tamaño, miniatura). Hasta 10 MB por archivo (20 MB los audios) y 100 por persona cada 24 horas. Hace falta haber actualizado OfertasCRM.gs (ver instrucciones en ese archivo).
    Fase 5 (también decidido por la base): compartir una venta o un cliente del CRM en un chat privado o de grupo (la tarjeta guarda solo la referencia; cada persona ve los datos que su usuario ya puede ver en el CRM, nunca DNI, IBAN, correo ni dirección);
      pedir una revisión en un chat privado (Pendiente · Revisando · Conforme · Con observaciones · Cancelada); convertir un mensaje en tarea del back; pedir ayuda al supervisor; anuncios del administrador (campana + tarjeta en la Sala general).
    Qué NO hay todavía (llega en las fases siguientes): borrar o archivar un grupo entero (pestaña de administración), borrar de verdad del Drive los archivos de mensajes eliminados.
@@ -9630,7 +9632,7 @@ function ofcCalcular(cat, sel) {
     demasiadas_reacciones: 'Ese mensaje ya tiene el máximo de reacciones distintas', demasiados_fijados: 'Ya tienes 5 conversaciones fijadas. Quita una primero',
     demasiados_fijados_msg: 'Ya hay 5 mensajes fijados aquí. Quita uno primero', respuesta_invalida: 'No se puede responder a ese mensaje', conversacion_invalida: 'Esa conversación no existe',
     sticker_invalido: 'Ese sticker no existe', color_invalido: 'Ese color no es válido', duracion_invalida: 'Esa duración no es válida',
-    adjunto_invalido: 'No se pudo adjuntar el archivo', archivo_no_permitido: 'Ese tipo de archivo no se puede enviar', archivo_grande: 'El archivo pasa de 10 MB',
+    adjunto_invalido: 'No se pudo adjuntar el archivo', archivo_no_permitido: 'Ese tipo de archivo no se puede enviar', archivo_grande: 'El archivo pasa de 10 MB (los audios, de 20 MB)',
     demasiados_archivos: 'Llegaste al máximo de archivos de hoy (100). Mañana puedes enviar más',
     crm_invalido: 'Esa venta o ese cliente no es válido', crm_sin_acceso: 'Con tu usuario no puedes ver ese registro del CRM, así que no se puede compartir',
     crm_destino_invalido: 'Las ventas y los clientes solo se comparten en un chat privado o en un grupo', demasiadas_tarjetas: 'Compartiste muchas tarjetas seguidas. Espera un poco',
@@ -9638,7 +9640,8 @@ function ofcCalcular(cat, sel) {
     revisor_sin_acceso: 'Esa persona no puede ver el registro con su usuario, así que no se le puede pedir revisión', revision_transicion_invalida: 'La revisión ya cambió. Mira cómo quedó en la tarjeta',
     revision_estado_invalido: 'Ese estado de revisión no es válido', nota_obligatoria: 'Cuéntale qué debe corregir (mínimo 3 letras)',
     tarea_ya_creada: 'Ya convertiste este mensaje en tarea', no_se_puede_tarea: 'Ese mensaje no se puede convertir en tarea', fecha_invalida: 'Esa fecha límite no es válida (máximo 400 días)',
-    anuncio_repetido: 'Acabas de enviar un anuncio con ese mismo título. Espera un par de minutos', anuncio_sin_titulo: 'Escribe el título del anuncio'
+    anuncio_repetido: 'Acabas de enviar un anuncio con ese mismo título. Espera un par de minutos', anuncio_sin_titulo: 'Escribe el título del anuncio',
+    silenciado: 'La administración te silenció: puedes leer, pero no escribir por ahora', archivada: 'Este grupo está archivado y ya no admite mensajes nuevos'
   };
   /* Un corte de red / servidor caído se puede reintentar solo; un rechazo del servidor («chat:…») no. */
   function esRed(e) { var m = String((e && e.message) || e || ''); return !/chat:/.test(m) && /Failed to fetch|NetworkError|Load failed|network|tiempo agotado|timeout|timed out|50[234]|Bad Gateway|Service Unavailable|Gateway Time/i.test(m); }
@@ -10114,6 +10117,12 @@ function ofcCalcular(cat, sel) {
     '.mz-ctx .t span{display:block;font-size:13px;color:var(--mz-meta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.mz-solo{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:18px;background:var(--card);border:1px dashed var(--line2);color:var(--mz-meta);font-size:13.5px;line-height:1.4}',
     '.mz-solo .mz-ic{color:var(--acc)}',
+    '.mz-arch{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:600;letter-spacing:.02em;background:var(--mz-tinte);border:1px solid var(--mz-borde-tinte);color:var(--mz-meta);vertical-align:middle}',
+    '.mz-pol{display:grid;gap:10px;margin:6px 0 10px}',
+    '.mz-pol section{padding:10px 12px;border-radius:12px;background:var(--mz-tinte);border:1px solid var(--mz-borde-tinte)}',
+    '.mz-pol h4{margin:0 0 4px;font-size:13px;color:var(--ink)}',
+    '.mz-pol p{margin:0;font-size:13px;line-height:1.45;color:var(--mz-meta)}',
+    '.mz-pol ul{margin:4px 0 0;padding-left:18px;font-size:13px;line-height:1.45;color:var(--mz-meta)}',
     /* menús flotantes */
     '.mz-fl{position:absolute;z-index:12;min-width:220px;max-width:300px;padding:6px;border-radius:16px;background:var(--card);border:1px solid var(--line2);box-shadow:var(--sh-lg);animation:mz-desliza .16s ease}',
     '.mz-fl .rx{display:flex;gap:2px;padding:2px 2px 6px;margin-bottom:4px;border-bottom:1px solid var(--line)}',
@@ -10443,9 +10452,10 @@ function ofcCalcular(cat, sel) {
   function soyAdminDe(k) { var g = C.grupos[k]; return !!(g && g.rol_chat === 'ADMIN'); }
   function moderador() { return perfil.rol === 'admin' || perfil.rol === 'supervisor'; }
   function puedeCrear() { return moderador(); }                               // solo administración y supervisión crean grupos y canales (lo vuelve a comprobar la base)
+  function silenciadoAhora() { var s = C.silencio; return !!(s && (s.hasta == null || s.hasta > Date.now())); }   // la administración le quitó la palabra (la base lo vuelve a comprobar en cada envío)
   function puedeEscribir(k) {
-    if (!k) return false; if (k === GEN) return true;
-    var g = C.grupos[k]; if (g) return g.rol_chat === 'ADMIN' || (g.tipo === 'GRUPO' && g.rol_chat === 'MIEMBRO');
+    if (!k) return false; if (silenciadoAhora()) return false; if (k === GEN) return true;
+    var g = C.grupos[k]; if (g) return !g.archivada_at && (g.rol_chat === 'ADMIN' || (g.tipo === 'GRUPO' && g.rol_chat === 'MIEMBRO'));
     return !inactivo(k);
   }
   function puedeFijarMsg(k) { return k === GEN ? moderador() : esGrupo(k) ? soyAdminDe(k) : true; }
@@ -10495,12 +10505,16 @@ function ofcCalcular(cat, sel) {
     C.cont = dir.map(function (x) { return { id: x.id, nombre: x.nombre, rol: x.rol }; });
     C.ws = {}; dir.forEach(function (x) { C.ws[x.id] = DE_SRV[x.estado_trabajo] || 'on'; });
     C.general = R.general || C.general;
+    var silAntes = silenciadoAhora();   // ¿me silenció la administración? (solo existe tras ejecutar 60_chat_admin.sql)
+    C.silencio = R.silencio && typeof R.silencio === 'object' ? { hasta: R.silencio.hasta ? (Date.parse(R.silencio.hasta) || 0) : null } : null;
+    clearTimeout(C.silT);
+    if (C.silencio && C.silencio.hasta) { var dtS = C.silencio.hasta - Date.now(); if (dtS > 0 && dtS < 2147000000) C.silT = setTimeout(function () { if (C === C0 && !C.cerrando) refrescaSoon(); }, dtS + 1500); }
     var nl = {}, grupos = {}, cfg = {}, antes = C.grupos, antesCfg = C.cfg, primera = !C.cargadoEn;
     lista.forEach(function (c) {
       var k = c.tipo === 'GENERAL' ? GEN : (c.tipo === 'GRUPO' || c.tipo === 'CANAL') ? c.id : c.peer; if (!k) return;
       C.convId[k] = c.id; nl[k] = c.no_leidos || 0;
       cfg[k] = { silenciado: !!c.silenciado, fijado: !!c.fijado, favorito: !!c.favorito };
-      if (c.tipo === 'GRUPO' || c.tipo === 'CANAL') grupos[k] = { id: c.id, tipo: c.tipo, nombre: c.nombre || (c.tipo === 'CANAL' ? 'Canal' : 'Grupo'), descripcion: c.descripcion || '', creada_por: c.creada_por || null, rol_chat: c.rol_chat || 'MIEMBRO', miembros: c.miembros || 0 };
+      if (c.tipo === 'GRUPO' || c.tipo === 'CANAL') grupos[k] = { id: c.id, tipo: c.tipo, nombre: c.nombre || (c.tipo === 'CANAL' ? 'Canal' : 'Grupo'), descripcion: c.descripcion || '', creada_por: c.creada_por || null, rol_chat: c.rol_chat || 'MIEMBRO', miembros: c.miembros || 0, archivada_at: c.archivada_at || null };
       if (c.ultimo && (!C.rec[k] || Date.parse(c.ultimo.created_at) >= Date.parse(C.rec[k].created_at))) C.rec[k] = c.ultimo;
       if (k === GEN || grupos[k]) C.ultLeido[k] = c.ultimo_leido_at;
       else C.ex[k] = { id: k, nombre: c.peer_nombre, rol: c.peer_rol, activo: c.peer_activo !== false };
@@ -10533,7 +10547,7 @@ function ofcCalcular(cat, sel) {
     var kp = C.peer;   // si en la conversación abierta cambió algo que se ve en la cabecera, el cuadro de escribir o la información (mi papel, el nombre, los miembros, silenciar…), se repinta solo eso
     if (kp && C.open && !idos.length) {
       var g0 = antes[kp], g1 = grupos[kp], c0 = antesCfg[kp] || {}, c1 = cfg[kp] || {};
-      var cambio = (g0 && g1 && ['rol_chat', 'nombre', 'tipo', 'descripcion'].some(function (f) { return g0[f] !== g1[f]; })) || c0.silenciado !== c1.silenciado || c0.fijado !== c1.fijado || c0.favorito !== c1.favorito;
+      var cambio = (g0 && g1 && ['rol_chat', 'nombre', 'tipo', 'descripcion', 'archivada_at'].some(function (f) { return g0[f] !== g1[f]; })) || silAntes !== silenciadoAhora() || c0.silenciado !== c1.silenciado || c0.fijado !== c1.fijado || c0.favorito !== c1.favorito;
       if (cambio) { repintaChrome(); pintaInfo(); }
       if (g0 && g1 && g0.miembros !== g1.miembros) { cargaMiembros(kp, true); }
     }
@@ -10772,6 +10786,7 @@ function ofcCalcular(cat, sel) {
     if (c.favorito) h += '<span title="Favorita">' + ic(IC.estrella, 13) + '<span class="mz-sr">Favorita</span></span>';
     if (c.fijado) h += '<span title="Fijada">' + ic(IC.pin, 13) + '<span class="mz-sr">Fijada</span></span>';
     if (c.silenciado) h += '<span title="Silenciada">' + ic(IC.mudo, 13) + '<span class="mz-sr">Silenciada</span></span>';
+    if (C.grupos[k] && C.grupos[k].archivada_at) h += '<span class="mz-arch" title="Archivado: ya no admite mensajes nuevos">Archivado</span>';
     return h ? '<span class="mz-mini">' + h + '</span>' : '';
   }
   function masBtn(k, nombre) {   // botón «⋯» de cada fila: sale al pasar el ratón; con teclado se usa la tecla de menú contextual o Mayús+F10
@@ -10892,7 +10907,7 @@ function ofcCalcular(cat, sel) {
     var id = C.peer; if (!id) return '';
     if (id === GEN) { var n = enLinea() + 1; return 'Todo el equipo · ' + n + (n === 1 ? ' persona en línea' : ' personas en línea'); }
     var g = C.grupos[id];
-    if (g) return '<span class="est">' + (g.tipo === 'CANAL' ? 'Canal' : 'Grupo') + ' · ' + g.miembros + (g.miembros === 1 ? ' miembro' : ' miembros') + (g.descripcion ? ' · ' + esc(g.descripcion) : '') + '</span>';
+    if (g) return '<span class="est">' + (g.tipo === 'CANAL' ? 'Canal' : 'Grupo') + ' · ' + g.miembros + (g.miembros === 1 ? ' miembro' : ' miembros') + (g.archivada_at ? ' · archivado' : '') + (g.descripcion ? ' · ' + esc(g.descripcion) : '') + '</span>';
     if (C.typ[id] && Date.now() - C.typ[id] < 4000) return '<span class="mz-escr">escribiendo<i></i><i></i><i></i></span>';
     return '<span class="dep">' + esc(deptoDe(id)) + ' ·</span><span class="est">' + dot(estadoDe(id), true) + esc(textoEstado(id)) + '</span>' + (msgEstadoDe(id) ? '<span class="msg" title="' + esc(txtMsgEstado(id)) + '">· ' + esc(txtMsgEstado(id)) + '</span>' : '');
   }
@@ -10913,10 +10928,18 @@ function ofcCalcular(cat, sel) {
       '<button type="button" class="mz-ib" data-a="bnext" aria-label="Resultado siguiente" title="Siguiente">' + ic(IC.abajo) + '</button>' +
       '<button type="button" class="mz-ib" data-a="busqconv" aria-label="Cerrar búsqueda" title="Cerrar">' + ic(IC.x) + '</button></div>';
   }
+  function notaSoloLectura(k) {
+    var g = C.grupos[k];
+    if (silenciadoAhora()) return 'La administración te silenció' + (C.silencio.hasta ? ' hasta el ' + fechaHoraCorta(C.silencio.hasta).replace(/\.$/, '') : '') + '. Puedes leer lo que te escriban, pero no enviar mensajes.';
+    if (g && g.archivada_at) return 'Este ' + (g.tipo === 'CANAL' ? 'canal' : 'grupo') + ' está archivado: se conserva todo lo escrito, pero ya no admite mensajes nuevos.';
+    if (g && !puedeEscribir(k)) return g.tipo === 'CANAL' ? 'Este es un canal: solo los administradores publican. Tú puedes leer y reaccionar.' : 'Eres lector en este grupo: puedes leer y reaccionar, pero no escribir.';
+    return '';
+  }
   function compositor() {
     var k = C.peer, comp = compartida(k), g = C.grupos[k], off = !comp && inactivo(k);
-    if (g && !puedeEscribir(k)) {   // lector de un grupo, o miembro de un canal: puede leer y reaccionar, pero no escribir
-      return '<div class="mz-comp" id="mz-comp"><div class="mz-solo" role="note">' + ic(IC.info, 18) + '<span>' + (g.tipo === 'CANAL' ? 'Este es un canal: solo los administradores publican. Tú puedes leer y reaccionar.' : 'Eres lector en este grupo: puedes leer y reaccionar, pero no escribir.') + '</span></div></div>';
+    var nota = notaSoloLectura(k);
+    if (nota) {   // silenciado por la administración, grupo archivado, lector de un grupo o miembro de un canal: puede leer, pero no escribir
+      return '<div class="mz-comp" id="mz-comp"><div class="mz-solo" role="note">' + ic(IC.info, 18) + '<span>' + esc(nota) + '</span></div></div>';
     }
     return '<div class="mz-comp" id="mz-comp"><span class="mz-cuenta" id="mz-cuenta" hidden></span><div id="mz-ctxc"></div><div class="mz-band" id="mz-band" hidden></div>' +
       '<div class="mz-emo" id="mz-emo" role="dialog" aria-label="Emojis y stickers" hidden>' +
@@ -11193,6 +11216,7 @@ function ofcCalcular(cat, sel) {
       interruptor('sacudir', 'Sacudida del zumbido', 'La ventana se sacude cuando recibes un zumbido.') +
       '<h4>Privacidad</h4>' +
       interruptor('avisoTexto', 'Mostrar el texto en los avisos', 'Si lo apagas, el aviso dice «Mensaje nuevo de…» sin enseñar lo que escribió.') +
+      '<button type="button" class="mz-btn sec chico" data-a="politica" style="margin-top:10px">Cómo se protege tu chat</button>' +
       '<div class="mz-nota2">' + (reducido() ? 'Tu dispositivo pide «reducir movimiento»: las animaciones están apagadas aunque las actives aquí.' : 'Con el estado «Ocupado» no suenan ni se avisan los mensajes nuevos (siguen llegando y contando). Ninguno de estos efectos bloquea la escritura.') + '</div></div>';
   }
 
@@ -11335,6 +11359,7 @@ function ofcCalcular(cat, sel) {
       if (!red && tmp._arch && /chat:tipo_invalido|PGRST202|42883/.test(String(r.error && (r.error.message || r.error.code)))) tmp._msg = 'Falta ejecutar 58_chat_social.sql en Supabase para enviar archivos';
       if (!red && tmp.tipo === 'TARJETA' && /chat:tipo_invalido|PGRST202|42883/.test(String(r.error && (r.error.message || r.error.code)))) tmp._msg = 'Falta ejecutar 59_chat_crm.sql en Supabase para compartir ventas y clientes';
       if (/chat:respuesta_invalida/.test(String(r.error && r.error.message))) { tmp._msg = 'El mensaje al que respondías ya no está. Al reintentar se envía sin cita.'; tmp.responde_a = null; tmp.responde_de = null; tmp.responde_cuerpo = null; }
+      if (!red && /chat:(silenciado|archivada)/.test(String(r.error && r.error.message))) refrescaSoon();   // la base dijo que no puede escribir: se actualiza el aviso del cuadro de escribir
       if (red && !tmp._arch) programaCola(Math.min(5000 * Math.pow(2, tmp._n - 1), 60000)); else colaQuita(tmp.client_id);
       if (C.peer === key) pintaMsgs({ fuerza: true });
       if (!tmp._viejo || !red) aviso(msgE(r.error), true);
@@ -11957,7 +11982,7 @@ function ofcCalcular(cat, sel) {
     xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     odt: 'application/vnd.oasis.opendocument.text', ods: 'application/vnd.oasis.opendocument.spreadsheet' };
   var ADJ_ACCEPT = 'image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.odt,.ods';
-  var MAX_ADJ = 10485760, MAX_BANDEJA = 10, MAX_GRAB = 300, MIN_GRAB = 1, MAX_CACHE = 40 * 1048576, MAX_LADO = 1600, LADO_MINI = 200, MAX_CAP = 500, VELS = [1, 1.5, 2];
+  var MAX_ADJ = 10485760, MAX_AUDIO = 20971520, MAX_DUR = 7200, MAX_BANDEJA = 10, MAX_GRAB = 300, MIN_GRAB = 1, MAX_CACHE = 40 * 1048576, MAX_LADO = 1600, LADO_MINI = 200, MAX_CAP = 500, VELS = [1, 1.5, 2];
   var TIPO_ARCH = { pdf: ['PDF', 'pdf'], doc: ['Word', 'doc'], docx: ['Word', 'doc'], odt: ['Texto', 'doc'], xls: ['Excel', 'xls'], xlsx: ['Excel', 'xls'], ods: ['Hoja de cálculo', 'xls'], csv: ['CSV', 'xls'],
     ppt: ['PowerPoint', 'ppt'], pptx: ['PowerPoint', 'ppt'], zip: ['ZIP', 'zip'], txt: ['Texto', 'txt'] };
   IC.clip = '<path d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>';
@@ -11969,6 +11994,7 @@ function ofcCalcular(cat, sel) {
   IC.zoom = '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>';
   IC.imagen = '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>';
 
+  function limiteDe(tipo) { var c = C.adj || {}; return tipo === 'AUDIO' ? (c.maxAudio || c.max || MAX_ADJ) : (c.max || MAX_ADJ); }   // los audios largos pueden pesar más que un documento
   function tamHum(b) { b = +b || 0; return b < 1024 ? b + ' B' : b < 1048576 ? Math.round(b / 1024) + ' KB' : (b / 1048576).toFixed(b < 10485760 ? 1 : 0).replace('.', ',') + ' MB'; }
   function mmss(s) { s = Math.max(0, Math.round(+s || 0)); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
   function extDe(n) { var m = /\.([A-Za-z0-9]{1,8})$/.exec(String(n || '')); return m ? m[1].toLowerCase() : ''; }
@@ -11995,7 +12021,7 @@ function ofcCalcular(cat, sel) {
       if (C !== C0) return null;
       if (r.error || !r.data) { C.adj = { activo: false, falta: !!(r.error && /PGRST202|PGRST205|42883|does not exist/.test(String(r.error.code || '') + ' ' + String(r.error.message || ''))), red: !!(r.error && esRed(r.error)) }; return C.adj; }
       var d = r.data;
-      C.adj = { activo: !!d.activo && urlServicioOk(d.url), url: d.url, max: Math.min(+d.max_bytes || MAX_ADJ, MAX_ADJ), porDia: +d.por_dia || 100 };
+      C.adj = { activo: !!d.activo && urlServicioOk(d.url), url: d.url, max: Math.min(+d.max_bytes || MAX_ADJ, MAX_ADJ), maxAudio: Math.min(+d.max_audio_bytes || +d.max_bytes || MAX_ADJ, MAX_AUDIO), porDia: +d.por_dia || 100 };
       return C.adj;
     })();
     return C.adjP;
@@ -12093,7 +12119,7 @@ function ofcCalcular(cat, sel) {
       var cfg = await cargaCfgAdj(!C.adj || !C.adj.activo);                      // quien solo recibe archivos también necesita saber la dirección del servicio
       if (C !== C0) { delete C0.bajando[a.id]; return { ok: false, error: 'Cancelado.' }; }
       if (!cfg || !cfg.activo) { delete C0.bajando[a.id]; return { ok: false, red: !!(cfg && cfg.red), error: cfg && cfg.falta ? 'Falta ejecutar 58_chat_social.sql en Supabase' : cfg && cfg.red ? 'No se pudo comprobar el servicio de archivos. Revisa tu conexión' : 'Los archivos todavía no están activados. Avisa al administrador (debe pegar la dirección del servicio en Ofertas → Ajustes).' }; }
-      var r = await llamaArchivo('chat_bajar', { id: a.id }, { ms: 180000 });
+      var r = await llamaArchivo('chat_bajar', { id: a.id }, { ms: (+a.bytes || 0) > MAX_ADJ ? 420000 : 180000 });
       delete C0.bajando[a.id];
       if (!r || !r.ok) return { ok: false, red: !!(r && r.red), error: (r && r.error) || 'No se pudo descargar el archivo.' };
       var mime = ADJ_MIMES.indexOf(r.mime) >= 0 ? r.mime : (ADJ_MIMES.indexOf(a.mime) >= 0 ? a.mime : 'application/octet-stream'), blob;
@@ -12159,12 +12185,21 @@ function ofcCalcular(cat, sel) {
       return { dur: Math.round(buf.duration * 10) / 10, peaks: barras(v, 48) };
     } catch (e) { return null; }
   }
+  /* Duración de un audio SIN decodificarlo (los de 20 MB no caben en memoria si se decodifican): solo se leen sus datos de cabecera. */
+  function duracionMeta(blob) {
+    return new Promise(function (res) {
+      var a, u, fin = false, t;
+      function listo(v) { if (fin) return; fin = true; clearTimeout(t); try { a.removeAttribute('src'); a.load(); } catch (e) { } try { URL.revokeObjectURL(u); } catch (e) { } res(v); }
+      try { a = new Audio(); a.preload = 'metadata'; u = URL.createObjectURL(blob); t = setTimeout(function () { listo(0); }, 4000);
+        a.onloadedmetadata = function () { var d = a.duration; listo(isFinite(d) && d > 0 ? Math.round(d * 10) / 10 : 0); }; a.onerror = function () { listo(0); }; a.src = u; } catch (e) { listo(0); }
+    });
+  }
   async function armaItem(f, mime) {
     var tipo = tipoDeMime(mime), it;
     if (tipo === 'IMAGEN') it = await procesaImagen(f, mime);
     else {
       it = { file: f, mime: mime, nombre: f.name || 'archivo', bytes: f.size, tipo: tipo };
-      if (tipo === 'AUDIO') { var an = await analizaAudio(f); if (an) { it.dur = an.dur; it.peaks = an.peaks; } }
+      if (tipo === 'AUDIO') { var an = await analizaAudio(f); if (an) { it.dur = an.dur; it.peaks = an.peaks; } else { var dm = await duracionMeta(f); if (dm) it.dur = dm; } }
     }
     if (!it.nombre || /^(image|imagen|blob)\.(png|jpe?g|gif|webp)$/i.test(it.nombre)) it.nombre = 'captura-' + stampArch() + '.' + (extDe(it.nombre) || (it.mime === 'image/jpeg' ? 'jpg' : it.mime.split('/')[1] || 'png'));
     it.id = 'a' + (++C.adjN);
@@ -12207,10 +12242,12 @@ function ofcCalcular(cat, sel) {
       if (!mime) { aviso('«' + nom + '»: ese tipo de archivo no se puede enviar. Admite fotos, audios, PDF, Word, Excel, PowerPoint, texto, CSV y ZIP', true); continue; }
       if (!f.size) { aviso('«' + nom + '» está vacío', true); continue; }
       if (f.size > max * 8 && tipoDeMime(mime) === 'IMAGEN') { aviso('«' + nom + '» es demasiado grande', true); continue; }
-      if (f.size > max && tipoDeMime(mime) !== 'IMAGEN') { aviso('«' + nom + '» pesa más de ' + Math.round(max / 1048576) + ' MB', true); continue; }
+      var tp0 = tipoDeMime(mime), lim0 = limiteDe(tp0);
+      if (f.size > lim0 && tp0 !== 'IMAGEN') { aviso('«' + nom + '» pesa más de ' + Math.round(lim0 / 1048576) + ' MB', true); continue; }
       var it; try { it = await armaItem(f, mime); } catch (e) { aviso('«' + nom + '»: no se pudo leer ese archivo', true); continue; }
       if (C.peer !== peer || C.cerrando) { soltarItem(it); return; }
-      if (it.bytes > max) { soltarItem(it); aviso('«' + nom + '» pesa más de ' + Math.round(max / 1048576) + ' MB', true); continue; }
+      if (it.bytes > limiteDe(it.tipo)) { soltarItem(it); aviso('«' + nom + '» pesa más de ' + Math.round(limiteDe(it.tipo) / 1048576) + ' MB', true); continue; }
+      if (it.tipo === 'AUDIO' && it.dur > MAX_DUR) { soltarItem(it); aviso('«' + nom + '» dura más de 2 horas', true); continue; }
       B.push(it); listos++;
     }
     pintaBandeja(); actualizaEnvio();
@@ -12253,7 +12290,7 @@ function ofcCalcular(cat, sel) {
     var datos = { nombre: it.nombre, mime: it.mime, bytes: it.bytes, b64: b64, subida: tmp.client_id };
     if (compartida(key)) datos.conv = idConv(key) || null; else datos.con = key;
     tmp._pct = 0; actualizaProgreso(tmp);
-    var r = await llamaArchivo('chat_subir', datos, { ms: 240000, id: tmp.client_id, progreso: function (f) { tmp._pct = f; actualizaProgreso(tmp); } });
+    var r = await llamaArchivo('chat_subir', datos, { ms: it.bytes > MAX_ADJ ? 600000 : 240000, id: tmp.client_id, progreso: function (f) { tmp._pct = f; actualizaProgreso(tmp); } });
     if (C.xhr) delete C.xhr[tmp.client_id];
     if (!r || !r.ok || !r.id) return { ok: false, red: !!(r && r.red), error: (r && r.error) || 'No se pudo subir el archivo.' };
     tmp._pct = 1; tmp._subido = true;
@@ -13339,6 +13376,7 @@ function ofcCalcular(cat, sel) {
   }
   function modalCrm(M) {
     var t = M.tipo;
+    if (t === 'politica') return { titulo: 'Cómo se protege tu chat', ok: 'Cerrar', cuerpo: htmlPolitica(M) };
     if (t === 'crm') return { titulo: M.t === 'VENTA' ? 'Compartir una venta' : 'Compartir un cliente', ok: 'Compartir', cuerpo: htmlCompartir(M) };
     if (t === 'ayuda') return { titulo: 'Pedir ayuda al supervisor', ok: 'Enviar aviso', cuerpo: '<p class="mz-mtexto">Le llega un aviso urgente a tu supervisor y al administrador. Puedes pedir ayuda una vez cada 2 minutos.</p>' +
       '<div class="mz-fld"><label for="mz-ayt">¿Qué necesitas? <span class="op">(opcional)</span></label><textarea id="mz-ayt" data-minus rows="3" maxlength="' + MAX_AYUDA + '" placeholder="Ej.: Cliente con prisa, necesito que alguien llame al operador"></textarea></div>' };
@@ -13367,6 +13405,29 @@ function ofcCalcular(cat, sel) {
       return { titulo: 'Historial de la revisión', ok: 'Cerrar', cuerpo: cuerpo };
     }
     return null;
+  }
+  /* ----- Política de privacidad: la escribe la base con los valores reales en vigor ----- */
+  function plazoPol(n) { n = +n || 0; return n > 0 ? 'se borran a los ' + n + ' días' : 'no se borran solos'; }
+  function htmlPolitica(M) {
+    var p = M.d;
+    if (p == null) return '<div class="mz-buscando" role="status">Cargando…</div>';
+    if (p === 'ERR' || typeof p !== 'object') return '<div class="mz-buscando" role="alert">No se pudo cargar. Si te sigue pasando, avisa al administrador (puede faltar ejecutar 60_chat_admin.sql).</div>';
+    var r = p.retencion || {}, a = p.archivos || {};
+    return '<div class="mz-pol" tabindex="0" role="region" aria-label="Política de privacidad del chat">' +
+      '<section><h4>Quién puede leer tus mensajes</h4><p>Solo las personas de cada conversación. ' + (p.admin_lee_privados === false ? 'El administrador <b>no lee</b> los chats privados de otras personas ni los grupos en los que no está.' : '') + '</p></section>' +
+      '<section><h4>Cifrado</h4><p>Los mensajes viajan protegidos por internet (HTTPS) y se guardan en la base de datos de la empresa. ' + (p.cifrado_extremo === false ? '<b>No tienen cifrado de extremo a extremo</b>: no escribas contraseñas ni datos que no deban estar en el CRM.' : '') + '</p></section>' +
+      '<section><h4>Cuánto tiempo se guardan</h4><ul><li>Chats privados: ' + plazoPol(r.privadas) + '.</li><li>Grupos y canales: ' + plazoPol(r.grupos) + '.</li><li>Sala general: ' + plazoPol(r.general) + '.</li></ul><p>' + (r.conservar_fijados ? 'Los mensajes fijados se conservan aunque pase el plazo. ' : '') + 'Tú puedes eliminar tus mensajes durante ' + (p.borrar_propio_horas || 24) + ' horas y editarlos durante ' + (p.editar_minutos || 15) + ' minutos.</p></section>' +
+      '<section><h4>Archivos, fotos y audios</h4><p>Se guardan en ' + esc(a.almacen || 'el Google Drive de la empresa') + '. Documentos y fotos hasta ' + (a.max_mb || 10) + ' MB; audios hasta ' + (a.max_audio_mb || 20) + ' MB; hasta ' + (a.por_dia || 100) + ' archivos cada 24 horas por persona. Quienes están en la conversación pueden abrirlos y descargarlos.</p></section>' +
+      '<section><h4>Qué anota la administración</h4><p>' + (p.auditoria ? 'Queda un registro de las acciones de administración (grupos creados o archivados, personas añadidas o quitadas, silencios, cambios de configuración). <b>Nunca</b> guarda lo que escribes.' : '') + ' La administración puede impedir temporalmente que alguien escriba y puede archivar grupos.</p></section>' +
+      '<section><h4>Un límite que ningún sistema puede evitar</h4><p>Lo que ves en pantalla puede ser fotografiado o copiado por quien lo vea. Cuida a quién le compartes información de clientes.</p></section></div>';
+  }
+  async function abrirPolitica() {
+    var M = { tipo: 'politica', solo: true, key: C.peer || '_pol', d: null, err: '', enviando: false };
+    abreModal(M);
+    var r = await llama('chat_politica', {}, 8000);
+    if (C.modal !== M) return;
+    M.d = (r.error || !r.data) ? 'ERR' : r.data; pintaModal();
+    var O = $('mz-modal'), f = O && O.querySelector('button'); if (f) f.focus();
   }
   function modalCrmPost(M) {
     var t = M.tipo;
@@ -13424,6 +13485,7 @@ function ofcCalcular(cat, sel) {
   function clicCrm(a, b) {
     var id = b.getAttribute('data-id');
     switch (a) {
+      case 'politica': abrirPolitica(); return true;
       case 'crmmenu': if (C.pop && C.pop.tipo === 'crm') cierraPop(true); else abrePop({ tipo: 'crm', key: C.peer }, b); return true;
       case 'crm-venta': abrirCompartir('VENTA'); return true;
       case 'crm-lead': abrirCompartir('LEAD'); return true;
@@ -13508,7 +13570,7 @@ function ofcCalcular(cat, sel) {
   function quitar() {
     C.cerrando = true;
     try { if (C.chM) sb.removeChannel(C.chM); if (C.chP) sb.removeChannel(C.chP); } catch (e) { }
-    clearInterval(C.buzzT); clearInterval(C.latido); clearTimeout(C.resyncT); clearTimeout(C.colaT); clearTimeout(C.entregaT); clearTimeout(C.refrescaT); clearTimeout(C.busqT); clearTimeout(C.perfT);
+    clearInterval(C.buzzT); clearInterval(C.latido); clearTimeout(C.resyncT); clearTimeout(C.colaT); clearTimeout(C.entregaT); clearTimeout(C.refrescaT); clearTimeout(C.busqT); clearTimeout(C.perfT); clearTimeout(C.silT);
     Object.keys(C.markT).forEach(function (k) { clearTimeout(C.markT[k]); });
     if (C.globales) {
       document.removeEventListener('keydown', teclaGlobal, true); document.removeEventListener('visibilitychange', visible);
@@ -13532,6 +13594,464 @@ function ofcCalcular(cat, sel) {
   var oL = window.loginView;
   if (typeof oL === 'function') window.loginView = function () { quitar(); return oL.apply(this, arguments); };
   window.mz57 = { montar: montar, quitar: quitar, abrir: function (v) { abrirVentana(v !== false); }, estado: function () { return C; }, latir: latir, abrirCon: abrirCon };
+})();
+
+  /* 60 · ADMIN CHAT   Requiere el SQL 60_chat_admin.sql (y, para limpiar el Drive, el OfertasCRM.gs nuevo con «Nueva versión»).
+   PEGAR al final del script de index.html, DESPUÉS del bloque 57 (Messenger) y antes del cierre del script.
+   Qué es: la pestaña «Admin chat»: cifras del chat, personas (silenciar), grupos (archivar, eliminar), conservación de mensajes, limpieza de archivos del Drive
+   y el registro de auditoría. Administrador: todo. Supervisor: cifras, personas y sus grupos (no ve conservación, Drive ni auditoría).
+   Privacidad: aquí NUNCA aparece el contenido de un mensaje. El administrador no lee chats privados ajenos ni grupos en los que no está.
+   OJO: el CRM pone en MAYÚSCULAS todos los campos de texto; por eso los campos de texto libre llevan data-minus. */
+(function () {
+  if (window.cha60) return;
+  function $(i) { return document.getElementById(i); }
+  function rol() { try { return perfil && perfil.rol; } catch (e) { return null; } }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function falta(e) { var t = String(e && ((e.code || '') + ' ' + (e.message || ''))); return /PGRST202|PGRST205|42883|42P01/.test(t) || /Could not find the function public\.chat_/.test(t); }
+  var ERR = {
+    sin_permiso: 'No tienes permiso para esto', usuario_invalido: 'Esa persona no está disponible', no_a_ti_mismo: 'No puedes hacerlo contigo mismo', rol_protegido: 'Esa persona no se puede silenciar con tu papel',
+    duracion_invalida: 'Esa duración no es válida', motivo_largo: 'El motivo pasa de 200 caracteres', conversacion_no_soportada: 'Esa conversación no se puede gestionar así',
+    primero_archiva: 'Primero hay que archivar el grupo', confirmacion_no_coincide: 'El nombre escrito no coincide con el del grupo', valor_invalido: 'Ese valor no es válido (de 30 a 3650 días, o 0 para no borrar nunca)',
+    clave_invalida: 'Esa opción no existe', retencion_desactivada: 'La conservación está en «no borrar nunca»: elige un plazo primero', demasiados: 'Son demasiados elementos para una sola vez', dato_invalido: 'Dato no válido'
+  };
+  function msg(e) {
+    if (falta(e)) return 'Falta ejecutar 60_chat_admin.sql en Supabase';
+    var m = String((e && e.message) || e || ''), k = /chat:([a-z_]+)/.exec(m);
+    if (k && ERR[k[1]]) return ERR[k[1]];
+    return m.replace(/^(error|rpc|postgres|pgrst)\w*[^:]{0,24}:\s*/i, '') || 'Error inesperado';
+  }
+  function fh(s) { if (!s) return ''; var d = new Date(s); return isNaN(d) ? '' : d.toLocaleString('es-PE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' }); }
+  function hace(s) {
+    var m = Math.round((Date.now() - new Date(s)) / 60000); if (isNaN(m)) return 'nunca';
+    if (m < 2) return 'ahora'; if (m < 60) return 'hace ' + m + ' min'; if (m < 1440) return 'hace ' + Math.floor(m / 60) + ' h';
+    var d = Math.floor(m / 1440); return 'hace ' + d + (d === 1 ? ' día' : ' días');
+  }
+  function mb(b) { b = +b || 0; return b < 1048576 ? Math.max(0, Math.round(b / 1024)) + ' KB' : (b / 1048576 < 100 ? (b / 1048576).toFixed(1).replace('.', ',') : Math.round(b / 1048576)) + ' MB'; }
+  function nf(n) { return (+n || 0).toLocaleString('es-PE'); }
+  function pl(n, uno, varios) { return nf(n) + ' ' + ((+n || 0) === 1 ? uno : varios); }
+  function bonito(n) { return String(n || '').trim().toLowerCase().replace(/(^|\s)\S/g, function (c) { return c.toUpperCase(); }); }
+  function plano(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
+  var ROLES = { admin: 'Administrador', supervisor: 'Supervisor', back: 'Back office', cerrador: 'Cerrador', concertador: 'Concertador' };
+  var VISTAS = [['res', 'Resumen', false], ['per', 'Personas', false], ['gru', 'Grupos', false], ['con', 'Conservación', true], ['dri', 'Archivos del Drive', true], ['aud', 'Auditoría', true]];
+
+  var S = nuevo(), CFGURL = null;
+  function nuevo() {
+    return { host: null, vista: 'res', adm: false, res: { d: null, busy: false, err: null }, per: { d: null, q: '', busy: false, err: null }, gru: { d: null, q: '', f: 'todos', busy: false, err: null },
+      con: { d: null, busy: false, err: null, sim: null, simBusy: false, guardando: false, ok: '', edit: null }, dri: { sim: null, busy: false, err: null, res: null }, aud: { items: [], mas: false, f: '', busy: false, err: null, cargado: false }, mod: null, aviso: '' };
+  }
+
+  /* ================= ESTILOS ================= */
+  var css = document.createElement('style');
+  css.textContent = [
+    '.c60,.c60-card{--m:color-mix(in srgb,var(--mut) 78%,var(--ink))}',   /* el gris de apoyo del CRM no llega a 4,5:1 sobre el fondo de la página: aquí se oscurece un poco */
+    '.c60 .c60-top{display:flex;justify-content:space-between;align-items:center;gap:10px 16px;flex-wrap:wrap;margin:0 0 12px}',
+    '.c60 .c60-top h2{margin:0;font-size:1.15em}.c60 .c60-sub{margin:2px 0 0;color:var(--m);font-size:.86em}',
+    '.c60 .c60-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}',
+    '.c60 .c60-t{background:var(--bg);color:var(--ink);border:1px solid var(--line);box-shadow:none;border-radius:99px;padding:8px 15px;font-size:.86em;font-weight:700;width:auto}',
+    '.c60 .c60-t:hover{background:var(--acc2)}.c60 .c60-t[aria-selected=true]{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}',
+    '.c60 .c60-sec{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--sh);margin-bottom:16px}',
+    '.c60 .c60-sec .c60-sub{margin:0 0 12px}.c60 .c60-sec h3{margin:0 0 10px;font-size:1.02em}.c60 .c60-sec h4{margin:14px 0 6px;font-size:.76em;text-transform:uppercase;letter-spacing:.06em;color:var(--m);font-weight:800}',
+    '.c60 .c60-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:0 0 14px}',
+    '.c60 .c60-k{border:1px solid var(--line);border-radius:14px;padding:12px;background:var(--card)}.c60 .c60-k b{display:block;font-size:1.6em;line-height:1.15}.c60 .c60-k span{display:block;color:var(--m);font-size:.8em;margin-top:2px}.c60 .c60-k.av b{color:var(--warn)}',
+    '.c60 .c60-nota{margin:0 0 12px;padding:10px 12px;border-radius:12px;background:var(--acc2);font-size:.86em;color:var(--ink)}.c60 .c60-nota.av{background:var(--warn-bg)}',
+    '.c60 .c60-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 12px}.c60 .c60-bar input[type=search]{flex:1 1 220px;min-width:0;margin:0}.c60 .c60-bar select{flex:0 1 190px;margin:0;width:auto}',
+    '.c60 label{display:block;margin:10px 0 4px;font-weight:700;font-size:.84em;color:var(--ink)}.c60 .c60-bar label,.c60 .c60-chk label{margin:0}',
+    '.c60 .c60-lista{display:grid;gap:8px}',
+    '.c60 .c60-f{border:1px solid var(--line);border-left:4px solid var(--line2);border-radius:14px;padding:11px 14px;background:var(--card);display:flex;gap:12px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}',
+    '.c60 .c60-f.sil{border-left-color:var(--warn)}.c60 .c60-f.arch{border-left-color:var(--m);background:var(--bg)}',
+    '.c60 .c60-fb{min-width:0;flex:1 1 260px;overflow-wrap:anywhere}.c60 .c60-fb b{font-size:.95em}.c60 .c60-fb small{display:block;color:var(--m);font-size:.8em;margin-top:2px}',
+    '.c60 .c60-fa{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.c60 .c60-fa button{width:auto;padding:7px 13px;font-size:.85em}',
+    '.c60 .c60-b{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:99px;font-size:.72em;font-weight:700;background:var(--bg);border:1px solid var(--line2);color:var(--ink);vertical-align:middle}',
+    '.c60 .c60-b.w{background:var(--warn-bg);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}.c60 .c60-b.g{color:var(--m)}',
+    '.c60 .c60-btn{width:auto;padding:9px 16px}.c60 .c60-btn.pel{background:var(--bad);border-color:var(--bad);color:var(--bg)}.c60 .c60-btn.sec{background:var(--bg);color:var(--ink);border:1px solid var(--line2);box-shadow:none}',
+    '.c60 .c60-vacio{padding:24px 12px;text-align:center;color:var(--m);border:1.5px dashed var(--line2);border-radius:14px;font-size:.92em}',
+    '.c60 .c60-err{background:var(--bad-bg);color:var(--ink);border:1px solid color-mix(in srgb,var(--bad) 40%,var(--line));border-radius:12px;padding:10px 12px;margin:0 0 12px;font-size:.9em}',
+    '.c60 .c60-ok{background:var(--ok-bg);color:var(--ink);border:1px solid color-mix(in srgb,var(--ok) 35%,var(--line));border-radius:12px;padding:10px 12px;margin:0 0 12px;font-size:.9em}',
+    '.c60 .c60-g2{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 14px}.c60 .c60-g2 select{width:100%}',
+    '.c60 .c60-tb{overflow-x:auto}.c60 .c60-tb table{width:100%;border-collapse:collapse;font-size:.86em}.c60 .c60-tb th{text-align:left;color:var(--m);font-size:.74em;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line)}.c60 .c60-tb td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}',
+    '.c60 .c60-sim{margin:12px 0 0;padding:12px;border-radius:12px;background:var(--bg);border:1px solid var(--line)}.c60 .c60-sim ul{margin:6px 0 0;padding-left:18px}',
+    '.c60 .c60-pasos{margin:0;padding-left:20px;font-size:.88em;line-height:1.6}',
+    '.c60-mod{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.45);display:grid;place-items:center;padding:16px}.c60-mod[hidden]{display:none}',
+    '.c60-card{width:min(480px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:18px;box-shadow:var(--sh-lg);padding:18px}',
+    '.c60-card h3{margin:0 0 8px;font-size:1.05em}.c60-card p{margin:6px 0;font-size:.9em;line-height:1.45}.c60-card label{display:block;margin:12px 0 4px;font-weight:700;font-size:.84em;color:var(--ink)}.c60-card select,.c60-card input[type=text],.c60-card textarea{width:100%}',
+    '.c60-card .c60-fn{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px}.c60-card .c60-fn button{width:auto}',
+    '.c60-card .c60-btn.pel{background:var(--bad);border-color:var(--bad);color:var(--bg)}.c60-card .c60-btn.sec{background:var(--bg);color:var(--ink);border:1px solid var(--line2);box-shadow:none}',
+    '.c60-card .c60-er{background:var(--bad-bg);border:1px solid color-mix(in srgb,var(--bad) 40%,var(--line));border-radius:12px;padding:8px 10px;margin:10px 0 0;font-size:.88em}',
+    '.c60-card .c60-cc{display:flex;gap:8px;align-items:flex-start;margin:12px 0 0;font-weight:500;font-size:.88em}.c60-card .c60-cc input{width:auto;margin-top:3px}',
+    '.c60 .c60-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
+    '@media(max-width:700px){.c60 .c60-g2{grid-template-columns:1fr}.c60 .c60-fa{width:100%}.c60 .c60-fa button{flex:1 1 auto}}'
+  ].join('\n');
+  document.head.appendChild(css);
+
+  /* ================= LLAMADAS ================= */
+  async function rpc(nombre, args) {
+    try { var r = await sb.rpc(nombre, args || {}); return r || { error: new Error('Sin respuesta') }; } catch (e) { return { error: e }; }
+  }
+  async function urlServicio() {
+    if (CFGURL) return CFGURL;
+    var r = await rpc('chat_adjuntos_cfg'); var d = r.data || {};
+    var u = String(d.url || ''), local = /^(127\.0\.0\.1|localhost)$/.test(location.hostname) && /^http:\/\/(127\.0\.0\.1|localhost):\d+\/exec$/.test(u);   // la sesión solo viaja a script.google.com (o, en una prueba local, a la máquina de pruebas)
+    if (d.activo && (/^https:\/\/script\.google\.com\/macros\/s\/[^\s]+\/exec$/.test(u) || local)) CFGURL = u;
+    return CFGURL;
+  }
+  async function llamaGoogle(accion, datos, ms) {
+    var url = await urlServicio();
+    if (!url) return { ok: false, codigo: 'CONFIG', error: 'El servicio de Google todavía no está activado. Pega su dirección en Ofertas → Ajustes.' };
+    var ses; try { ses = await sb.auth.getSession(); } catch (e) { ses = null; }
+    var jwt = ses && ses.data && ses.data.session && ses.data.session.access_token;
+    if (!jwt) return { ok: false, codigo: 'SESION', error: 'Tu sesión venció. Entra de nuevo al CRM.' };
+    var ac = new AbortController(), t = setTimeout(function () { ac.abort(); }, ms || 120000);
+    try {
+      var r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ accion: accion, jwt: jwt }, datos || {})), signal: ac.signal, redirect: 'follow' });
+      var tx = await r.text(), j = null; try { j = JSON.parse(tx); } catch (e) { }
+      if (!j || typeof j !== 'object') return { ok: false, codigo: 'RED', error: 'Google no respondió como se esperaba. Revisa que hayas creado la «Nueva versión» del servicio con el OfertasCRM.gs actualizado.' };
+      return j;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return { ok: false, codigo: 'RED', error: 'Google tardó demasiado. Si estabas limpiando, mira en el Drive si se movieron archivos y vuelve a simular.' };
+      return { ok: false, codigo: 'RED', error: 'No se pudo conectar con Google. Revisa tu internet e intenta de nuevo.' };
+    } finally { clearTimeout(t); }
+  }
+  function txtGoogle(r) {
+    if (!r) return 'Error desconocido';
+    if (r.codigo === 'SQL') return 'Falta ejecutar 60_chat_admin.sql en Supabase.';
+    if (r.codigo === 'DATOS' && /Acci/i.test(r.error || '')) return 'El servicio de Google es de una versión anterior: pega el OfertasCRM.gs nuevo y crea una «Nueva versión».';
+    return r.error || 'Error desconocido';
+  }
+
+  /* ================= PINTAR ================= */
+  function pinta() {
+    var h = S.host; if (!h) return;
+    var vs = VISTAS.filter(function (v) { return S.adm || !v[2]; });
+    if (!vs.some(function (v) { return v[0] === S.vista; })) S.vista = 'res';
+    var cuerpo = S.vista === 'res' ? vRes() : S.vista === 'per' ? vPer() : S.vista === 'gru' ? vGru() : S.vista === 'con' ? vCon() : S.vista === 'dri' ? vDri() : vAud();
+    var foco = document.activeElement && document.activeElement.id, ini = document.activeElement && document.activeElement.selectionStart;
+    h.innerHTML = '<div class="c60"><div class="c60-top"><div><h2>🛡️ Administración del chat</h2><p class="c60-sub">' + (S.adm ? 'Administrador' : 'Supervisor') + ' · aquí ves cifras y gestionas personas y grupos. Nunca el contenido de los mensajes.</p></div></div>' +
+      '<div class="c60-tabs" role="tablist" aria-label="Secciones de la administración del chat">' + vs.map(function (v) { return '<button type="button" class="c60-t" role="tab" id="c60-t-' + v[0] + '" data-v="' + v[0] + '" aria-selected="' + (S.vista === v[0]) + '" aria-controls="c60-p">' + v[1] + '</button>'; }).join('') + '</div>' +
+      (S.aviso ? '<div class="c60-ok" role="status">' + esc(S.aviso) + '</div>' : '') +
+      '<div id="c60-p" role="tabpanel" aria-labelledby="c60-t-' + S.vista + '" tabindex="-1">' + cuerpo + '</div></div>';
+    if (foco && $(foco) && /^c60-(pq|gq|gf|af|r[pgaf])$/.test(foco)) { $(foco).focus(); try { if (ini != null) $(foco).setSelectionRange(ini, ini); } catch (e) { } }
+  }
+  function errHtml(e) { return e ? '<div class="c60-err" role="alert">' + esc(e) + '</div>' : ''; }
+  function cargando() { return '<div class="c60-vacio" role="status">Cargando…</div>'; }
+
+  /* ----- Resumen ----- */
+  function vRes() {
+    var R = S.res; if (R.err) return errHtml(R.err) + '<button type="button" class="c60-btn" data-a="recargar">Reintentar</button>';
+    if (!R.d) return cargando();
+    var d = R.d;
+    function k(n, t, av) { return '<div class="c60-k' + (av ? ' av' : '') + '"><b>' + nf(n) + '</b><span>' + esc(t) + '</span></div>'; }
+    return '<div class="c60-kpis">' + k(d.usuarios, 'personas activas') + k(d.silenciados, 'silenciadas ahora', d.silenciados > 0) + k(d.grupos, 'grupos') + k(d.canales, 'canales') + k(d.archivados, 'archivados') +
+      k(d.privadas, 'chats privados') + k(d.mensajes_7d, 'mensajes en 7 días') + k(d.mensajes, 'mensajes en total') + '<div class="c60-k"><b>' + nf(d.archivos) + '</b><span>archivos · ' + mb(d.bytes) + '</span></div></div>' +
+      '<div class="c60-nota">El mensaje más antiguo que hay guardado es del <b>' + esc(fh(d.mas_antiguo) || '—') + '</b>.' + (S.adm ? ' Conservación: ' + (d.config && (d.config.ret_privadas_dias || d.config.ret_grupos_dias || d.config.ret_general_dias) ? 'activada (los plazos están en la pestaña Conservación).' : '<b>no se borra nada</b> (así queda hasta que tú lo cambies).') : '') + '</div>' +
+      (S.adm ? '<div class="c60-nota">Registros en la auditoría: <b>' + nf(d.auditoria) + '</b> · última conservación: <b>' + esc(d.ultima_retencion ? hace(d.ultima_retencion) : 'nunca') + '</b> · última limpieza del Drive: <b>' + esc(d.ultima_limpieza_drive ? hace(d.ultima_limpieza_drive) : 'nunca') + '</b>.</div>' : '') +
+      '<div class="c60-nota">Los mensajes <b>no tienen cifrado de extremo a extremo</b> (viajan por HTTPS y se guardan en tu Supabase). Esta pantalla no muestra lo que escriben las personas y el administrador no lee chats privados ajenos.</div>';
+  }
+
+  /* ----- Personas ----- */
+  function vPer() {
+    var P = S.per; if (P.err) return errHtml(P.err) + '<button type="button" class="c60-btn" data-a="recargar">Reintentar</button>';
+    if (!P.d) return cargando();
+    var q = plano(P.q), l = P.d.filter(function (x) { return !q || plano(x.nombre + ' ' + (ROLES[x.rol] || x.rol)).indexOf(q) >= 0; });
+    return '<div class="c60-bar"><label class="c60-sr" for="c60-pq">Buscar persona</label><input id="c60-pq" type="search" data-minus autocomplete="off" placeholder="Buscar por nombre o papel" value="' + esc(P.q) + '"></div>' +
+      '<div class="c60-nota">Una persona <b>silenciada</b> puede leer y reaccionar, pero no enviar mensajes nuevos (ni siquiera zumbidos o archivos). ' + (S.adm ? '' : 'Como supervisor no puedes silenciar a otro supervisor ni al administrador. ') + '</div>' +
+      (l.length ? '<div class="c60-lista" role="list">' + l.map(function (x) {
+        var sil = x.silencio;
+        return '<div class="c60-f' + (sil ? ' sil' : '') + '" role="listitem"><div class="c60-fb"><b>' + esc(bonito(x.nombre)) + '</b><span class="c60-b g">' + esc(ROLES[x.rol] || x.rol) + '</span>' + (sil ? '<span class="c60-b w">Silenciada</span>' : '') +
+          '<small>' + nf(x.mensajes_30d) + ' mensajes en 30 días · ' + nf(x.grupos) + (x.grupos === 1 ? ' grupo' : ' grupos') + ' · última actividad: ' + esc(x.ultima_actividad ? hace(x.ultima_actividad) : 'sin mensajes en 30 días') + '</small>' +
+          (sil ? '<small>' + (sil.hasta ? 'Hasta ' + esc(fh(sil.hasta)) : 'Hasta que se le quite') + (sil.por ? ' · por ' + esc(sil.por) : '') + (sil.motivo ? ' · motivo: ' + esc(sil.motivo) : '') + '</small>' : '') + '</div>' +
+          '<div class="c60-fa">' + (x.puede_silenciar ? (sil ? '<button type="button" class="c60-btn sec" data-a="quitasil" data-id="' + esc(x.id) + '" aria-label="Quitar el silencio a ' + esc(bonito(x.nombre)) + '">Quitar silencio</button>' :
+            '<button type="button" class="c60-btn sec" data-a="silenciar" data-id="' + esc(x.id) + '" aria-label="Silenciar a ' + esc(bonito(x.nombre)) + '">Silenciar…</button>') : '') + '</div></div>';
+      }).join('') + '</div>' : '<div class="c60-vacio">Nadie coincide con la búsqueda.</div>');
+  }
+
+  /* ----- Grupos ----- */
+  function vGru() {
+    var G = S.gru; if (G.err) return errHtml(G.err) + '<button type="button" class="c60-btn" data-a="recargar">Reintentar</button>';
+    if (!G.d) return cargando();
+    var q = plano(G.q), l = G.d.filter(function (x) {
+      if (q && plano(x.nombre + ' ' + (x.creada_por_nombre || '')).indexOf(q) < 0) return false;
+      if (G.f === 'activos') return !x.archivada_at; if (G.f === 'archivados') return !!x.archivada_at; if (G.f === 'grupos') return x.tipo === 'GRUPO'; if (G.f === 'canales') return x.tipo === 'CANAL'; return true;
+    });
+    return '<div class="c60-bar"><label class="c60-sr" for="c60-gq">Buscar grupo</label><input id="c60-gq" type="search" data-minus autocomplete="off" placeholder="Buscar grupo o canal" value="' + esc(G.q) + '">' +
+      '<label class="c60-sr" for="c60-gf">Mostrar</label><select id="c60-gf">' + [['todos', 'Todos'], ['activos', 'Activos'], ['archivados', 'Archivados'], ['grupos', 'Solo grupos'], ['canales', 'Solo canales']].map(function (o) { return '<option value="' + o[0] + '"' + (G.f === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
+      '<div class="c60-nota">' + (S.adm ? 'Ves todos los grupos y canales, pero solo sus datos generales: <b>nunca lo que se escribe</b> ni quién escribió qué. ' : 'Ves los grupos que creaste o administras. ') + 'Archivar conserva todo pero cierra la escritura; se puede restaurar. ' + (S.adm ? 'Eliminar solo es posible si está archivado y borra el grupo con todo su contenido.' : '') + '</div>' +
+      (l.length ? '<div class="c60-lista" role="list">' + l.map(function (x) {
+        return '<div class="c60-f' + (x.archivada_at ? ' arch' : '') + '" role="listitem"><div class="c60-fb"><b>' + esc(x.nombre) + '</b><span class="c60-b g">' + (x.tipo === 'CANAL' ? 'Canal' : 'Grupo') + '</span>' + (x.archivada_at ? '<span class="c60-b w">Archivado</span>' : '') +
+          '<small>' + pl(x.miembros, 'miembro', 'miembros') + ' · ' + pl(x.mensajes, 'mensaje', 'mensajes') + ' · ' + pl(x.archivos, 'archivo', 'archivos') + (x.archivos ? ' (' + mb(x.bytes) + ')' : '') + ' · creado por ' + esc(x.creada_por_nombre || '—') + ' el ' + esc(fh(x.creada_at)) + '</small>' +
+          '<small>Último mensaje: ' + esc(x.ultimo_mensaje_at ? hace(x.ultimo_mensaje_at) : 'ninguno') + (x.admins && x.admins.length ? ' · administra: ' + esc(x.admins.slice(0, 4).join(', ')) + (x.admins.length > 4 ? '…' : '') : '') + '</small>' +
+          (x.archivada_at ? '<small>Archivado el ' + esc(fh(x.archivada_at)) + (x.archivada_por_nombre ? ' por ' + esc(x.archivada_por_nombre) : '') + '</small>' : '') + '</div>' +
+          '<div class="c60-fa">' + (x.puede_archivar ? (x.archivada_at ? '<button type="button" class="c60-btn sec" data-a="restaurar" data-id="' + esc(x.id) + '" aria-label="Restaurar ' + esc(x.nombre) + '">Restaurar</button>' : '<button type="button" class="c60-btn sec" data-a="archivar" data-id="' + esc(x.id) + '" aria-label="Archivar ' + esc(x.nombre) + '">Archivar…</button>') : '') +
+          (x.puede_eliminar ? '<button type="button" class="c60-btn sec" data-a="eliminar" data-id="' + esc(x.id) + '" aria-label="Eliminar ' + esc(x.nombre) + '">Eliminar…</button>' : '') + '</div></div>';
+      }).join('') + '</div>' : '<div class="c60-vacio">No hay grupos que coincidan.</div>');
+  }
+
+  /* ----- Conservación ----- */
+  var PLAZOS = [0, 30, 60, 90, 180, 365, 730, 1095, 1825];
+  function opcionesPlazo(v) {
+    var l = PLAZOS.slice(); if (l.indexOf(+v) < 0) l.push(+v); l.sort(function (a, b) { return (a || 1e9) - (b || 1e9); });
+    return l.map(function (n) { return '<option value="' + n + '"' + (+v === n ? ' selected' : '') + '>' + (n === 0 ? 'No borrar nunca' : n === 365 ? '1 año (365 días)' : n === 730 ? '2 años (730 días)' : n + ' días') + '</option>'; }).join('');
+  }
+  function vCon() {
+    var C = S.con; if (C.err) return errHtml(C.err) + '<button type="button" class="c60-btn" data-a="recargar">Reintentar</button>';
+    if (!C.d) return cargando();
+    var d = C.d, sim = C.sim, e = C.edit || { p: d.ret_privadas_dias, g: d.ret_grupos_dias, a: d.ret_general_dias, f: !!d.ret_conservar_fijados };
+    var ninguno = !d.ret_privadas_dias && !d.ret_grupos_dias && !d.ret_general_dias, sucio = !!C.edit && (+e.p !== +d.ret_privadas_dias || +e.g !== +d.ret_grupos_dias || +e.a !== +d.ret_general_dias || e.f !== !!d.ret_conservar_fijados);
+    return '<div class="c60-sec"><h3>Cuánto tiempo se guardan los mensajes</h3>' +
+      '<div class="c60-nota">Por defecto <b>no se borra nada</b>. Si eliges un plazo, <b>no se borra solo</b>: tú decides cuándo aplicarlo con el botón de abajo (primero verás una simulación). Los mensajes fijados y los que tienen una revisión del CRM abierta se conservan.</div>' +
+      (C.ok ? '<div class="c60-ok" role="status">' + esc(C.ok) + '</div>' : '') +
+      '<div class="c60-g2"><div><label for="c60-rp">Chats privados</label><select id="c60-rp">' + opcionesPlazo(e.p) + '</select></div>' +
+      '<div><label for="c60-rg">Grupos y canales</label><select id="c60-rg">' + opcionesPlazo(e.g) + '</select></div>' +
+      '<div><label for="c60-ra">Sala general</label><select id="c60-ra">' + opcionesPlazo(e.a) + '</select></div></div>' +
+      '<div class="c60-chk" style="margin:12px 0"><label style="display:flex;gap:8px;align-items:center;font-weight:500"><input id="c60-rf" type="checkbox" style="width:auto"' + (e.f ? ' checked' : '') + '> Conservar siempre los mensajes fijados</label></div>' +
+      '<button type="button" class="c60-btn" data-a="guardacfg"' + (C.guardando ? ' disabled' : '') + '>' + (C.guardando ? 'Guardando…' : 'Guardar plazos') + '</button></div>' +
+      '<div class="c60-sec"><h3>Aplicar la conservación</h3>' +
+      (ninguno ? '<div class="c60-nota">Ahora mismo todo está en «No borrar nunca», así que no hay nada que aplicar. Elige un plazo arriba y guárdalo.</div>' :
+        '<p class="c60-sub">Primero cuenta lo que se borraría; solo después puedes borrar. Se borran como máximo 20.000 mensajes por vez.</p>' +
+        '<button type="button" class="c60-btn sec" data-a="simula"' + (C.simBusy || sucio ? ' disabled' : '') + '>' + (C.simBusy ? 'Calculando…' : 'Simular (no borra nada)') + '</button>' + (sucio ? ' <span class="c60-sub">Primero guarda los plazos nuevos.</span>' : '') +
+        (sim ? '<div class="c60-sim" role="status"><b>' + (sim.total ? 'Se borrarían ' + nf(sim.total) + ' mensajes' : 'No hay nada que borrar con estos plazos') + '</b>' + (sim.total ?
+          '<ul><li>Chats privados: ' + nf(sim.privadas) + '</li><li>Grupos y canales: ' + nf(sim.grupos) + '</li><li>Sala general: ' + nf(sim.general) + '</li><li>Archivos adjuntos: ' + nf(sim.archivos) + ' (' + mb(sim.bytes) + ' en Drive, que luego puedes mandar a la papelera)</li><li>El más antiguo es del ' + esc(fh(sim.mas_antiguo)) + '</li></ul>' + (sim.hay_mas ? '<p>Hay más de 20.000: tendrás que repetirlo después.</p>' : '') +
+          '<p style="margin-top:10px"><button type="button" class="c60-btn pel" data-a="aplica">Borrar ahora…</button></p>' : '') + '</div>' : '')) + '</div>';
+  }
+
+  /* ----- Archivos del Drive ----- */
+  function vDri() {
+    var D = S.dri, r = D.sim, x = D.res, R = S.res.d || {};
+    return '<div class="c60-sec"><h3>Archivos del chat en tu Drive</h3>' +
+      '<p class="c60-sub">Cuando se borra un mensaje con archivo, el archivo se queda en tu Google Drive. Aquí lo localizas y lo mandas a la <b>papelera</b> (Google lo elimina del todo a los 30 días, así que se puede deshacer). Nunca toca nada fuera de la carpeta «FIBERTEL Chat - archivos» ni archivos de menos de 48 horas.</p>' +
+      (R.archivos != null ? '<div class="c60-nota">Ahora hay <b>' + nf(R.archivos) + '</b> archivos en uso por mensajes (' + mb(R.bytes) + ').</div>' : '') +
+      errHtml(D.err) +
+      '<button type="button" class="c60-btn sec" data-a="drisim"' + (D.busy ? ' disabled' : '') + '>' + (D.busy && !x ? 'Buscando…' : 'Buscar archivos sobrantes (no borra nada)') + '</button>' +
+      (r ? '<div class="c60-sim" role="status"><b>' + (r.huerfanos ? 'Hay ' + nf(r.huerfanos) + ' archivos sobrantes (' + mb(r.bytes) + ')' : 'No hay archivos sobrantes') + '</b><br><small>Se revisaron ' + nf(r.revisados) + ' archivos' + (r.pendientes ? ' (quedan ' + nf(r.pendientes) + ' por revisar: repite la búsqueda)' : '') + '.</small>' +
+        (r.muestra && r.muestra.length ? '<ul>' + r.muestra.map(function (m) { return '<li>' + esc(m.nombre) + ' · ' + mb(m.bytes) + '</li>'; }).join('') + (r.huerfanos > r.muestra.length ? '<li>… y ' + nf(r.huerfanos - r.muestra.length) + ' más</li>' : '') + '</ul>' : '') +
+        (r.huerfanos ? '<p style="margin-top:10px"><button type="button" class="c60-btn pel" data-a="dripapelera"' + (D.busy ? ' disabled' : '') + '>Mandar a la papelera…</button></p>' : '') + '</div>' : '') +
+      (x ? '<div class="c60-ok" role="status"><b>Listo:</b> ' + nf(x.papelera) + ' archivos (' + mb(x.bytes) + ') en la papelera de tu Drive.' + (x.omitidos ? ' ' + nf(x.omitidos) + ' se dejaron como estaban (no están en la carpeta del chat o no se pudieron mover).' : '') + (x.pendientes ? ' Quedan ' + nf(x.pendientes) + ' por hacer: repite la búsqueda.' : '') + '</div>' : '') + '</div>' +
+      '<div class="c60-sec"><h3>Antes de usar esto por primera vez</h3><ol class="c60-pasos"><li>Pega el <b>OfertasCRM.gs</b> nuevo en Apps Script.</li><li>Pulsa <b>Implementar → Administrar implementaciones → ✏️ → Versión: Nueva versión → Implementar</b>.</li><li>Vuelve aquí y busca archivos sobrantes.</li></ol></div>';
+  }
+
+  /* ----- Auditoría ----- */
+  var ACC = { GRUPO_CREADO: 'Creó un grupo o canal', GRUPO_RENOMBRADO: 'Cambió el nombre de un grupo', GRUPO_ARCHIVADO: 'Archivó un grupo', GRUPO_RESTAURADO: 'Restauró un grupo', GRUPO_ELIMINADO: 'Eliminó un grupo', MIEMBRO_ANADIDO: 'Añadió a una persona', MIEMBRO_QUITADO: 'Quitó a una persona',
+    MIEMBRO_SALIO: 'Salió de un grupo', ROL_CAMBIADO: 'Cambió un papel', MENSAJE_MODERADO: 'Retiró un mensaje', ANUNCIO_ENVIADO: 'Envió un anuncio', SILENCIO_APLICADO: 'Silenció a una persona', SILENCIO_QUITADO: 'Quitó un silencio',
+    CONFIG_CAMBIADA: 'Cambió la configuración', RETENCION_EJECUTADA: 'Aplicó la conservación', DRIVE_LIMPIEZA: 'Limpió archivos del Drive' };
+  var DET = { antes: 'antes', despues: 'después', motivo: 'motivo', horas: 'horas', hasta: 'hasta', miembros: 'miembros', mensajes: 'mensajes', archivos: 'archivos', bytes: 'bytes', total: 'total', privadas: 'privadas', grupos: 'grupos', general: 'general', destino: 'destino', rol: 'papel', tipo: 'tipo', creada_at: 'creado', archivada_at: 'archivado',
+    usuario_nombre: 'persona', rol_chat: 'papel en el grupo', autor_nombre: 'autor', urgente: 'urgente' };
+  var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  var VAL = { ADMIN: 'administrador del grupo', MIEMBRO: 'miembro', LECTOR: 'solo lectura', true: 'sí', false: 'no' };
+  var CLAVES = { ret_privadas_dias: 'Plazo de los chats privados', ret_grupos_dias: 'Plazo de grupos y canales', ret_general_dias: 'Plazo de la sala general', ret_conservar_fijados: 'Conservar mensajes fijados' };
+  function valCfg(clave, v) { v = String(v); if (/_dias$/.test(clave)) return v === '0' ? 'no borrar nunca' : v + ' días'; if (clave === 'ret_conservar_fijados') return v === '1' ? 'sí' : 'no'; return v; }
+  function detalle(d, x) {
+    if (!d || typeof d !== 'object') return '';
+    if (x && x.accion === 'CONFIG_CAMBIADA' && CLAVES[x.objetivo_id]) return 'antes: ' + valCfg(x.objetivo_id, d.antes) + ' · después: ' + valCfg(x.objetivo_id, d.despues);
+    return Object.keys(d).filter(function (k) { return d[k] != null && d[k] !== '' && !(typeof d[k] === 'string' && UUID.test(d[k])) && k !== 'dias_privadas' && k !== 'dias_grupos' && k !== 'dias_general' && k !== 'conservar_fijados' && k !== 'mas_antiguo'; }).slice(0, 8).map(function (k) {
+      var v = d[k]; if (/_at$|^hasta$/.test(k) && typeof v === 'string') v = fh(v); else if (k === 'bytes') v = mb(v); else if (typeof v === 'object') v = JSON.stringify(v); else if (VAL[v] != null) v = VAL[v];
+      return (DET[k] || k) + ': ' + v;
+    }).join(' · ');
+  }
+  function vAud() {
+    var A = S.aud;
+    return '<div class="c60-bar"><label for="c60-af" class="c60-sr">Filtrar por acción</label><select id="c60-af"><option value="">Todas las acciones</option>' + Object.keys(ACC).map(function (k) { return '<option value="' + k + '"' + (A.f === k ? ' selected' : '') + '>' + ACC[k] + '</option>'; }).join('') + '</select></div>' +
+      '<div class="c60-nota">Quién hizo qué en la administración del chat. <b>Nunca guarda lo que escribe nadie</b> y no se puede editar ni borrar desde el CRM.</div>' + errHtml(A.err) +
+      (!A.cargado && A.busy ? cargando() : A.items.length ? '<div class="c60-tb" tabindex="0" role="region" aria-label="Registro de auditoría (se desplaza hacia los lados)"><table><caption class="c60-sr">Registro de auditoría</caption><thead><tr><th scope="col">Cuándo</th><th scope="col">Quién</th><th scope="col">Qué</th><th scope="col">Sobre</th><th scope="col">Detalle</th></tr></thead><tbody>' + A.items.map(function (x) {
+        return '<tr><td>' + esc(fh(x.at)) + '</td><td>' + esc(bonito(x.actor_nombre || '—')) + '<br><small style="color:var(--m)">' + esc(ROLES[x.actor_rol] || x.actor_rol || '') + '</small></td><td>' + esc(ACC[x.accion] || x.accion) + '</td><td>' + esc((x.accion === 'CONFIG_CAMBIADA' && CLAVES[x.objetivo_id]) || x.objetivo_nombre || '—') + '</td><td>' + esc(detalle(x.detalle, x)) + '</td></tr>';
+      }).join('') + '</tbody></table></div>' + (A.mas ? '<p><button type="button" class="c60-btn sec" data-a="audmas"' + (A.busy ? ' disabled' : '') + '>' + (A.busy ? 'Cargando…' : 'Ver más antiguos') + '</button></p>' : '') : A.cargado ? '<div class="c60-vacio">Todavía no hay registros' + (A.f ? ' de esa acción' : '') + '.</div>' : '');
+  }
+
+  /* ================= CARGAS ================= */
+  async function cargaRes() {
+    var R = S.res; R.busy = true; R.err = null;
+    var r = await rpc('chat_admin_resumen'); R.busy = false;
+    if (r.error || !r.data) R.err = msg(r.error); else R.d = r.data;
+    pinta();
+  }
+  async function cargaPer() { var P = S.per; P.busy = true; P.err = null; var r = await rpc('chat_admin_usuarios'); P.busy = false; if (r.error) P.err = msg(r.error); else P.d = Array.isArray(r.data) ? r.data : []; pinta(); }
+  async function cargaGru() { var G = S.gru; G.busy = true; G.err = null; var r = await rpc('chat_admin_grupos'); G.busy = false; if (r.error) G.err = msg(r.error); else G.d = Array.isArray(r.data) ? r.data : []; pinta(); }
+  async function cargaCon() { var C = S.con; C.err = null; C.edit = null; var r = await rpc('chat_admin_config'); if (r.error || !r.data) C.err = msg(r.error); else C.d = r.data; pinta(); }
+  async function cargaAud(mas) {
+    var A = S.aud; if (A.busy) return; A.busy = true; A.err = null; if (!mas) { A.items = []; A.cargado = false; } pinta();
+    var args = { p_limite: 50 }; if (mas && A.items.length) args.p_antes = A.items[A.items.length - 1].id; if (A.f) args.p_accion = A.f;
+    var r = await rpc('chat_auditoria_listar', args); A.busy = false; A.cargado = true;
+    if (r.error || !r.data) A.err = msg(r.error); else { A.items = A.items.concat(r.data.items || []); A.mas = !!r.data.hay_mas; }
+    pinta();
+  }
+  function cargaVista() {
+    var v = S.vista;
+    if (v === 'res' || v === 'dri') { if (!S.res.d && !S.res.busy) cargaRes(); }
+    if (v === 'per') cargaPer(); else if (v === 'gru') cargaGru(); else if (v === 'con') cargaCon(); else if (v === 'aud' && !S.aud.cargado) cargaAud(false);
+    if (v === 'res') cargaRes();
+    pinta();
+  }
+
+  /* ================= VENTANAS ================= */
+  var MOD = null, FOCO = null;
+  function abreMod(m) {
+    FOCO = document.activeElement; MOD = m; m.err = '';
+    var o = $('c60-mod'); if (!o) { o = document.createElement('div'); o.id = 'c60-mod'; o.className = 'c60-mod'; document.body.appendChild(o); o.addEventListener('click', clicMod); o.addEventListener('input', entradaMod); o.addEventListener('change', entradaMod); o.addEventListener('keydown', teclaMod); }
+    pintaMod();
+    var f = o.querySelector('select,input,textarea,button.sec'); if (f) f.focus();
+  }
+  function cierraMod() { var o = $('c60-mod'); MOD = null; if (o) { o.hidden = true; o.innerHTML = ''; } if (FOCO && FOCO.isConnected && FOCO.focus) { try { FOCO.focus(); } catch (e) { } } }
+  function pintaMod() {
+    var o = $('c60-mod'), m = MOD; if (!o) return; if (!m) { o.hidden = true; o.innerHTML = ''; return; }
+    var cuerpo = '', ok = 'Aceptar', pel = false, listo = true;
+    if (m.t === 'silenciar') {
+      ok = 'Silenciar'; cuerpo = '<h3 id="c60-mt">Silenciar a ' + esc(bonito(m.nombre)) + '</h3><p>Podrá leer y reaccionar, pero no enviar mensajes nuevos. Verá un aviso en su chat. Queda anotado en la auditoría.</p>' +
+        '<label for="c60-mh">Durante</label><select id="c60-mh">' + [[1, '1 hora'], [8, '8 horas'], [24, '1 día'], [72, '3 días'], [168, '7 días'], [720, '30 días'], ['', 'Hasta que se le quite']].map(function (o2) { return '<option value="' + o2[0] + '"' + (String(m.horas) === String(o2[0]) ? ' selected' : '') + '>' + o2[1] + '</option>'; }).join('') + '</select>' +
+        '<label for="c60-mm">Motivo <span style="font-weight:400">(opcional, máximo 200 letras)</span></label><textarea id="c60-mm" data-minus rows="2" maxlength="200">' + esc(m.motivo || '') + '</textarea>';
+    } else if (m.t === 'quitasil') { ok = 'Quitar silencio'; cuerpo = '<h3 id="c60-mt">Quitar el silencio</h3><p>' + esc(bonito(m.nombre)) + ' podrá volver a escribir de inmediato.</p>'; }
+    else if (m.t === 'archivar') { ok = 'Archivar'; cuerpo = '<h3 id="c60-mt">Archivar «' + esc(m.nombre) + '»</h3><p>Se conserva todo lo escrito, pero nadie podrá enviar mensajes nuevos. Se puede restaurar cuando quieras. Se avisará dentro del grupo.</p><label for="c60-mm">Motivo <span style="font-weight:400">(opcional)</span></label><textarea id="c60-mm" data-minus rows="2" maxlength="200">' + esc(m.motivo || '') + '</textarea>'; }
+    else if (m.t === 'restaurar') { ok = 'Restaurar'; cuerpo = '<h3 id="c60-mt">Restaurar «' + esc(m.nombre) + '»</h3><p>Volverá a admitir mensajes nuevos.</p>'; }
+    else if (m.t === 'eliminar') {
+      ok = 'Eliminar para siempre'; pel = true; listo = String(m.texto || '').trim().toLowerCase() === String(m.nombre).trim().toLowerCase() && !!String(m.texto || '').trim();
+      cuerpo = '<h3 id="c60-mt">Eliminar «' + esc(m.nombre) + '»</h3><p><b>Esto no se puede deshacer.</b> Se borra el grupo con todos sus mensajes (' + nf(m.mensajes) + ').' + (m.archivos ? ' Sus ' + pl(m.archivos, 'archivo', 'archivos') + ' (' + mb(m.bytes) + ') seguirán en tu Drive hasta que los mandes a la papelera en «Archivos del Drive».' : '') + ' Quedará anotado en la auditoría.</p>' +
+        '<label for="c60-mx">Para confirmar, escribe el nombre exacto del grupo</label><input id="c60-mx" type="text" data-minus autocomplete="off" value="' + esc(m.texto || '') + '">';
+    } else if (m.t === 'aplica') {
+      ok = 'Borrar mensajes'; pel = true; listo = !!m.entiendo;
+      cuerpo = '<h3 id="c60-mt">Borrar ' + nf(m.total) + ' mensajes</h3><p><b>Esto no se puede deshacer.</b> Se borran los mensajes más antiguos que los plazos que elegiste. Queda anotado en la auditoría.</p><label class="c60-cc"><input id="c60-me" type="checkbox"' + (m.entiendo ? ' checked' : '') + '><span>Entiendo que no se pueden recuperar.</span></label>';
+    } else if (m.t === 'papelera') {
+      ok = 'Mandar a la papelera'; pel = true; cuerpo = '<h3 id="c60-mt">Mandar ' + nf(m.huerfanos) + ' archivos a la papelera</h3><p>Se mueven a la papelera de tu Google Drive (se pueden recuperar durante 30 días). Quedará anotado en la auditoría.</p>';
+    }
+    o.innerHTML = '<div class="c60-card" role="dialog" aria-modal="true" aria-labelledby="c60-mt">' + cuerpo + (m.err ? '<div class="c60-er" role="alert">' + esc(m.err) + '</div>' : '') +
+      '<div class="c60-fn"><button type="button" class="c60-btn sec" data-m="cancel">Cancelar</button><button type="button" class="c60-btn' + (pel ? ' pel' : '') + '" data-m="ok"' + (listo && !m.busy ? '' : ' disabled') + '>' + (m.busy ? 'Un momento…' : esc(ok)) + '</button></div></div>';
+    o.hidden = false;
+  }
+  function teclaMod(e) {
+    if (e.key === 'Escape') { e.stopPropagation(); cierraMod(); return; }
+    if (e.key !== 'Tab') return;
+    var f = Array.prototype.filter.call($('c60-mod').querySelectorAll('select,input,textarea,button'), function (x) { return !x.disabled; }); if (!f.length) return;
+    var a = f[0], z = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+  }
+  function entradaMod(e) {
+    var m = MOD; if (!m) return; var t = e.target;
+    if (t.id === 'c60-mh') m.horas = t.value; else if (t.id === 'c60-mm') m.motivo = t.value; else if (t.id === 'c60-mx') { m.texto = t.value; var b = $('c60-mod').querySelector('[data-m="ok"]'); if (b) b.disabled = !(m.texto.trim().toLowerCase() === String(m.nombre).trim().toLowerCase() && m.texto.trim()); }
+    else if (t.id === 'c60-me') { m.entiendo = t.checked; var b2 = $('c60-mod').querySelector('[data-m="ok"]'); if (b2) b2.disabled = !m.entiendo; }
+  }
+  async function clicMod(e) {
+    var b = e.target.closest('[data-m]'); if (!b) { if (e.target === $('c60-mod') && !(MOD && MOD.busy)) cierraMod(); return; }
+    if (b.getAttribute('data-m') === 'cancel') { if (!(MOD && MOD.busy)) cierraMod(); return; }
+    var m = MOD; if (!m || m.busy) return; m.busy = true; m.err = ''; pintaMod();
+    var ok = false;
+    try { ok = await ejecuta(m); } catch (er) { console.error(er); m.err = 'Error inesperado'; }
+    if (MOD !== m) return;
+    m.busy = false; if (ok) cierraMod(); else pintaMod();
+  }
+  function aviso(t) { S.aviso = t; clearTimeout(aviso.t); aviso.t = setTimeout(function () { S.aviso = ''; if (S.host && $('c60-p')) pinta(); }, 6000); }
+  async function ejecuta(m) {
+    var r;
+    if (m.t === 'silenciar') {
+      r = await rpc('chat_admin_silenciar', { p_usuario: m.id, p_horas: m.horas === '' || m.horas == null ? null : parseInt(m.horas, 10), p_motivo: (m.motivo || '').trim() || null });
+      if (r.error) { m.err = msg(r.error); return false; } aviso(bonito(m.nombre) + ' quedó silenciada.'); await cargaPer(); cargaRes(); return true;
+    }
+    if (m.t === 'quitasil') { r = await rpc('chat_admin_quitar_silencio', { p_usuario: m.id }); if (r.error) { m.err = msg(r.error); return false; } aviso('Se quitó el silencio a ' + bonito(m.nombre) + '.'); await cargaPer(); cargaRes(); return true; }
+    if (m.t === 'archivar' || m.t === 'restaurar') {
+      r = await rpc('chat_admin_grupo_archivar', { p_conversacion: m.id, p_archivar: m.t === 'archivar', p_motivo: (m.motivo || '').trim() || null });
+      if (r.error) { m.err = msg(r.error); return false; } aviso('«' + m.nombre + '» ' + (m.t === 'archivar' ? 'quedó archivado.' : 'se restauró.')); await cargaGru(); cargaRes(); return true;
+    }
+    if (m.t === 'eliminar') {
+      r = await rpc('chat_admin_grupo_eliminar', { p_conversacion: m.id, p_confirmar: (m.texto || '').trim() });
+      if (r.error) { m.err = msg(r.error); return false; } S.dri.sim = null; aviso('«' + m.nombre + '» se eliminó.'); await cargaGru(); cargaRes(); return true;
+    }
+    if (m.t === 'aplica') {
+      r = await rpc('chat_admin_retencion', { p_simular: false });
+      if (r.error || !r.data) { m.err = msg(r.error); return false; }
+      S.con.sim = null; S.con.ok = 'Se borraron ' + nf(r.data.total) + ' mensajes.' + (r.data.hay_mas ? ' Todavía quedan más: repite la simulación.' : '') + (r.data.archivos ? ' Sus archivos (' + mb(r.data.bytes) + ') siguen en tu Drive hasta que los mandes a la papelera en «Archivos del Drive».' : ''); S.dri.sim = null; S.res.d = null; pinta(); return true;
+    }
+    if (m.t === 'papelera') {
+      S.dri.busy = true; S.dri.err = null; pinta();
+      var g = await llamaGoogle('chat_purgar', { ejecutar: true }, 240000); S.dri.busy = false;
+      if (!g || g.ok !== true) { S.dri.err = txtGoogle(g); pinta(); return true; }
+      S.dri.res = g; S.dri.sim = null; S.res.d = null; pinta(); return true;
+    }
+    return true;
+  }
+
+  /* ================= EVENTOS ================= */
+  async function clicHost(e) {
+    var t = e.target.closest('.c60-t');
+    if (t) { var v = t.getAttribute('data-v'); if (v !== S.vista) { S.vista = v; S.aviso = ''; cargaVista(); } return; }
+    var b = e.target.closest('[data-a]'); if (!b) return;
+    var a = b.getAttribute('data-a'), id = b.getAttribute('data-id');
+    if (a === 'recargar') { S.res.d = null; S.per.d = null; S.gru.d = null; S.con.d = null; cargaVista(); }
+    else if (a === 'silenciar' || a === 'quitasil') { var p = (S.per.d || []).filter(function (x) { return x.id === id; })[0]; if (p) abreMod({ t: a, id: id, nombre: p.nombre, horas: '24', motivo: '' }); }
+    else if (a === 'archivar' || a === 'restaurar' || a === 'eliminar') { var g = (S.gru.d || []).filter(function (x) { return x.id === id; })[0]; if (g) abreMod({ t: a, id: id, nombre: g.nombre, motivo: '', texto: '', mensajes: g.mensajes, archivos: g.archivos, bytes: g.bytes }); }
+    else if (a === 'guardacfg') guardaCfg();
+    else if (a === 'simula') simula();
+    else if (a === 'aplica') { if (S.con.sim && S.con.sim.total) abreMod({ t: 'aplica', total: S.con.sim.total, entiendo: false }); }
+    else if (a === 'drisim') driveBusca();
+    else if (a === 'dripapelera') { if (S.dri.sim && S.dri.sim.huerfanos) abreMod({ t: 'papelera', huerfanos: S.dri.sim.huerfanos }); }
+    else if (a === 'audmas') cargaAud(true);
+  }
+  function entradaHost(e) {
+    var t = e.target;
+    if (t.id === 'c60-pq') { S.per.q = t.value; pinta(); }
+    else if (t.id === 'c60-gq') { S.gru.q = t.value; pinta(); }
+  }
+  function cambioHost(e) {
+    var t = e.target;
+    if (t.id === 'c60-gf') { S.gru.f = t.value; pinta(); var s = $('c60-gf'); if (s) s.focus(); }
+    else if (t.id === 'c60-af') { S.aud.f = t.value; cargaAud(false); }
+    else if (/^c60-r[pga]$/.test(t.id) || t.id === 'c60-rf') {
+      S.con.edit = { p: +$('c60-rp').value, g: +$('c60-rg').value, a: +$('c60-ra').value, f: $('c60-rf').checked }; S.con.sim = null; S.con.ok = ''; pinta();
+    }
+  }
+  var ligado = new WeakSet();
+  function ganchos(h) { if (ligado.has(h)) return; ligado.add(h); h.addEventListener('click', clicHost); h.addEventListener('input', entradaHost); h.addEventListener('change', cambioHost); }
+
+  async function guardaCfg() {
+    var C = S.con; if (C.guardando) return; var d = C.d || {};
+    var nuevo = { ret_privadas_dias: $('c60-rp').value, ret_grupos_dias: $('c60-rg').value, ret_general_dias: $('c60-ra').value, ret_conservar_fijados: $('c60-rf').checked ? '1' : '0' };
+    var cambios = Object.keys(nuevo).filter(function (k) { var ant = k === 'ret_conservar_fijados' ? (d[k] ? '1' : '0') : String(d[k]); return ant !== String(nuevo[k]); });
+    if (!cambios.length) { C.ok = 'No hay cambios que guardar.'; pinta(); return; }
+    C.guardando = true; C.err = null; C.ok = ''; pinta();
+    for (var i = 0; i < cambios.length; i++) {
+      var r = await rpc('chat_admin_config_set', { p_clave: cambios[i], p_valor: String(nuevo[cambios[i]]) });
+      if (r.error) { var e0 = msg(r.error); C.guardando = false; await cargaCon(); C.err = e0; pinta(); return; }
+    }
+    C.guardando = false; C.sim = null; C.edit = null; C.ok = 'Guardado. ' + (nuevo.ret_privadas_dias === '0' && nuevo.ret_grupos_dias === '0' && nuevo.ret_general_dias === '0' ? 'No se borrará nada.' : 'Todavía no se borró nada: usa «Simular» para ver qué se borraría.'); S.res.d = null;
+    await cargaCon();
+  }
+  async function simula() {
+    var C = S.con; if (C.simBusy) return; C.simBusy = true; C.err = null; C.ok = ''; pinta();
+    var r = await rpc('chat_admin_retencion', { p_simular: true }); C.simBusy = false;
+    if (r.error || !r.data) { C.err = msg(r.error); C.sim = null; } else C.sim = r.data;
+    pinta();
+  }
+  async function driveBusca() {
+    var D = S.dri; if (D.busy) return; D.busy = true; D.err = null; D.res = null; pinta();
+    var g = await llamaGoogle('chat_purgar', { ejecutar: false }, 120000); D.busy = false;
+    if (!g || g.ok !== true) { D.err = txtGoogle(g); D.sim = null; } else D.sim = g;
+    pinta();
+  }
+
+  /* ================= MONTAJE ================= */
+  async function monta(host, quien) {
+    if (!host) return;
+    S.host = host; S.adm = (quien || rol()) === 'admin'; ganchos(host);
+    if (!host.firstChild || host.querySelector('.d15-vacio, .s46-vacio')) host.innerHTML = '<div class="c60"><div class="c60-vacio" role="status">Cargando…</div></div>';
+    cargaVista();
+  }
+  function montarTab() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-cha')) return;
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-cha'; s.hidden = true; s.innerHTML = '<div id="c60-raiz"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'cha'); bt.innerHTML = '<span>🛡️</span>Admin chat';
+    var ref = bar.querySelector('[data-k="ofe"]') || bar.querySelector('[data-k="inc"]'); if (ref) ref.insertAdjacentElement('afterend', bt); else bar.appendChild(bt);
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'cha') monta($('c60-raiz'), 'admin'); });
+  }
+  function iniciar(r) {
+    S = nuevo(); CFGURL = null; cierraMod();
+    if (r === 'admin') montarTab();
+    document.dispatchEvent(new Event('cha60'));
+  }
+  [['adminView', 'admin'], ['supervisorView', 'supervisor']].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () { var x = o.apply(this, arguments); try { iniciar(p[1]); } catch (e) { console.error(e); } return x; };
+  });
+  var oL = window.loginView;
+  if (typeof oL === 'function') window.loginView = function () { cierraMod(); S = nuevo(); CFGURL = null; return oL.apply(this, arguments); };
+
+  window.cha60 = {
+    monta: monta,
+    info: function () { return { vista: S.vista, adm: S.adm, personas: S.per.d ? S.per.d.length : null, grupos: S.gru.d ? S.gru.d.length : null }; }
+  };
 })();
 
  </script>
