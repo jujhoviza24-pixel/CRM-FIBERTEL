@@ -2016,7 +2016,7 @@ function ventaForm(l) {
       if (r.fecha_estado && (!x.f || new Date(r.fecha_estado) > new Date(x.f))) x.f = r.fecha_estado;
     });
     o.forEach(function (x) {
-      var SV = window.svc49;   // botones 🌐 Internet / 📱 Móvil: se cuenta UN servicio a la vez (Internet por defecto, nunca se suman); los demás se ven atenuados
+      var SV = window.svc49;   // botones 🌐 Internet / 📱 Móvil: se cuenta UN servicio a la vez (Internet por defecto); los demás se ven atenuados
       x.sel = SV && SV.activo() ? x.items.filter(function (i) { return SV.cuenta(i); }) : x.items;
       x.act = x.sel.filter(function (i) { return macro(i.estado) === 'ACT'; }).length;
       x.pend = x.sel.filter(function (i) { var m = macro(i.estado); return m === 'TRA' || m === 'INC'; });
@@ -6829,7 +6829,7 @@ function ventaForm(l) {
     TZ = { dias: 7, d: null, busy: false, err: null };
     CL = { q: '', etapa: '', conc: '', cerr: '', dias: 30, pag: 0, d: null, busy: false, otra: false, err: null, eq: null, abierto: {}, det: {}, re: {}, tq: null };
     NOTAS = {}; BORR = {}; CONTRA = {}; CR = {};
-    main.innerHTML = '<div class="s46" id="s46"><div class="s46-hero"><small style="opacity:.85;text-transform:capitalize">' + esc(hoy) + '</small><h2>Hola, ' + esc(nombre) + '</h2><p>Supervisor · ves cómo va el grupo y lo que suben los concertadores, comentas, llamas, pasas clientes de un cerrador a otro y repartes las tareas del back. No editas estados ni ves comisiones.</p></div>' +
+    main.innerHTML = '<div class="s46" id="s46"><div class="s46-hero"><small style="opacity:.85;text-transform:capitalize">' + esc(hoy) + '</small><h2>Hola, ' + esc(nombre) + '</h2><p>Ves cómo va el grupo y lo que suben los concertadores, comentas, llamas, pasas clientes de un cerrador a otro y repartes las tareas del back.</p></div>' +
       '<div class="s46-tabs" id="s46-tabs" role="tablist">' + TABS.map(function (t) { return '<button type="button" class="s46-t" role="tab" data-k="' + t[0] + '"><span>' + t[1] + '</span>' + t[2] + (t[0] === 'inc' ? '<b class="p37-nb" style="display:none;margin-left:6px;min-width:18px;padding:0 6px;border-radius:99px;background:var(--bad);color:#fff;font-size:.72em;text-align:center;font-weight:800"></b>' : '') + '</button>'; }).join('') + '</div>' +
       '<section id="s46-p-pan"></section><section id="s46-p-rep" hidden><div id="s46-rep"></div></section><section id="s46-p-inc" hidden><div id="s46-inc"></div></section><section id="s46-p-ofe" hidden><div id="s46-ofe"></div></section><section id="s46-p-cha" hidden><div id="s46-cha"></div></section><section id="s46-p-cli" hidden><div class="s46-sec"><div class="s46-sh"><h3>Clientes de los concertadores</h3><span class="meta">Con su historial: puedes llamar, comentar y cambiar de cerrador</span></div><div id="s46-cl"></div></div></section><section id="s46-p-tar" hidden><div id="s46-tz"></div></section><section id="s46-p-seg" hidden><div class="s46-sec"><div class="s46-sh"><h3>Seguimiento de clientes</h3><span class="meta">Clientes con algún servicio sin OK</span></div><div id="s46-seg"></div></div></section></div>';
     KP.host = $('s46-p-pan'); ganchosPanel(KP.host); ganchosTz($('s46-p-tar')); ganchosSeg($('s46-p-seg')); ganchosComun($('s46-p-seg'), pintaSeg); ganchosCl($('s46-p-cli'));
@@ -7775,7 +7775,7 @@ function ventaForm(l) {
     var propio = !!(ST.sel && valida(ST.sel) && valida(ST.sel)[0] !== defecto()[0]);
     return '<div class="svc49-seg" role="radiogroup" aria-label="Qué servicio quieres ver">' + pill('INTERNET') + pill('MOVIL') +
       '<button type="button" role="radio" aria-checked="' + otro + '" class="' + (otro ? 'on' : '') + '" data-svc49-abre aria-haspopup="dialog" title="Línea fija, televisión, móvil gratis…"><span aria-hidden="true">' + (otro ? ICO[k] : '⋯') + '</span> ' + (otro ? esc(nombre(k)) : 'Otros') + ' <span aria-hidden="true">▾</span></button></div>' +
-      '<span class="svc49-hint">' + (propio ? 'Elegido por ti · <button type="button" class="svc49-lnk" data-svc49-def>volver a ' + esc(nombre(defecto()[0])) + '</button>' : 'Se ve un servicio a la vez · Internet y Móvil nunca se suman') + '</span>';
+      '<span class="svc49-hint">' + (propio ? 'Elegido por ti · <button type="button" class="svc49-lnk" data-svc49-def>volver a ' + esc(nombre(defecto()[0])) + '</button>' : 'Se ve un servicio a la vez · Internet y Móvil') + '</span>';
   }
   function pintaHosts() {
     Array.prototype.forEach.call(document.querySelectorAll('[data-svc49]'), function (h) { h.innerHTML = btnHtml(); });
