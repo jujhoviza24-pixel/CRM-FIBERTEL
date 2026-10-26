@@ -2116,7 +2116,8 @@ function ventaForm(l) {
       e('per', 'Perdidos', '🚫', 'bad', function (l) { return l.estado === 'NO_VIABLE' || l.estado === 'RECHAZA'; })]
   };
   function misLeads() { return ROL === 'back' ? D.leads.filter(function (l) { return l.tipo_cita === 'CALENTAR'; }) : D.leads; }
-  function etapas() {
+  function etapas() { var r = etapas0(); return window.mes63 ? window.mes63.aplica(r) : r; }
+  function etapas0() {
     var res = ET[ROL].map(function (d) { return { d: d, items: [] }; });
     misLeads().forEach(function (l) { for (var i = 0; i < res.length; i++) { if (res[i].d.f(l)) { res[i].items.push(l); return; } } });
     return res;
@@ -16170,7 +16171,189 @@ function ofcCalcular(cat, sel) {
     info: function () { return { vista: S.vista, adm: S.adm, personas: S.per.d ? S.per.d.length : null, grupos: S.gru.d ? S.gru.d.length : null }; }
   };
 })();
+/* 63 · Resumen: filtro por mes + botón «Seguimiento de mis ventas»
+   Bloque NUEVO. Se pega al final de index.html, justo antes de la línea que cierra el script (la última antes de body).
+   Además hay que cambiar UNA línea en el bloque 15 (function etapas() {): ver instrucciones.
+   1) Filtro por mes en «Clientes por estado» (todos los roles):
+        - Vendidos: aparecen en el mes de su FECHA DE VENTA (la misma regla de la pestaña Ventas). Un cliente con ventas en dos meses aparece en los dos.
+        - Rechazados / no procede / perdidos: aparecen en el mes de su última gestión.
+        - Lo que sigue en curso (por calentar, en gestión, en la bolsa…) se muestra SIEMPRE: es trabajo pendiente.
+        - «Todos los meses» deja el Resumen como estaba antes.
+   2) Cerrador: tarjeta en el Resumen que abre «Contraofertas → Todas mis ventas en seguimiento» (los comentarios del back).
+   No cambia la base de datos ni la autenticación; solo lee ventas_sync (fecha de venta de los clientes vendidos). */
+(function () {
+  var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  var CERRADAS = { ven: 'venta', rech: 'gestion', per: 'gestion', nov: 'gestion' };   // etapas «cerradas» (mismas claves en todos los roles)
+  var TTL = 180000, POR = 60;
+  var ST = { mes: null }, FE = {}, FT = {}, CARG = false, REINT = 0, tBadge = null;
 
+  function $(i) { return document.getElementById(i); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function clave(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2); }
+  // mes (AAAA-MM) de una fecha; igual que la pestaña Ventas usa la hora del navegador (una fecha sin hora se toma tal cual)
+  function mesDe(v) {
+    if (!v) return null;
+    var s = String(v), m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (m) return m[1] + '-' + m[2];
+    var d = new Date(s); return isNaN(d) ? null : clave(d);
+  }
+  function nombre(k) { var n = MESES[+k.slice(5, 7) - 1] || k; return n.charAt(0).toUpperCase() + n.slice(1) + ' ' + k.slice(0, 4); }
+  function guarda() { try { sessionStorage.setItem('res63_mes', ST.mes); } catch (e) { } }
+  function inicial() {
+    var v = null; try { v = sessionStorage.getItem('res63_mes'); } catch (e) { }
+    return v && (v === 'TODOS' || /^\d{4}-\d{2}$/.test(v)) ? v : clave(new Date());
+  }
+  function mesSel() { if (ST.mes === null) ST.mes = inicial(); return ST.mes; }
+
+  /* ---------- fechas de venta de los clientes vendidos ---------- */
+  function faltan(ids) { var t = Date.now(); return ids.filter(function (id) { return !FT[id] || t - FT[id] > TTL; }); }
+  async function trae(ids) {
+    if (CARG || !ids.length || Date.now() < REINT) return;
+    CARG = true; pintaSel();
+    var fallo = false;
+    try {
+      var tr = []; for (var i = 0; i < ids.length; i += POR) tr.push(ids.slice(i, i + POR));
+      var R = await Promise.all(tr.map(function (t) { return sb.from('ventas_sync').select('lead_id,fecha_venta,fecha_estado').in('lead_id', t).range(0, 999); }));
+      var ahora = Date.now();
+      R.forEach(function (r, j) {
+        if (r.error) { fallo = true; return; }
+        var tmp = {}; tr[j].forEach(function (id) { tmp[id] = []; });
+        (r.data || []).forEach(function (x) {
+          var m = mesDe(x.fecha_venta) || mesDe(x.fecha_estado);
+          if (m && tmp[x.lead_id] && tmp[x.lead_id].indexOf(m) < 0) tmp[x.lead_id].push(m);
+        });
+        Object.keys(tmp).forEach(function (id) { FE[id] = tmp[id]; FT[id] = ahora; });
+      });
+    } catch (e) { fallo = true; }
+    CARG = false;
+    if (fallo) REINT = Date.now() + 60000;   // si falla, se muestra por la última gestión y se reintenta en 1 minuto
+    repinta();
+  }
+  function repinta() {
+    try {
+      if (typeof window.regrupa15 === 'function') window.regrupa15();
+      else if (typeof window.refrescar15 === 'function') window.refrescar15();
+    } catch (e) { console.error(e); }
+    pintaSel();
+  }
+
+  /* ---------- lo que llama el bloque 15 (etapas) ---------- */
+  function aplica(res) {
+    try {
+      var mes = mesSel();
+      if (!res || mes === 'TODOS') return res;
+      res.forEach(function (st) {
+        var tipo = CERRADAS[st.d.k]; if (!tipo) return;
+        if (tipo === 'venta') {
+          var pide = faltan(st.items.map(function (l) { return l.id; }));
+          if (pide.length) setTimeout(function () { trae(pide); }, 0);
+          st.items = st.items.filter(function (l) {
+            var f = FE[l.id];
+            if (!f) { if (Date.now() < REINT) f = []; else return false; }   // aún cargando: no se muestra hasta saber su mes
+            return (f.length ? f : [mesDe(l.updated_at)]).indexOf(mes) >= 0;   // sin ventas en MATRIZ: por su última gestión
+          });
+        } else {
+          st.items = st.items.filter(function (l) { return mesDe(l.updated_at) === mes; });
+        }
+      });
+    } catch (e) { console.error(e); }
+    return res;
+  }
+
+  /* ---------- selector de mes (fuera de res15b: el Resumen se repinta cada 40 s y cerraría el desplegable) ---------- */
+  function opciones() {
+    var h = new Date(), tope = clave(h), set = {};
+    for (var i = 0; i < 12; i++) set[clave(new Date(h.getFullYear(), h.getMonth() - i, 1))] = 1;
+    Object.keys(FE).forEach(function (id) { (FE[id] || []).forEach(function (m) { if (m <= tope) set[m] = 1; }); });
+    if (/^\d{4}-\d{2}$/.test(ST.mes)) set[ST.mes] = 1;
+    return Object.keys(set).sort().reverse();
+  }
+  function pintaSel() {
+    var rb = $('res15b'); if (!rb || !rb.parentNode) return;
+    var mes = mesSel(), bar = $('mes63');
+    if (!bar) {
+      bar = document.createElement('div'); bar.id = 'mes63';
+      bar.innerHTML = '<label for="mes63-sel">Mes</label><select id="mes63-sel"></select><span class="meta" id="mes63-n" role="status" aria-live="polite"></span>';
+      rb.parentNode.insertBefore(bar, rb);
+    } else if (bar.nextElementSibling !== rb && bar.parentNode === rb.parentNode) rb.parentNode.insertBefore(bar, rb);
+    var sel = $('mes63-sel'), ops = opciones(), actual = clave(new Date());
+    var html = ops.map(function (k) { return '<option value="' + k + '">' + esc(nombre(k)) + (k === actual ? ' (este mes)' : '') + '</option>'; }).join('') + '<option value="TODOS">Todos los meses</option>';
+    if (sel.getAttribute('data-h') !== html && document.activeElement !== sel) { sel.innerHTML = html; sel.setAttribute('data-h', html); }
+    if (sel.value !== mes && document.activeElement !== sel) sel.value = mes;
+    $('mes63-n').textContent = (CARG ? 'Cargando las ventas del mes… ' : '') +
+      (mes === 'TODOS' ? 'Se muestran todos los clientes, de cualquier mes.' : 'Vendidos por fecha de venta; rechazados por su última gestión. Lo que sigue en curso se muestra siempre.');
+  }
+  document.addEventListener('change', function (e) {
+    var s = e.target; if (!s || s.id !== 'mes63-sel') return;
+    ST.mes = s.value; guarda(); repinta();
+  });
+
+  /* ---------- cerrador: botón al seguimiento de sus ventas ---------- */
+  function insigniaSeg() {
+    var n = document.querySelector('#tabs15 [data-k="cof"] .p37-nb');
+    return n ? String(n.textContent || '').trim() : '';
+  }
+  function pintaSeg() {
+    var c = $('seg63'); if (!c) return;
+    var n = insigniaSeg();
+    c.querySelector('.n').innerHTML = n ? '<span class="b63">' + esc(n) + ' sin leer</span>' : '';
+  }
+  function montaSeg() {
+    var ra = $('res15a'); if (!ra || $('seg63') || !document.querySelector('#tabs15 [data-k="cof"]')) return;
+    var c = document.createElement('div'); c.id = 'seg63';
+    c.innerHTML = '<div class="t"><b>📋 Seguimiento de mis ventas</b><span class="meta">Lo que el back escribió sobre tus clientes y cómo va cada servicio.</span></div><span class="n"></span>' +
+      '<button type="button" data-a63="seg">Abrir seguimiento →</button>';
+    ra.insertAdjacentElement('afterend', c);
+    pintaSeg();
+    var tb = document.querySelector('#tabs15 [data-k="cof"]');   // la insignia «sin leer» se copia en cuanto la pestaña la actualiza
+    if (tb) new MutationObserver(pintaSeg).observe(tb, { childList: true });
+    clearInterval(tBadge);
+    tBadge = setInterval(function () { if (!$('seg63')) { clearInterval(tBadge); return; } if (!document.hidden) pintaSeg(); }, 15000);
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('#seg63 [data-a63="seg"]'); if (!b) return;
+    if (typeof window.abrir45 === 'function') window.abrir45('cof');
+    else { var t = document.querySelector('#tabs15 [data-k="cof"]'); if (t) t.click(); }
+    // la pestaña abre en «Con contraoferta»: la pasamos a «Todas mis ventas en seguimiento» en cuanto exista el botón
+    var n = 0, t2 = setInterval(function () {
+      var m = document.querySelector('#p37c-modos [data-m="TODAS"]');
+      if (m) { clearInterval(t2); if (!m.classList.contains('on')) m.click(); }
+      else if (++n > 40) clearInterval(t2);
+    }, 100);
+  });
+
+  /* ---------- estilos ---------- */
+  var css = document.createElement('style');
+  css.textContent = [
+    '#mes63{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:18px 0 6px}',
+    '#mes63 label{margin:0;font-weight:800;font-size:.85em;color:var(--ink)}',
+    '#mes63 select{width:auto;min-width:210px;max-width:100%}',
+    '#mes63 .meta,#seg63 .meta{color:color-mix(in srgb,var(--ink) 78%,var(--bg))}#mes63 .meta{flex:1 1 260px}',
+    '#seg63{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0;padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh)}',
+    '#seg63 .t{display:flex;flex-direction:column;gap:2px;flex:1 1 220px;min-width:0}',
+    '#seg63 .n:empty{display:none}#seg63 .b63{display:inline-block;padding:2px 10px;border-radius:99px;background:var(--bad-bg);color:var(--bad);font-size:.8em;font-weight:800}'
+  ].join('');
+  document.head.appendChild(css);
+
+  /* ---------- enganche con las vistas ---------- */
+  function iniciar(rol) {
+    mesSel();
+    if (!$('res15b')) return;
+    pintaSel();
+    if (rol === 'cerrador') montaSeg();
+  }
+  [['concertadorView', 'concertador'], ['cerradorView', 'cerrador'], ['backView', 'back'], ['adminView', 'admin']].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () { var x = o.apply(this, arguments); try { iniciar(p[1]); } catch (e) { console.error(e); } return x; };
+  });
+  var oL = window.loginView;
+  if (typeof oL === 'function') window.loginView = function () { clearInterval(tBadge); ST.mes = null; FE = {}; FT = {}; CARG = false; REINT = 0; return oL.apply(this, arguments); };
+
+  window.mes63 = {
+    aplica: aplica,
+    info: function () { return { mes: mesSel(), cargando: CARG, conocidos: Object.keys(FE).length }; }
+  };
+})();
  </script>
 </body>
 </html>
