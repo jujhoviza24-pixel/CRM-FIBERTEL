@@ -8958,7 +8958,7 @@ function ofcCalcular(cat, sel) {
   /* Solo repinta si el contenido cambió. Si no, al salir de un campo (evento «change») se reemplazaría el botón que el usuario está pulsando y el clic se perdería. */
   function fijar(el, html) { if (!el || el._h === html) return; el._h = html; el.innerHTML = html; }
 
-  var CFG = null, CAT = null, CATt = 0, S = nuevo();
+  var CFG = null, CAT = null, CATt = 0, CATX = null, CATXt = 0, S = nuevo();
   function nuevo() {
     return { host: null, vista: 'nueva', f: { cliente: '', email: '', operador: '', imp: null, actual: '', items: [], q: '', abiertos: {} }, busyCat: false, errCat: null, ultimo: null,
       h: { vista: 'MIAS', q: '', items: [], total: 0, cont: null, busy: false, err: null, tq: null }, r: { dias: 30, d: null, busy: false, err: null },
@@ -9465,7 +9465,7 @@ function ofcCalcular(cat, sel) {
     bar.addEventListener('click', function (e) { var b = e.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'ofe') monta($('o56-raiz')); });
   }
   async function iniciar(r) {
-    S = nuevo(); CFG = null; CAT = null; CATt = 0;
+    S = nuevo(); CFG = null; CAT = null; CATt = 0; CATX = null;
     if (r === 'cerrador' || r === 'back' || r === 'admin') montarTab();
     document.dispatchEvent(new Event('ofe56'));
   }
@@ -9474,10 +9474,20 @@ function ofcCalcular(cat, sel) {
     window[p[0]] = function () { var x = o.apply(this, arguments); try { iniciar(p[1]); } catch (e) { console.error(e); } return x; };
   });
   var oL = window.loginView;
-  if (typeof oL === 'function') window.loginView = function () { cierraModal(); S = nuevo(); CFG = null; CAT = null; return oL.apply(this, arguments); };
+  if (typeof oL === 'function') window.loginView = function () { cierraModal(); S = nuevo(); CFG = null; CAT = null; CATX = null; return oL.apply(this, arguments); };
 
+  /* Para el Messenger (Fase 8B): el catálogo y el motor de precios, SIN tocar la pantalla de Ofertas. Solo devuelve datos; el precio se calcula con el mismo ofcCalcular. */
+  async function catalogoExterno(forzar) {
+    if (!CFG) await cargaCfg();
+    if (!CFG || !CFG.ok) return { ok: false, error: (CFG && CFG.err) || 'Tu usuario no puede usar las ofertas.' };
+    if (!forzar) { var c = CAT && Date.now() - CATt < 300000 ? CAT : (CATX && Date.now() - CATXt < 300000 ? CATX : null); if (c) return { ok: true, cat: c, calcular: ofcCalcular }; }
+    var r = await llamar('catalogo', forzar ? { refrescar: true } : {}, 50000);
+    if (!r || !r.ok || !r.porOperador || !r.operadores) return { ok: false, error: textoError(r) };
+    CATX = r; CATXt = Date.now(); return { ok: true, cat: r, calcular: ofcCalcular };
+  }
   window.ofe56 = {
     monta: monta,
+    catalogo: catalogoExterno,
     /* para otras pantallas: window.ofe56.abrir({ nombre: 'María López', email: 'maria@gmail.com' }) deja el formulario listo */
     abrir: function (d) {
       d = d || {}; if (d.nombre) S.f.cliente = String(d.nombre).slice(0, 80); if (d.email) S.f.email = String(d.email).trim().toLowerCase().slice(0, 254);
@@ -9526,7 +9536,7 @@ function ofcCalcular(cat, sel) {
   var DE_SRV = { DISPONIBLE: 'on', OCUPADO: 'busy', EN_LLAMADA: 'call', NO_MOLESTAR: 'dnd', AUSENTE: 'away' };
   var SILENCIO = { busy: 1, call: 1, dnd: 1 };                                                                   // con estos estados no suenan ni avisan los mensajes nuevos
   var DEPTO = { concertador: 'Ventas · Concertación', cerrador: 'Ventas · Cierre', back: 'Back office', admin: 'Administración', supervisor: 'Supervisión' };
-  var PREF0 = { sonMsg: true, sonZumbido: true, conexion: true, animRecibir: true, animEnviar: true, animPaneles: true, sacudir: true, avisoTexto: true, sonAgenda: true };
+  var PREF0 = { sonMsg: true, sonZumbido: true, conexion: true, animRecibir: true, animEnviar: true, animPaneles: true, sacudir: true, avisoTexto: true, sonAgenda: true, resumenTurno: true };
   var PREF_S = { tonoPriv: 'suave', tonoGrupo: 'gota', tonoZumbido: 'clasico', tonoConex: 'conex', tonoAgenda: 'alarma' };   // textos guardados: el tono elegido para cada tipo de aviso
   var SLOT_DE = { tonoPriv: 'priv', tonoGrupo: 'grupo', tonoZumbido: 'zumbido', tonoConex: 'conex', tonoAgenda: 'agenda' };
   var VOL0 = 60;                                                                                          // volumen por defecto (0–100): 60 = el de siempre
@@ -9647,13 +9657,23 @@ function ofcCalcular(cat, sel) {
     agenda_invalida: 'Revisa el recordatorio: necesita un título (hasta 120 letras), una fecha válida y, si se repite, avisar como máximo 1 hora antes',
     agenda_pasada: 'Esa hora ya pasó. Elige una fecha futura', agenda_llena: 'Ya tienes 300 recordatorios pendientes. Marca o borra alguno para crear otro', agenda_no_existe: 'Ese recordatorio ya no existe',
     rapida_invalida: 'El atajo debe tener de 1 a 20 letras sin tilde, números, guion o guion bajo, y el texto hasta 1000 letras', rapida_repetida: 'Ya tienes una respuesta con ese atajo. Elige otro o edita la que existe',
-    rapida_llena: 'Llegaste al máximo de respuestas rápidas. Borra alguna para crear otra'
+    rapida_llena: 'Llegaste al máximo de respuestas rápidas. Borra alguna para crear otra',
+    comunicado_invalido: 'Revisa el comunicado: necesita un título (hasta 120 letras) y un mensaje (hasta 2000)', comunicado_sin_titulo: 'Escribe el título del comunicado',
+    comunicado_sin_destinatarios: 'Elige a quién va dirigido: con esos roles no hay nadie activo', comunicado_no_existe: 'Ese comunicado ya no existe o no es tuyo',
+    comunicado_espera: 'Ya se les recordó hace poco. Espera 30 minutos para volver a avisar', comunicado_demasiados: 'Enviaste muchos comunicados seguidos. Espera un rato',
+    encuesta_invalida: 'Revisa la encuesta: una pregunta (hasta 200 letras) y de 2 a 8 opciones distintas (hasta 80 letras cada una)', encuesta_no_existe: 'Esa encuesta ya no existe o no es de esta conversación',
+    encuesta_cerrada: 'Esa encuesta ya está cerrada', encuesta_demasiadas: 'Creaste muchas encuestas seguidas. Espera unos minutos',
+    oferta_invalida: 'No se pudo compartir esa oferta: revisa los productos y los precios', oferta_demasiadas: 'Compartiste muchas ofertas seguidas. Espera unos minutos',
+    dnd_invalido: 'Revisa el horario: dos horas distintas y al menos un día', dnd_fuera_de_horario: 'Solo se puede pausar mientras el horario está en curso',
+    multimedia_tipo_invalido: 'No se pudo cargar ese tipo de archivos', exportar_sin_permiso: 'Solo quien administra el grupo (o administración y supervisión si son miembros) puede exportarlo',
+    exportar_espera: 'Exportaste muchos grupos seguidos. Espera un rato'
   };
   /* Un corte de red / servidor caído se puede reintentar solo; un rechazo del servidor («chat:…») no. */
   function esRed(e) { var m = String((e && e.message) || e || ''); return !/chat:/.test(m) && /Failed to fetch|NetworkError|Load failed|network|tiempo agotado|timeout|timed out|50[234]|Bad Gateway|Service Unavailable|Gateway Time/i.test(m); }
   function msgE(e) {
     var m = String((e && e.message) || e || ''), c = String((e && e.code) || '');
     var k = /chat:([a-z_]+)/.exec(m); if (k && ERR_CHAT[k[1]]) return ERR_CHAT[k[1]];
+    if (/PGRST202|PGRST205|42883|42P01|42703/.test(c + ' ' + m) && /chat_extras2|chat_comunicado|chat_encuesta|chat_avisos_|chat_oferta_|chat_multimedia|chat_dnd|chat_exportar/.test(m)) return 'Falta ejecutar 62_chat_comunicados.sql en Supabase';
     if (/PGRST202|PGRST205|42883|42P01|42703/.test(c + ' ' + m) && /chat_extras|chat_agenda|chat_rapida|chat_rapidas|chat_menciones/.test(m)) return 'Falta ejecutar 61_chat_agenda.sql en Supabase';
     if (/PGRST202|PGRST205|42883|42P01|42703/.test(c + ' ' + m) && /chat_crm_|chat_revision|chat_mensaje_a_tarea|chat_anunciar|chat_tareas/.test(m)) return 'Falta ejecutar 59_chat_crm.sql en Supabase';
     if (/PGRST202|PGRST205|42883|42P01|42703/.test(c + ' ' + m) && /chat_perfiles|chat_avatar_set|chat_mensaje_estado_set|chat_adjuntos_cfg|chat_puede_adjuntar|chat_adjunto_ok|chat_archivos|avatar_color|avatar_emoji|mensaje_hasta|mensaje_estado|p_adjunto|adjunto/.test(m)) return 'Falta ejecutar 58_chat_social.sql en Supabase';
@@ -9715,7 +9735,7 @@ function ofcCalcular(cat, sel) {
       grupos: {}, cfg: {}, fij: {}, fijIdx: {}, miembros: {}, miembrosCarga: {}, miembrosErr: {}, resp: null, edit: null, pop: null, modal: null, salida: null,
       perf: {}, sinSocial: false, perfT: null, perfUlt: 0, emoQ: '', emoTab: 'emo', emoRec: [], stkRec: [],
       adj: null, adjP: null, adjN: 0, band: {}, arch: {}, bl: {}, bajando: {}, xhr: {}, lb: null, aud: null, rec2: null, vel: 1, subQ: null, dragN: 0, grabPidiendo: false,
-      crm: {}, sinCrm: false, backs: null, tarea: {}, x8: null, verAg: false, rt: null };
+      crm: {}, sinCrm: false, backs: null, tarea: {}, x8: null, x9: null, vv: 'ag', verAg: false, rt: null };
   }
   function cargaPrefs() {
     var p = {}; try { p = JSON.parse(lsGet('crm_chat_prefs_' + me.id) || '{}') || {}; } catch (e) { p = {}; }
@@ -9738,7 +9758,7 @@ function ofcCalcular(cat, sel) {
   function guardaPrefs() { lsSet('crm_chat_prefs_' + me.id, JSON.stringify(C.pref)); }
   function reducido() { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } }
   function anim(k) { return !!C.pref[k] && !reducido(); }
-  function pasivo() { return !!SILENCIO[C.st]; }
+  function pasivo() { return !!SILENCIO[C.st] || dndOn(); }
   /* ================= SONIDO ================= */
   function ctxAudio() {
     var AC = window.AudioContext || window.webkitAudioContext; if (!AC || !C.gesto) return null;
@@ -10560,8 +10580,154 @@ function ofcCalcular(cat, sel) {
     '.rt-h{margin:12px 0 0;padding:0;list-style:none;font-size:12px;color:var(--mz-meta);display:grid;gap:3px;max-height:110px;overflow:auto}',
     '@media(max-width:699px){.ag-b{padding:10px 12px 18px}.ag-dos{grid-template-columns:1fr}.mz-sug{left:8px;right:8px}.mz-banner{white-space:normal;max-width:calc(100% - 24px);flex-wrap:wrap;justify-content:center;border-radius:18px;padding:8px 12px;text-align:center}}'
   ].join('\n');
+  /* Fase 8B: comunicados, avisos del CRM, encuestas, ofertas, resumen de turno, multimedia y No molestar. Va DENTRO de la ventana (se limita a #mz con ambito()). */
+  var CSS_C8 = [
+    /* iconos de las dos filas nuevas de la lista y de sus pantallas */
+    '.mz-agav.cm{background:linear-gradient(135deg,#b45309,#d97706);color:#fff}',
+    '.mz-agav.av{background:linear-gradient(135deg,#0e7490,#0891b2);color:#fff}',
+    /* No molestar por horario: aviso arriba de la lista */
+    '.dn-ban{display:flex;align-items:center;gap:10px;margin:2px 12px 8px;padding:9px 10px 9px 12px;border-radius:16px;background:color-mix(in srgb,var(--info) 11%,var(--card));border:1px solid color-mix(in srgb,var(--info) 28%,var(--line2))}',
+    '.dn-ban.pausa{background:var(--warn-bg);border-color:color-mix(in srgb,var(--warn) 30%,var(--line2))}',
+    '.dn-i{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;flex:none;background:color-mix(in srgb,var(--info) 18%,var(--card));color:color-mix(in srgb,var(--info) 80%,var(--ink))}',
+    '.dn-ban.pausa .dn-i{background:color-mix(in srgb,var(--warn) 20%,var(--card));color:color-mix(in srgb,var(--warn) 78%,var(--ink))}',
+    '.dn-t{flex:1;min-width:0;display:grid;line-height:1.25}',
+    '.dn-t b{font-size:13.5px;font-weight:800}',
+    '.dn-t small{font-size:12px;color:var(--mz-meta)}',
+    '.dn-b{flex:none;height:30px;padding:0 12px;border-radius:9px;border:1px solid color-mix(in srgb,var(--acc) 40%,var(--line2));background:var(--card);color:color-mix(in srgb,var(--acc) 80%,var(--ink));font-size:12.5px;font-weight:700}',
+    '.dn-b:hover{background:var(--mz-hover)}',
+    '.dn-b:disabled{opacity:.55;cursor:default}',
+    /* resumen de turno */
+    '.rs-card{margin:2px 12px 10px;padding:12px 12px 10px 14px;border-radius:18px;background:linear-gradient(135deg,color-mix(in srgb,var(--acc) 13%,var(--card)),var(--card) 70%);border:1px solid var(--mz-borde-tinte);box-shadow:var(--sh)}',
+    '.rs-h{display:flex;align-items:center;gap:10px}',
+    '.rs-ico{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;flex:none;background:var(--mz-grad);color:var(--on-acc)}',
+    '.rs-t{flex:1;min-width:0;display:grid;line-height:1.25}',
+    '.rs-t b{font-size:15px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.rs-t small{font-size:12.5px;color:var(--mz-meta)}',
+    '.rs-l{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:2px}',
+    '.rs-i{display:block;width:100%;text-align:left;padding:7px 10px;border-radius:10px;font-size:13.5px;color:var(--ink)}',
+    'button.rs-i:hover{background:var(--mz-hover)}',
+    'button.rs-i::after{content:"›";float:right;color:var(--mz-meta);font-weight:800}',
+    '.rs-i b{font-weight:800;color:var(--acc)}',
+    /* comunicados */
+    '.cm-it{display:grid;gap:10px;padding:14px;border-radius:18px;background:var(--card);border:1px solid var(--line2);border-left:5px solid color-mix(in srgb,var(--ok) 65%,var(--line2))}',
+    '.cm-it.pend{border-left-color:var(--warn)}',
+    '.cm-it.urg.pend{border-left-color:var(--bad)}',
+    '.cm-it.env{border-left-color:var(--acc)}',
+    '.cm-h{display:flex;align-items:flex-start;gap:10px}',
+    '.cm-ico{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;flex:none;background:var(--warn-bg);color:var(--warn)}',
+    '.cm-it.urg .cm-ico{background:var(--bad-bg);color:var(--bad)}',
+    '.cm-ht{flex:1;min-width:0;display:grid;gap:1px;line-height:1.25}',
+    '.cm-ht b{font-size:15px;font-weight:800;overflow-wrap:anywhere}',
+    '.cm-ht small{font-size:12.5px;color:var(--mz-meta)}',
+    '.cm-ht small em{font-style:normal;font-weight:800;color:var(--bad)}',
+    '.cm-x{font-size:14px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto}',
+    '.cm-a{display:flex;flex-wrap:wrap;align-items:center;gap:8px}',
+    '.cm-ok{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:color-mix(in srgb,var(--ok) 70%,var(--ink))}',
+    '.cm-prog{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--mz-meta)}',
+    '.cm-prog b{color:var(--ink)}',
+    '.cm-bar{flex:1;height:8px;border-radius:99px;background:var(--line);overflow:hidden;min-width:60px}',
+    '.cm-bar i{display:block;height:100%;border-radius:99px;background:var(--acc);transition:width .3s}',
+    '.cm-sg-t{display:grid;gap:1px;margin-bottom:10px;line-height:1.25}',
+    '.cm-sg-t b{font-size:15px;font-weight:800;overflow-wrap:anywhere}',
+    '.cm-sg-t small{font-size:12.5px;color:var(--mz-meta)}',
+    '.cm-sg{list-style:none;margin:0;padding:0;display:grid;gap:4px;max-height:210px;overflow:auto}',
+    '.cm-sg li{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:7px 10px;border-radius:10px;background:var(--bg);border:1px solid var(--line)}',
+    '.cm-sg .n{font-size:13.5px;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.cm-sg small{font-size:12px;color:var(--mz-meta);text-align:right;flex:none}',
+    '.cm-sg.ok li{background:var(--ok-bg);border-color:color-mix(in srgb,var(--ok) 25%,transparent)}',
+    '.cm-it.mz-flash{animation:mz-flash 1.1s ease 1}',
+    /* avisos del CRM */
+    '.av-it{display:flex;align-items:flex-start;gap:12px;padding:12px 12px 12px 12px;border-radius:16px;background:var(--card);border:1px solid var(--line2)}',
+    '.av-it.nuevo{border-left:4px solid var(--acc);background:color-mix(in srgb,var(--acc) 5%,var(--card))}',
+    '.av-it.alta.nuevo{border-left-color:var(--bad)}',
+    '.av-ico{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;flex:none;background:var(--mz-tinte);border:1px solid var(--mz-borde-tinte);font-size:18px;line-height:1;color:var(--acc)}',
+    '.av-it .ag-ac{align-items:center;gap:4px}',
+    '.av-it .mt b{color:var(--acc);font-weight:800}',
+    /* tarjetas nuevas dentro del chat */
+    '.mz-cd.enc .mz-cdi{background:linear-gradient(135deg,#047857,#059669);color:#fff}',
+    '.mz-cd.enc.cerrada .mz-cdi{background:var(--mz-tinte);color:var(--mz-meta)}',
+    '.mz-cd.ofe .mz-cdi{background:linear-gradient(135deg,#6d28d9,#7c3aed);color:#fff}',
+    /* encuestas */
+    '.en-l{list-style:none;margin:0;padding:0;display:grid;gap:6px}',
+    '.en-o{position:relative;display:flex;align-items:center;gap:9px;width:100%;min-height:40px;padding:6px 10px;border-radius:12px;border:1px solid var(--line2);background:var(--bg);color:var(--ink);text-align:left;overflow:hidden;font-size:13.5px}',
+    '.en-o:hover:not(:disabled){border-color:var(--acc)}',
+    '.en-o.mio{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}',
+    '.en-o:disabled{cursor:default}',
+    '.en-bar{position:absolute;left:0;top:0;bottom:0;background:color-mix(in srgb,var(--acc) 16%,transparent);transition:width .35s;pointer-events:none}',
+    '.en-ck{position:relative;flex:none;width:20px;height:20px;border-radius:50%;border:2px solid color-mix(in srgb,var(--acc) 55%,var(--line2));display:grid;place-items:center;color:var(--on-acc)}',
+    '.en-o.mio .en-ck{background:var(--acc);border-color:var(--acc)}',
+    '.en-tx{position:relative;flex:1;min-width:0;overflow-wrap:anywhere;font-weight:600}',
+    '.en-n{position:relative;flex:none;font-size:12.5px;font-weight:700;color:var(--ink)}',
+    '.en-nm{margin:3px 0 2px 12px;font-size:12px;color:var(--mz-meta);overflow-wrap:anywhere}',
+    '.en-pie{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 10px;font-size:12px;color:var(--mz-meta)}',
+    '.mz-cd.enc .mz-cb.pri:disabled{background:var(--line);color:var(--mz-meta);opacity:1;border-color:transparent;filter:none}',
+    '.en-ops{margin:0 0 10px;padding:8px 12px 10px;border:1px solid var(--line);border-radius:14px;display:grid;gap:8px}',
+    '.en-ops legend{padding:0 6px;font-size:12.5px;font-weight:700;color:var(--mz-meta)}',
+    '.en-fo{display:flex;align-items:center;gap:6px}',
+    '.en-fo input{flex:1;min-width:0}',
+    /* ofertas */
+    '.of-ops{display:flex;flex-wrap:wrap;gap:6px}',
+    '.of-op{height:32px;padding:0 13px;border-radius:99px;border:1px solid var(--line2);background:var(--bg);font-size:13px;font-weight:700;color:var(--ink)}',
+    '.of-op:hover{border-color:var(--acc)}',
+    '.of-op[aria-pressed=true]{background:var(--acc);border-color:var(--acc);color:var(--on-acc)}',
+    '.of-dos{display:grid;grid-template-columns:150px 1fr;gap:12px}',
+    '.of-prod{max-height:250px;overflow:auto;margin:0 0 10px;padding:2px;border-radius:14px;border:1px solid var(--line);background:var(--bg)}',
+    '.of-g{position:sticky;top:0;z-index:1;padding:7px 10px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mz-meta);background:var(--bg)}',
+    '.of-nada{padding:10px 12px;font-size:13px;color:var(--mz-meta)}',
+    '.of-p{border-radius:10px}',
+    '.of-p.on{background:color-mix(in srgb,var(--acc) 9%,transparent)}',
+    '.of-pb{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border-radius:10px;text-align:left;color:var(--ink)}',
+    '.of-pb:hover{background:var(--mz-hover)}',
+    '.of-ck{flex:none;width:20px;height:20px;border-radius:6px;border:2px solid color-mix(in srgb,var(--acc) 55%,var(--line2));display:grid;place-items:center;color:var(--on-acc)}',
+    '.of-p.on .of-ck{background:var(--acc);border-color:var(--acc)}',
+    '.of-pn{flex:1;min-width:0;display:grid;line-height:1.25}',
+    '.of-pn b{font-size:13.5px;font-weight:700;overflow-wrap:anywhere}',
+    '.of-pn small{font-size:12px;color:var(--mz-meta)}',
+    '.of-pp{flex:none;display:grid;text-align:right;line-height:1.2}',
+    '.of-pp b{font-size:13.5px;font-weight:800}',
+    '.of-pp s{font-size:12px;color:var(--mz-meta)}',
+    '.of-q{display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:0 10px 8px}',
+    '.of-q b{min-width:24px;text-align:center;font-size:14px}',
+    '.of-q .mz-ib{width:30px;height:30px;font-size:18px;font-weight:700}',
+    '.of-res{margin:0 0 12px}',
+    '.of-tot{display:grid;gap:1px;line-height:1.2}',
+    '.of-tot b{font-size:24px;font-weight:800;letter-spacing:-.01em}',
+    '.of-tot b span{font-size:13px;font-weight:600;color:var(--mz-meta)}',
+    '.of-tot s{font-size:12.5px;color:var(--mz-meta)}',
+    '.of-tot small{font-size:12px;color:var(--mz-meta)}',
+    '.of-cr{width:100%;border-collapse:collapse;font-size:12.5px}',
+    '.of-cr td{padding:4px 2px;border-top:1px solid var(--line)}',
+    '.of-cr td:last-child{text-align:right;font-weight:700}',
+    '.of-pm{margin-top:6px;font-size:12.5px;color:var(--mz-meta)}',
+    '.of-pm.mal{color:var(--bad);font-weight:700}',
+    /* fotos · archivos · audios · enlaces */
+    '.mm-tabs{display:flex;gap:4px;overflow-x:auto;padding:3px;margin:0 0 10px;border-radius:12px;background:var(--line);scrollbar-width:none}',
+    '.mm-tabs::-webkit-scrollbar{display:none}',
+    '.mm-t{flex:none;display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:9px;font-size:12.5px;font-weight:700;color:var(--mz-meta);white-space:nowrap}',
+    '.mm-t:hover{color:var(--ink)}',
+    '.mm-t[aria-pressed=true]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.14)}',
+    '.mm-t i{font-style:normal;font-size:10.5px;font-weight:800;min-width:17px;padding:0 4px;border-radius:99px;text-align:center;line-height:17px;background:var(--mz-tinte);color:var(--ink);border:1px solid var(--mz-borde-tinte)}',
+    '.mm-mas{justify-content:center;margin-top:8px;color:var(--acc);font-weight:700}',
+    '.mm-en .mz-fi[data-t=web]{--fh:204}',
+    '.mm-en .mz-aln small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.mm-en a.mz-ib{display:grid;place-items:center;color:var(--ink)}',
+    '.mm-en a.mz-ib:hover{background:var(--mz-hover)}',
+    /* ajustes: No molestar por horario */
+    '.dn-hor{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}',
+    '.mz-fld input[type=time]{display:block;width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;background:var(--bg);border:1px solid var(--line2);font-size:14px;line-height:1.4;color:var(--ink)}',
+    '.mz-fld input[type=time]:focus{border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 16%,transparent);background:var(--card);outline:none}',
+    '.dn-dias{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}',
+    '.dn-dias button{width:38px;height:38px;border-radius:50%;border:1px solid var(--line2);background:var(--bg);font-size:13px;font-weight:800;color:var(--ink)}',
+    '.dn-dias button:hover{border-color:var(--acc)}',
+    '.dn-dias button[aria-pressed=true]{background:var(--acc);border-color:var(--acc);color:var(--on-acc)}',
+    '.dn-pie{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:12px}',
+    '.dn-msg{font-size:12.5px;color:var(--mz-meta)}',
+    '.dn-msg.mal{color:var(--bad);font-weight:700}',
+    '@media(max-width:699px){.of-dos{grid-template-columns:1fr}.dn-hor{grid-template-columns:1fr 1fr}.rs-card,.dn-ban{margin-left:8px;margin-right:8px}.cm-it{padding:12px}}',
+    '@media(prefers-reduced-motion:reduce){.cm-bar i,.en-bar{transition:none}}'
+  ].join('\n');
   var estilo = document.createElement('style'); estilo.id = 'mz57-css';
-  estilo.textContent = CSS_KEYS + CSS_GLOBAL + CSS_AG_G + ambito(CSS_DENTRO + '\n' + CSS_CRM + '\n' + CSS_AG);
+  estilo.textContent = CSS_KEYS + CSS_GLOBAL + CSS_AG_G + ambito(CSS_DENTRO + '\n' + CSS_CRM + '\n' + CSS_AG + '\n' + CSS_C8);
   document.head.appendChild(estilo);
 
   /* ================= DATOS ================= */
@@ -10687,7 +10853,7 @@ function ofcCalcular(cat, sel) {
     }
     var yo = R.yo && DE_SRV[R.yo.estado];
     if (yo && yo !== C.st) { C.st = yo; lsSet('crm_chat_estado_' + me.id, yo); if (C.chP) { try { C.chP.track({ nombre: perfil.nombre, st: yo, t: Date.now() }); } catch (e) { } } }
-    C.cargadoEn = Date.now(); boton(); cargaExtras(false);
+    C.cargadoEn = Date.now(); boton(); cargaExtras(false); cargaExtras2(false);
     return true;
   }
   /* ----- Perfiles: color, icono y mensaje de estado de cada persona. SIEMPRE salen de la base (la presencia en vivo la puede escribir cualquiera, por eso no se usa para esto). ----- */
@@ -10953,7 +11119,7 @@ function ofcCalcular(cat, sel) {
     var cl = claves(), conConv = {}; cl.forEach(function (i) { conConv[i] = 1; });
     var fij = [GEN].concat(cl).filter(function (k) { return (C.cfg[k] || {}).fijado; }).sort(porRecientes);
     var resto = cl.filter(function (k) { return !(C.cfg[k] || {}).fijado; }).sort(porRecientes);
-    var h = filaAgenda();
+    var h = filaDnd() + filaResumen() + filaAgenda() + filaComunicados() + filaAvisos();
     if (fij.length) h += titulo('Fijadas') + fij.map(filaConv).join('');
     h += titulo('Conversaciones') + (fij.indexOf(GEN) < 0 ? filaConv(GEN) : '') + resto.map(filaConv).join('');
     var libres = C.cont.filter(function (c) { return !conConv[c.id]; });
@@ -11044,7 +11210,7 @@ function ofcCalcular(cat, sel) {
     var g = C.grupos[id];
     if (g) return '<span class="est">' + (g.tipo === 'CANAL' ? 'Canal' : 'Grupo') + ' · ' + g.miembros + (g.miembros === 1 ? ' miembro' : ' miembros') + (g.archivada_at ? ' · archivado' : '') + (g.descripcion ? ' · ' + esc(g.descripcion) : '') + '</span>';
     if (C.typ[id] && Date.now() - C.typ[id] < 4000) return '<span class="mz-escr">escribiendo<i></i><i></i><i></i></span>';
-    return '<span class="dep">' + esc(deptoDe(id)) + ' ·</span><span class="est">' + dot(estadoDe(id), true) + esc(textoEstado(id)) + '</span>' + (msgEstadoDe(id) ? '<span class="msg" title="' + esc(txtMsgEstado(id)) + '">· ' + esc(txtMsgEstado(id)) + '</span>' : '');
+    return '<span class="dep">' + esc(deptoDe(id)) + ' ·</span><span class="est">' + dot(estadoDe(id), true) + esc(textoEstado(id)) + (dndDe(id) && trabajoDe(id) !== 'dnd' ? ' · No molestar por horario' : '') + '</span>' + (msgEstadoDe(id) ? '<span class="msg" title="' + esc(txtMsgEstado(id)) + '">· ' + esc(txtMsgEstado(id)) + '</span>' : '');
   }
   function cabecera() {
     var id = C.peer, gen = id === GEN, g = C.grupos[id], nombre = gen ? 'Sala general' : g ? g.nombre : nombreDe(id);
@@ -11176,7 +11342,7 @@ function ofcCalcular(cat, sel) {
   function htmlCuerpo(m, q) {
     if (m.tipo === 'STICKER') return htmlSticker(m.cuerpo);
     if (m.tipo === 'IMAGEN' || m.tipo === 'AUDIO' || m.tipo === 'ARCHIVO') return htmlAdjunto(m, q);
-    if (m.tipo === 'TARJETA') return (esCard(m) || esAnuncio(m)) ? htmlTarjeta(m, q) : '<div class="mz-t">' + esc(m.cuerpo || 'Tarjeta') + '</div>';
+    if (m.tipo === 'TARJETA') return (esCard(m) || esAnuncio(m)) ? htmlTarjeta(m, q) : esEnc(m) ? htmlEncuesta(m, q) : esOfe(m) ? htmlOferta(m, q) : '<div class="mz-t">' + esc(m.cuerpo || 'Tarjeta') + '</div>';
     return '<div class="mz-t">' + textoHtml(m.cuerpo, q, m) + '</div>';
   }
   function htmlMsgs() {
@@ -11227,7 +11393,7 @@ function ofcCalcular(cat, sel) {
       var el = $('mz-m-' + C.resaltar); C.resaltar = null;
       if (el) { try { el.scrollIntoView({ block: 'center' }); } catch (e) { } el.classList.add('mz-flash'); setTimeout(function () { el.classList.remove('mz-flash'); }, 1300); }
     }
-    pintaFijados(); actualizaAbajo(); pintaAudios(); crmPide();
+    pintaFijados(); actualizaAbajo(); pintaAudios(); crmPide(); encPide(false);
   }
   function actualizaAbajo() {
     var b = $('mz-ms'), p = $('mz-abajo'); if (!b || !p) return;
@@ -11239,7 +11405,7 @@ function ofcCalcular(cat, sel) {
   function pintaMain() {
     var M = $('mz-main'); if (!M) return;
     sugCierra();
-    if (!C.peer) { if (C.verAg && !X().sin) { M.innerHTML = htmlAgenda(); } else { C.verAg = false; M.innerHTML = vacioMain(); } return; }
+    if (!C.peer) { if (C.verAg && vistaOk()) { M.innerHTML = htmlVista(); } else { C.verAg = false; M.innerHTML = vacioMain(); } return; }
     M.innerHTML = cabecera() + barraBusq() + '<div id="mz-fijc"></div><div class="mz-lienzo"><div class="mz-ms" id="mz-ms" role="log" aria-label="Mensajes" tabindex="0"></div><button type="button" class="mz-abajo" id="mz-abajo" data-a="abajo" hidden></button></div>' +
       '<div class="mz-ty" id="mz-ty"></div>' + compositor();
     var i = $('mz-in'); if (i) { i.value = C.borr[C.peer] || ''; autoTam(); }
@@ -11295,7 +11461,7 @@ function ofcCalcular(cat, sel) {
         (admin ? '<button type="button" class="mz-acc" data-a="grupo-editar">' + ic(IC.lapiz, 18) + 'Editar nombre y descripción</button>' : '') + '</div>' +
         bloqueMiembros(id) + bloqueArchivos(id) + bloqueAjustes(id) +
         '<div class="mz-bl"><h4>Acciones</h4><button type="button" class="mz-acc" data-a="busqconv">' + ic(IC.lupa, 18) + 'Buscar en la conversación</button>' +
-        '<button type="button" class="mz-acc peligro" data-a="grupo-salir">' + ic(IC.salir, 18) + 'Salir del ' + (canal ? 'canal' : 'grupo') + '</button></div>';
+        btnExportar(id) + '<button type="button" class="mz-acc peligro" data-a="grupo-salir">' + ic(IC.salir, 18) + 'Salir del ' + (canal ? 'canal' : 'grupo') + '</button></div>';
     } else {
       var ult = C.rec[id];
       h += '<div class="mz-if">' + av(id, nombreDe(id), 84, false, estadoDe(id)) + '<b>' + esc(nombreDe(id)) + '</b><span class="sub">' + esc(deptoDe(id)) + '</span><span class="sub">' + dot(estadoDe(id), true) + esc(textoEstado(id)) + '</span>' + (msgEstadoDe(id) ? '<span class="sub msg">' + esc(txtMsgEstado(id)) + '</span>' : '') + '</div>' +
@@ -11316,7 +11482,7 @@ function ofcCalcular(cat, sel) {
   }
   function actualizaZumbidoBtn() {
     var b = $('mz-bz'), cd = $('mz-cd'); if (!b) return;
-    var r = ESPERA_ZUMBIDO - (Date.now() - C.buzz), esp = r > 0, dnd = !!C.peer && C.peer !== GEN && trabajoDe(C.peer) === 'dnd';
+    var r = ESPERA_ZUMBIDO - (Date.now() - C.buzz), esp = r > 0, dnd = !!C.peer && C.peer !== GEN && (trabajoDe(C.peer) === 'dnd' || dndDe(C.peer));
     b.setAttribute('aria-disabled', String(esp || dnd));
     if (cd) { cd.hidden = !esp; cd.textContent = esp ? Math.ceil(r / 1000) : ''; }
     var info = $('mz-izb'); if (info) info.setAttribute('aria-disabled', String(esp || dnd));
@@ -11353,6 +11519,7 @@ function ofcCalcular(cat, sel) {
       interruptor('animEnviar', 'Animación al enviar', 'El mensaje y el botón de enviar se mueven al mandar.') +
       interruptor('animPaneles', 'Animación de ventanas y paneles', 'La ventana y el panel de información entran y salen con suavidad.') +
       interruptor('sacudir', 'Sacudida del zumbido', 'La ventana se sacude cuando recibes un zumbido.') +
+      (Y().sin ? '' : '<h4>Tu turno</h4>' + seccionResumen()) + seccionDnd() +
       '<h4>Privacidad</h4>' +
       interruptor('avisoTexto', 'Mostrar el texto en los avisos', 'Si lo apagas, el aviso dice «Mensaje nuevo de…» sin enseñar lo que escribió.') +
       '<button type="button" class="mz-btn sec chico" data-a="politica" style="margin-top:10px">Cómo se protege tu chat</button>' +
@@ -12025,6 +12192,7 @@ function ofcCalcular(cat, sel) {
   }
   function ajustes(v) {
     C.aj = v; var A = $('mz-ajp'); if (!A) return;
+    if (v && C.x9) { C.x9.dndBorr = null; C.x9.dndMsg = null; }
     if (v) pintaAjustes(); A.hidden = !v;
     var b = $('mz-ajb'); if (b) b.setAttribute('aria-expanded', String(v));
     if (v) { var p = A.querySelector('button'); if (p) p.focus(); } else if (b) b.focus();
@@ -12092,7 +12260,7 @@ function ofcCalcular(cat, sel) {
       var e = await cargaConv(k);
       if (!e && C.peer === k) { if (!document.hidden) marca(k); pintaMsgs(); pintaInfo(); }
     }
-    crmPide();
+    crmPide(); encPide(false); cargaExtras2(false);
     pintaLista();
   }
   function suscribir() { suscribirMsgs(); suscribirPres(); }
@@ -12465,8 +12633,7 @@ function ofcCalcular(cat, sel) {
   /* Busca un mensaje con archivo en la conversación abierta o en el panel «Archivos y fotos» */
   function adjDe(id) {
     var m = C.peer ? msgPorId(C.peer, id) : null; if (m) return m;
-    var A = C.peer && C.arch && C.arch[C.peer]; if (A && A.items) for (var i = 0; i < A.items.length; i++) if (A.items[i].id === id) return A.items[i];
-    return null;
+    return C.peer ? archBusca(C.peer, id) : null;
   }
 
   /* ----- Descargar ----- */
@@ -12484,7 +12651,7 @@ function ofcCalcular(cat, sel) {
   function fotosDe(k) {
     var vistos = {}, out = [];
     var suma = function (m) { if (m && m.tipo === 'IMAGEN' && !m.borrado_at && !m._est && m.adjunto && m.adjunto.id && !vistos[m.id]) { vistos[m.id] = 1; out.push(m); } };
-    (C.msgs[k] || []).forEach(suma); var A = C.arch && C.arch[k]; if (A && A.items) A.items.forEach(suma);
+    (C.msgs[k] || []).forEach(suma); var A = C.arch && C.arch[k]; if (A && A.items) A.items.forEach(suma); archExtra(k).forEach(suma);
     return out.sort(function (a, b) { return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0; });
   }
   function abreLB(id, opener) {
@@ -12498,7 +12665,7 @@ function ofcCalcular(cat, sel) {
   }
   function pintaLB() {
     var L = C.lb, d = $('mz-lb'); if (!L || !d) return;
-    var m = msgPorId(L.key, L.ids[L.i]) || (function () { var A = C.arch && C.arch[L.key]; return A && A.items ? A.items.filter(function (x) { return x.id === L.ids[L.i]; })[0] : null; })();
+    var m = msgPorId(L.key, L.ids[L.i]) || archBusca(L.key, L.ids[L.i]);
     if (!m) { cierraLB(); return; }
     var a = m.adjunto, c = cacheGet(a.id), mini = miniOk(a.thumb) ? a.thumb : '';
     var foco = document.activeElement && d.contains(document.activeElement) ? document.activeElement.getAttribute('data-a') : '';
@@ -12516,7 +12683,7 @@ function ofcCalcular(cat, sel) {
   }
   async function cargaLB() {
     var L = C.lb; if (!L) return;
-    var tok = ++L.tok, m = msgPorId(L.key, L.ids[L.i]) || (C.arch && C.arch[L.key] && C.arch[L.key].items.filter(function (x) { return x.id === L.ids[L.i]; })[0]);
+    var tok = ++L.tok, m = msgPorId(L.key, L.ids[L.i]) || archBusca(L.key, L.ids[L.i]);
     if (!m) return; var a = m.adjunto; L.cur = a.id; L.est = cacheGet(a.id) ? 'ok' : 'cargando'; L.err = ''; pintaLB();
     if (L.est === 'ok') return;
     var r = await bajarArchivo(a);
@@ -12700,8 +12867,8 @@ function ofcCalcular(cat, sel) {
     pintaArch();
     if (A.otra) { A.otra = false; if (C.peer === k && C.info) cargaArchivos(k); else A.viejo = true; }
   }
-  function refrescaArch(k) { var A = C.arch && C.arch[k]; if (A) A.viejo = true; if (C.info && C.peer === k) cargaArchivos(k); }
-  function htmlArch(k) {
+  function refrescaArch(k) { var A = C.arch && C.arch[k]; if (A) A.viejo = true; if (C.info && C.peer === k) cargaArchivos(k); mmViejo(k); }
+  function htmlArchRec(k) {
     var A = C.arch && C.arch[k];
     if (!A || (A.cargando && !A.items.length)) return '<div class="mz-ask" role="status" aria-label="Cargando archivos"><i></i><i></i><i></i></div>';
     if (A.err) return '<p class="mz-ae">' + esc(A.err) + '</p><button type="button" class="mz-acc" data-a="arch-reint">' + ic(IC.otra, 18) + 'Reintentar</button>';
@@ -12761,7 +12928,7 @@ function ofcCalcular(cat, sel) {
     }
     var a = b.getAttribute('data-a'), enPop = !!t.closest('#mz-pop');
     if (enPop && a !== 'reacmas') cierraPop(true);
-    if (clicCrm(a, b) || clicAg(a, b, e)) return;
+    if (clicCrm(a, b) || clicAg(a, b, e) || clic8b(a, b, e)) return;
     switch (a) {
       case 'cerrar': abrirVentana(false); break;
       case 'abrir': abrirConv(b.getAttribute('data-id'), { resaltar: b.getAttribute('data-m') || null }); break;
@@ -13029,7 +13196,7 @@ function ofcCalcular(cat, sel) {
     e.preventDefault(); n.focus(); n.click();
   }
   function entrada(e) {
-    if (entradaCrm(e) || entradaAg(e)) return;
+    if (entradaCrm(e) || entradaAg(e) || entrada8b(e)) return;
     var id = e.target.id;
     if (id === 'mz-q') { C.q = e.target.value; buscaMsgs(); pintaLista(); }
     else if (id === 'mz-in') { autoTam(); actualizaEnvio(); avisaEscribiendo(); guardaBorrador(); sugEvalua(); }
@@ -13043,12 +13210,12 @@ function ofcCalcular(cat, sel) {
   }
   function cambio(e) {
     var t = e.target, p = t.getAttribute && t.getAttribute('data-p'), q = t.getAttribute && t.getAttribute('data-q');
-    if (cambioCrm(e) || cambioAg(e)) return;
+    if (cambioCrm(e) || cambioAg(e) || cambio8b(e)) return;
     if (t.id === 'mz-file') { var fl = Array.prototype.slice.call(t.files || []); t.value = ''; preparaArchivos(fl, C.peer); return; }
     if (q === 'vol') { C.pref.vol = Math.max(0, Math.min(100, Math.round(+t.value || 0))); guardaPrefs(); t.setAttribute('aria-valuetext', C.pref.vol + ' por ciento'); C.gesto = true; suena('priv', true); return; }
     if (q && q in PREF_S) { if (SLOT_TONOS[q].indexOf(t.value) >= 0) { C.pref[q] = t.value; guardaPrefs(); C.gesto = true; suena(SLOT_DE[q], true); } return; }
     if (C.modal && t.id === 'mz-pd') { C.modal.dur = t.value; C.modal.durTocada = true; actualizaPerfil(); return; }
-    if (p && p in PREF0) { C.pref[p] = t.checked; guardaPrefs(); aplicaPrefs(); return; }
+    if (p && p in PREF0) { C.pref[p] = t.checked; guardaPrefs(); aplicaPrefs(); if (p === 'resumenTurno') pintaLista(); return; }
     var cf = t.getAttribute && t.getAttribute('data-cfg'); if (cf && C.peer) { ajusteConv(C.peer, cf, t.checked); return; }
     var sel = t.getAttribute && t.getAttribute('data-sel'); if (sel && C.modal && C.modal.sel) { C.modal.sel[sel] = t.checked ? 1 : 0; C.modal.err = ''; actualizaModalBtn(); }
   }
@@ -13141,9 +13308,9 @@ function ofcCalcular(cat, sel) {
   function fechaHoraCorta(f) { var d = new Date(f); return f && !isNaN(d) ? d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short' }).replace(/\./g, '') + ', ' + hhmm(f) : ''; }
   function crmTitulo(m) {   // el texto corto que usan las citas, los fijados y la lista
     if (!esTarjeta(m)) return 'Tarjeta';
-    return m.crm.t === 'VENTA' ? 'Venta compartida' : m.crm.t === 'LEAD' ? 'Cliente compartido' : m.crm.t === 'ANUNCIO' ? 'Anuncio: ' + String(m.crm.titulo || '').slice(0, 100) : 'Tarjeta';
+    return m.crm.t === 'VENTA' ? 'Venta compartida' : m.crm.t === 'LEAD' ? 'Cliente compartido' : m.crm.t === 'ANUNCIO' ? 'Anuncio: ' + String(m.crm.titulo || '').slice(0, 100) : esTarjeta8(m) ? titulo8b(m) : 'Tarjeta';
   }
-  function crmIcono(m) { return !esTarjeta(m) ? '' : m.crm.t === 'VENTA' ? '💼 ' : m.crm.t === 'LEAD' ? '👤 ' : '📣 '; }
+  function crmIcono(m) { return !esTarjeta(m) ? '' : m.crm.t === 'VENTA' ? '💼 ' : m.crm.t === 'LEAD' ? '👤 ' : m.crm.t === 'ENCUESTA' ? '📊 ' : m.crm.t === 'OFERTA' ? '🏷️ ' : '📣 '; }
   function puedeCompartir(k) {
     if (!k || k === GEN || C.sinCrm) return false;
     var g = C.grupos[k]; if (g) return g.tipo === 'GRUPO';
@@ -13158,11 +13325,11 @@ function ofcCalcular(cat, sel) {
     if (puedeCompartir(k)) { l.push(['crm-venta', IC.venta, 'Compartir una venta']); l.push(['crm-lead', IC.cliente, 'Compartir un cliente']); }
     if (ROLES_AYUDA[perfil.rol]) l.push(['crm-ayuda', IC.ayuda, 'Pedir ayuda al supervisor']);
     if (perfil.rol === 'admin') l.push(['crm-anuncio', IC.canal, 'Anuncio al equipo']);
-    return l;
+    return l.concat(itemsExtra(k));
   }
   function btnCrm(k) {
     var l = itemsCrm(k); if (!l.length) return '';
-    var t = puedeCompartir(k) ? 'Compartir una venta o un cliente' : perfil.rol === 'admin' ? 'Anuncio al equipo' : 'Pedir ayuda al supervisor';
+    var ex8 = itemsExtra(k).length, t = ex8 ? (puedeCompartir(k) ? 'Compartir una venta, un cliente, una encuesta o una oferta' : 'Crear una encuesta o compartir una oferta') : puedeCompartir(k) ? 'Compartir una venta o un cliente' : perfil.rol === 'admin' ? 'Anuncio al equipo' : 'Pedir ayuda al supervisor';
     return '<button type="button" class="mz-ib" id="mz-crmb" data-a="crmmenu" aria-label="' + esc(t) + '" title="' + esc(t) + '" aria-haspopup="menu">' + ic(IC.venta) + '</button>';
   }
 
@@ -13551,6 +13718,10 @@ function ofcCalcular(cat, sel) {
       '<section><h4>Archivos, fotos y audios</h4><p>Se guardan en ' + esc(a.almacen || 'el Google Drive de la empresa') + '. Documentos y fotos hasta ' + (a.max_mb || 10) + ' MB; audios hasta ' + (a.max_audio_mb || 20) + ' MB; hasta ' + (a.por_dia || 100) + ' archivos cada 24 horas por persona. Quienes están en la conversación pueden abrirlos y descargarlos.</p></section>' +
       '<section><h4>Qué anota la administración</h4><p>' + (p.auditoria ? 'Queda un registro de las acciones de administración (grupos creados o archivados, personas añadidas o quitadas, silencios, cambios de configuración). <b>Nunca</b> guarda lo que escribes.' : '') + ' La administración puede impedir temporalmente que alguien escriba y puede archivar grupos.</p></section>' +
       (p.agenda ? '<section><h4>Tu agenda, las respuestas rápidas y las menciones</h4><ul><li>Tu agenda es <b>privada</b>: ni el administrador ni los supervisores pueden verla.</li><li>La alerta suena y aparece <b>mientras tengas el CRM abierto</b>; si estaba cerrado, te avisa al entrar de lo que venció.</li><li>Si alguien te escribe con @ en un grupo, un canal o la Sala general, te llega un aviso a la campana <b>sin el texto del mensaje</b>. «@todos» solo lo usan la administración, la supervisión o quien administra ese grupo.</li></ul></section>' : '') +
+      (p.comunicados ? '<section><h4>Comunicados, encuestas y avisos</h4><ul><li>Los comunicados los envían administración y supervisión. Quien lo envía ve <b>quién lo confirmó y quién falta</b>, nada más: no lee tus chats.</li>' +
+        '<li>Las encuestas las ven solo las personas de esa conversación. Si es <b>anónima</b>, nadie ve quién votó qué.</li><li>«Avisos del CRM» te muestra solo <b>tus</b> avisos, los mismos de la campana.</li></ul></section>' : '') +
+      (p.no_molestar_horario ? '<section><h4>No molestar por horario y exportar</h4><ul><li>Tu horario usa la hora de Lima. Dentro de él no suenan ni avisan los mensajes y nadie puede enviarte zumbidos; los mensajes siguen llegando.</li>' +
+        '<li>Quien administra un grupo puede <b>exportarlo</b> a un archivo CSV (sin datos de clientes). Cada exportación queda anotada en el registro de la administración.</li></ul></section>' : '') +
       '<section><h4>Un límite que ningún sistema puede evitar</h4><p>Lo que ves en pantalla puede ser fotografiado o copiado por quien lo vea. Cuida a quién le compartes información de clientes.</p></section></div>';
   }
   async function abrirPolitica() {
@@ -13653,13 +13824,13 @@ function ofcCalcular(cat, sel) {
     if (contacto(uid) || C.convId[uid]) { if (!C.open) abrirVentana(true, true); await abrirConv(uid); return true; }   // una persona
     var k = keyDeConvAny(uid);                                                                                          // una conversación (te mencionaron)
     if (k) { if (!C.open) abrirVentana(true, true); await abrirConv(k); return true; }
-    var A = X(); if (A.sin) return false;                                                                               // un recordatorio de la agenda
+    var A = X(); if (A.sin) return await abre62Ref(uid);                                                                               // un recordatorio de la agenda
     if (!agPorId(uid)) await cargaExtras(true);
     if (C.cerrando) return false;
     if (agPorId(uid)) { abrirAgenda(uid); return true; }
     await agCargaHechas(true);
     if (agPorId(uid)) { abrirAgenda(uid, 'hechas'); return true; }
-    return false;
+    return await abre62Ref(uid);                                                                                         // o un comunicado
   }
 
   /* ================= FASE 8A: AGENDA CON ALERTA · RESPUESTAS RÁPIDAS («/») · MENCIONES (@) · CONEXIÓN EN VIVO =================
@@ -13926,7 +14097,7 @@ function ofcCalcular(cat, sel) {
     var pend = A.items.length, prox = null; for (var j = 0; j < A.items.length; j++) if (A.items[j].cuando >= ahora) { prox = A.items[j]; break; }
     var prev = !A.cargado ? (A.errCarga ? 'No se pudo cargar' : 'Tus recordatorios con alerta') : prox ? 'Próximo: ' + prox.titulo + ' · ' + agCuando(prox.cuando) : pend ? 'Tienes recordatorios vencidos' : 'Sin recordatorios pendientes';
     var badge = venc ? '<i class="mz-nb venc" aria-hidden="true">' + venc + '</i>' : pend ? '<i class="mz-nb mut" aria-hidden="true">' + pend + '</i>' : '';
-    return '<div class="mz-rw"><button type="button" class="mz-row" data-a="ag-abrir"' + (C.verAg ? ' aria-current="true"' : '') + ' aria-label="Mi agenda' + (venc ? ', ' + venc + (venc === 1 ? ' vencido' : ' vencidos') : '') + (pend ? ', ' + pend + (pend === 1 ? ' pendiente' : ' pendientes') : '') + '">' +
+    return '<div class="mz-rw"><button type="button" class="mz-row" data-a="ag-abrir"' + (C.verAg && C.vv !== 'com' && C.vv !== 'avi' ? ' aria-current="true"' : '') + ' aria-label="Mi agenda' + (venc ? ', ' + venc + (venc === 1 ? ' vencido' : ' vencidos') : '') + (pend ? ', ' + pend + (pend === 1 ? ' pendiente' : ' pendientes') : '') + '">' +
       '<span class="mz-agav" aria-hidden="true">' + ic(IC.agenda, 22) + '</span>' +
       '<div class="mz-rt"><div class="mz-rn"><b>Mi agenda</b></div><div class="mz-rp"><span>' + esc(prev) + '</span>' + badge + '</div></div></button></div>';
   }
@@ -13974,7 +14145,7 @@ function ofcCalcular(cat, sel) {
     return h;
   }
   function pintaAg() {
-    var M = $('mz-main'); if (!M || !C.verAg || C.peer) return;
+    var M = $('mz-main'); if (!M || !C.verAg || C.peer || C.vv === 'com' || C.vv === 'avi') return;
     var A = X(), b = $('mz-agb'), top = b ? b.scrollTop : 0, f = document.activeElement, sel = null;
     if (f && M.contains(f)) sel = f.id === 'mz-agb' ? '#mz-agb' : selectorFoco(f);
     M.innerHTML = htmlAgenda();
@@ -13989,7 +14160,7 @@ function ofcCalcular(cat, sel) {
     var A = X(); if (A.sin) return;
     if (!C.open) abrirVentana(true, true);
     guardaBorrador(); cancelaGrab(); cierraLB(); C.peer = null; C.resp = null; C.edit = null; C.busq = { on: false, q: '', i: 0, n: 0 }; cierraPop(); sugCierra();
-    C.verAg = true; C.vista = 'conv'; A.resalta = resalta || null; A.confBorra = null; A.tab = tab === 'hechas' ? 'hechas' : 'pend';
+    C.verAg = true; C.vv = 'ag'; C.vista = 'conv'; A.resalta = resalta || null; A.confBorra = null; A.tab = tab === 'hechas' ? 'hechas' : 'pend';
     pintaMain(); aplicaVista(); pintaLista(); pintaInfo();
     cargaExtras(true); if (A.tab === 'hechas') agCargaHechas(true);
     var b = $('mz-agb'); if (b && window.innerWidth > 700) b.focus();
@@ -14028,7 +14199,7 @@ function ofcCalcular(cat, sel) {
     }
     if (M.tipo === 'rapidas') return { titulo: M.vista === 'editar' ? (M.esNuevo ? (M.eq ? 'Nueva respuesta del equipo' : 'Nueva respuesta rápida') : 'Editar respuesta rápida') : 'Respuestas rápidas', ok: 'Guardar', cuerpo: M.vista === 'editar' ? htmlRapEdita(M) : htmlRapLista(M) };
     if (M.tipo === 'conexion') return { titulo: 'Estado de la conexión en vivo', ok: 'Cerrar', cuerpo: htmlConexion(M) };
-    return null;
+    return modal8b(M);
   }
   function actualizaHintAg(M) {
     var h = $('mz-agh'); if (!h || !M || M.tipo !== 'agenda') return;
@@ -14043,7 +14214,7 @@ function ofcCalcular(cat, sel) {
       var t = $('mz-agt'), n = $('mz-agn'), c = $('mz-agc'); if (t) t.value = M.titulo; if (n) n.value = M.nota; if (c) c.value = M.cuando; actualizaHintAg(M);
     } else if (M.tipo === 'rapidas' && M.vista === 'editar') {
       var a = $('mz-rpa'), x = $('mz-rpt'); if (a) a.value = M.atajo; if (x) x.value = M.texto; actualizaCuentaRap(M);
-    }
+    } else modal8bPost(M);
   }
   function modalAgBtn(M) {
     if (M.tipo === 'agenda') {
@@ -14052,12 +14223,12 @@ function ofcCalcular(cat, sel) {
     }
     if (M.tipo === 'rapidas') return M.vista !== 'editar' ? { listo: true, etiqueta: 'Cerrar' } : { listo: !!atajoNorm(M.atajo) && M.texto.trim().length >= 1 && M.texto.length <= 1000, etiqueta: 'Guardar' };
     if (M.tipo === 'conexion') return { listo: true, etiqueta: 'Cerrar' };
-    return null;
+    return modal8bBtn(M);
   }
   async function okModalAg(M) {
     if (M.tipo === 'agenda') return guardaAg(M);
     if (M.tipo === 'rapidas') return guardaRap(M);
-    return true;
+    return ok8b(M);
   }
   async function guardaAg(M) {
     var A = X(), ms = deInputLocal(M.cuando), t = M.titulo.trim(), n = (M.nota || '').trim();
@@ -14506,6 +14677,963 @@ function ofcCalcular(cat, sel) {
     if ((document.title || '').indexOf('⏰ ') === 0) document.title = document.title.slice(2);
   }
 
+  /* ================= FASE 8B: COMUNICADOS · ENCUESTAS · AVISOS DEL CRM · OFERTAS · RESUMEN DE TURNO · MULTIMEDIA · NO MOLESTAR · EXPORTAR =================
+     REQUIERE haber ejecutado 62_chat_comunicados.sql (después del 61). Sin él, todo lo demás del chat funciona igual y estas funciones se ocultan solas (sin errores).
+     · Comunicados: avisos oficiales que el administrador o un supervisor manda a un grupo de roles; cada persona pulsa «Entendido» y el que lo envió ve quién falta.
+     · Encuestas: tarjeta con votos en vivo (una opción o varias, anónima o con nombres, con cierre por tiempo o manual).
+     · Avisos del CRM: lo mismo que la campana del CRM (ventas, incidencias, revisiones…), pero dentro del Messenger. Marcarlos aquí los marca también en la campana.
+     · Ofertas: se comparte una oferta del catálogo con el mismo motor de precios del calculador. Nunca lleva datos del cliente.
+     · Resumen de turno: una tarjeta al empezar el día con lo pendiente (se compone con lo que ya tiene el chat; no guarda nada nuevo).
+     · Fotos · archivos · audios · enlaces de una conversación, con «ver más».
+     · No molestar por horario (hora de Lima): sin sonidos ni avisos y sin zumbidos de otros; se puede pausar el resto de ese horario.
+     · Exportar un grupo: archivo CSV (se abre en Excel o Google Sheets), sin datos de clientes, y queda anotado en la auditoría. */
+  IC.encuesta = '<path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/>';
+  IC.oferta = '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.3" fill="currentColor"/>';
+  IC.enlace = '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>';
+  IC.luna = '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+  IC.sol = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+  IC.megafono = '<path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M15 9a4 4 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/>';
+  IC.tabla = '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>';
+  var DIAS_ISO = [[1, 'L', 'Lunes'], [2, 'M', 'Martes'], [3, 'X', 'Miércoles'], [4, 'J', 'Jueves'], [5, 'V', 'Viernes'], [6, 'S', 'Sábado'], [7, 'D', 'Domingo']];
+  var ENC_DUR = [[0, 'Sin límite de tiempo'], [1, 'Se cierra en 1 hora'], [24, 'Se cierra en 1 día'], [72, 'Se cierra en 3 días'], [168, 'Se cierra en 1 semana']];
+  var MM_TABS = [['rec', 'Recientes', ''], ['fot', 'Fotos', 'FOTOS'], ['arc', 'Archivos', 'ARCHIVOS'], ['aud', 'Audios', 'AUDIOS'], ['enl', 'Enlaces', 'ENLACES']];
+  var KINDS_OFE = [['conv', 'Convergentes'], ['seg', 'Segunda línea (solo una)'], ['adi', 'Líneas adicionales'], ['can', 'Canales de TV'], ['otm', 'Otras líneas móviles']];
+  var LIM_OFE = { conv: 50, seg: 1, adi: 20, can: 20, otm: 20 };
+  var ROLES_COM = [['concertador', 'Concertadores'], ['cerrador', 'Cerradores'], ['back', 'Back office'], ['supervisor', 'Supervisión'], ['admin', 'Administración']];
+  var T_ENC = 9000, MAX_ENC_VISTAS = 30;
+
+  function Y() {
+    return C.x9 || (C.x9 = { sin: false, ok: false, ultimo: 0, carga: null, puedeCom: false, puedeOfe: false, errCarga: null,
+      com: { items: [], pend: 0, top: [], cargado: false, cargando: false, err: null, tab: 'rec', env: null, envCargando: false, envErr: null, busy: {}, conf: null },
+      avi: { items: [], sin: 0, cargado: false, cargando: false, err: null, busy: false },
+      encSin: 0, enc: {}, encSel: {}, encBusy: {}, encT: null, encUlt: 0, dnd: null, dndAhora: {}, dndBorr: null, dndBusy: false, mm: {}, ofe: null });
+  }
+  function eur(n) {
+    n = Math.round(Number(n) * 100) / 100; if (!isFinite(n)) return '—';
+    var p = Math.abs(n).toFixed(2).split('.'); return (n < 0 ? '-' : '') + p[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + p[1] + ' €';
+  }
+  function haceTxt(v) {
+    var t = typeof v === 'number' ? v : Date.parse(v); if (isNaN(t)) return '';
+    var m = Math.max(0, Math.round((ahoraAg() - t) / 60000)); if (m < 2) return 'ahora'; if (m < 60) return 'hace ' + m + ' min'; if (m < 1440) return 'hace ' + Math.floor(m / 60) + ' h';
+    var d = Math.floor(m / 1440); return d < 8 ? 'hace ' + d + (d === 1 ? ' día' : ' días') : fechaCorta(t);
+  }
+  function hoyLima() { return new Date(ahoraAg() - 5 * 3600000).toISOString().slice(0, 10); }
+  function horaLima() { return new Date(ahoraAg() - 5 * 3600000).getUTCHours(); }
+  function falta62(r) { return !!(r && r.error && AG_FALTA.test(String(r.error.code || '') + ' ' + String(r.error.message || ''))); }
+  function nt48Tick() { try { if (window.nt48 && typeof window.nt48.tick === 'function') window.nt48.tick(); } catch (e) { } }
+  function ocultaPor62() { var B = C.x9; if (B) { B.sin = true; B.ok = false; } if (C.open) { pintaLista(); if (C.verAg && C.vv && C.vv !== 'ag') { cierraAgenda(); } else if (C.peer) { repintaChrome(); } } }
+
+  /* ----- No molestar por horario: se evalúa aquí con la hora de Lima (Perú no cambia de hora), igual que la base ----- */
+  function hmMin(s) { var m = /^(\d\d):(\d\d)/.exec(s || ''); return m ? (+m[1]) * 60 + (+m[2]) : 0; }
+  function dndNorm(d) {
+    if (!d || d.ok !== true) return null; var f = d.fin ? Date.parse(d.fin) : NaN;
+    return { activo: !!d.activo, desde: String(d.desde || '22:00').slice(0, 5), hasta: String(d.hasta || '07:00').slice(0, 5), dias: arr(d.dias).map(Number).filter(function (x) { return x >= 1 && x <= 7; }), enHorario: !!d.en_horario, pausado: !!d.pausado, finMs: isNaN(f) ? 0 : f };
+  }
+  function dndEnVentana(d, ms) {
+    if (!d || !d.activo || !d.dias.length) return false;
+    var l = new Date(ms - 5 * 3600000), t = l.getUTCHours() * 60 + l.getUTCMinutes(), dow = l.getUTCDay() || 7, ayer = dow === 1 ? 7 : dow - 1, a = hmMin(d.desde), b = hmMin(d.hasta);
+    if (a === b) return false;
+    if (a < b) return t >= a && t < b && d.dias.indexOf(dow) >= 0;
+    return (t >= a && d.dias.indexOf(dow) >= 0) || (t < b && d.dias.indexOf(ayer) >= 0);
+  }
+  function dndOn() {   // ¿está ahora mismo en vigor mi No molestar por horario (y sin pausar)?
+    var B = C.x9; if (!B || B.sin || !B.dnd) return false;
+    var d = B.dnd, ahora = ahoraAg(); if (!dndEnVentana(d, ahora)) return false;
+    if (d.pausado && d.finMs && ahora < d.finMs) return false;
+    return true;
+  }
+  function dndPausado() { var B = C.x9; if (!B || B.sin || !B.dnd) return false; var d = B.dnd, ahora = ahoraAg(); return dndEnVentana(d, ahora) && d.pausado && d.finMs > ahora; }
+  function dndDe(id) { var B = C.x9; return !!(B && !B.sin && B.dndAhora && id !== me.id && B.dndAhora[id]); }   // otra persona con el horario en curso
+  function dndFirma(d) { return d ? [d.activo, d.desde, d.hasta, d.dias.join(''), d.pausado, d.finMs].join('|') : ''; }
+
+  /* ----- Carga: comunicados pendientes, avisos sin leer, encuestas sin votar y No molestar, todo en una sola llamada (chat_extras2) ----- */
+  function comItem(d) {
+    if (!d || !d.id) return null; var t = function (v) { var n = v ? Date.parse(v) : NaN; return isNaN(n) ? null : n; };
+    return { id: d.id, titulo: String(d.titulo || ''), texto: String(d.texto || ''), urgente: !!d.urgente, creado: t(d.creado_at) || 0, de: d.de || null, deNombre: d.de_nombre ? String(d.de_nombre) : '', conf: t(d.confirmado_at) };
+  }
+  async function cargaExtras2(forzar) {
+    var B = Y(), C0 = C;
+    if (B.sin || C.cerrando) return false;
+    if (B.carga) return B.carga;
+    if (!forzar && Date.now() - B.ultimo < T_EXTRAS) return true;
+    B.ultimo = Date.now();
+    B.carga = (async function () {
+      var r = await llama('chat_extras2', {}, 10000);
+      if (C !== C0 || C.cerrando) return false;
+      B.carga = null;
+      if (r.error || !r.data || r.data.ok !== true) {
+        if (falta62(r)) { ocultaPor62(); return false; }   // todavía no se ejecutó 62_chat_comunicados.sql: estas funciones se ocultan y el chat sigue como siempre
+        B.errCarga = r.error ? msgE(r.error) : 'Respuesta vacía'; return false;
+      }
+      var d = r.data, primera = !B.ok; B.errCarga = null; B.ok = true; syncReloj(d);
+      B.puedeCom = !!d.puede_comunicar; B.puedeOfe = !!d.puede_ofertas;
+      var cm = d.comunicados || {}, pAntes = B.com.pend, aAntes = B.avi.sin;
+      B.com.pend = +cm.pendientes || 0; B.com.top = arr(cm.items).map(comItem).filter(Boolean);
+      B.avi.sin = +d.avisos_sin_leer || 0; B.encSin = +d.encuestas_sin_votar || 0;
+      var dn = dndNorm(d.dnd), cambioDnd = dndFirma(dn) !== dndFirma(B.dnd); B.dnd = dn;
+      B.dndAhora = {}; arr(d.dnd_ahora).forEach(function (id) { if (typeof id === 'string') B.dndAhora[id] = 1; });
+      if (cambioDnd && !B.dndBorr) B.dndBorr = null;
+      if (B.com.pend !== pAntes) B.com.cargado = false;
+      if (B.avi.sin !== aAntes) B.avi.cargado = false;
+      if (C.open) {
+        pintaLista();
+        if (primera && C.peer) { pintaInfo(); repintaChrome(); }   // aparecen el botón de encuestas y ofertas y el de exportar
+        if (C.verAg && !C.peer && !C.pop && !C.modal) { if (C.vv === 'com' && !B.com.cargado) cargaCom(); else if (C.vv === 'avi' && !B.avi.cargado) cargaAvisos(); }
+        if (cambioDnd) { if ($('mz-ajp') && !$('mz-ajp').hidden) pintaAjustes(); if (C.peer) repintaChrome(); }
+      }
+      boton();
+      return true;
+    })();
+    return B.carga;
+  }
+
+  /* ----- Filas de la lista: Comunicados · Avisos del CRM · banner de No molestar · resumen del día ----- */
+  function filaEsp(clase, accion, icono, titulo, prev, badge, activo, aria) {
+    return '<div class="mz-rw"><button type="button" class="mz-row" data-a="' + accion + '"' + (activo ? ' aria-current="true"' : '') + ' aria-label="' + esc(aria) + '">' +
+      '<span class="mz-agav ' + clase + '" aria-hidden="true">' + ic(icono, 22) + '</span><div class="mz-rt"><div class="mz-rn"><b>' + esc(titulo) + '</b></div><div class="mz-rp"><span>' + esc(prev) + '</span>' + badge + '</div></div></button></div>';
+  }
+  function filaComunicados() {
+    var B = Y(); if (B.sin || !B.ok) return '';
+    var n = B.com.pend, top = B.com.top[0], prev = n ? (top ? top.titulo : n + ' por confirmar') : (B.puedeCom ? 'Avisos oficiales · tú también puedes enviar' : 'Avisos oficiales del equipo');
+    return filaEsp('cm', 'cm-vista', IC.megafono, 'Comunicados', prev, n ? '<i class="mz-nb venc" aria-hidden="true">' + n + '</i>' : '', C.verAg && C.vv === 'com',
+      'Comunicados' + (n ? ', ' + n + ' por confirmar' : ''));
+  }
+  function filaAvisos() {
+    var B = Y(); if (B.sin || !B.ok) return '';
+    var n = B.avi.sin, prev = n ? n + (n === 1 ? ' aviso sin leer' : ' avisos sin leer') : 'Ventas, incidencias y revisiones';
+    return filaEsp('av', 'av-vista', IC.campana, 'Avisos del CRM', prev, n ? '<i class="mz-nb" aria-hidden="true">' + (n > 99 ? '99+' : n) + '</i>' : '', C.verAg && C.vv === 'avi',
+      'Avisos del CRM' + (n ? ', ' + n + (n === 1 ? ' sin leer' : ' sin leer') : ''));
+  }
+  function filaDnd() {
+    var B = Y(); if (B.sin || !B.ok || !B.dnd) return '';
+    var d = B.dnd, ahora = ahoraAg(); if (!dndEnVentana(d, ahora)) return '';
+    var pausa = dndPausado();
+    return '<div class="dn-ban' + (pausa ? ' pausa' : '') + '" role="status"><span class="dn-i" aria-hidden="true">' + ic(IC.luna, 18) + '</span><div class="dn-t"><b>' + (pausa ? 'No molestar en pausa' : 'No molestar por horario') + '</b><small>' +
+      (pausa ? 'Vuelve a empezar en el próximo horario.' : 'Hasta las ' + esc(d.hasta) + ' (hora de Lima). Los mensajes llegan sin sonido ni avisos.') + '</small></div>' +
+      '<button type="button" class="dn-b" data-a="dn-pausa" data-v="' + (pausa ? '0' : '1') + '"' + (B.dndBusy ? ' disabled' : '') + '>' + (pausa ? 'Reanudar' : 'Pausar') + '</button></div>';
+  }
+  function resumenHecho() { return lsGet('crm_chat_resumen_' + me.id) === hoyLima(); }
+  function resumenCuenta() {
+    var B = Y(), A = X(), ahora = ahoraAg(), venc = 0, hoy = 0, sinLeer = total(false), men = 0, prox = null;
+    A.items.forEach(function (i) { if (i.cuando < ahora) venc++; else if (agGrupo(i, ahora) === 'hoy') { hoy++; if (!prox) prox = i; } });
+    Object.keys(A.men || {}).forEach(function () { men++; });
+    return { sinLeer: sinLeer, men: men, com: B.com.pend, avi: B.avi.sin, enc: B.encSin, venc: venc, hoy: hoy, prox: prox };
+  }
+  function filaResumen() {
+    var B = Y(); if (B.sin || !B.ok || !C.pref.resumenTurno || resumenHecho()) return '';
+    var c = resumenCuenta(), l = [], h = horaLima(), saludo = h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches', nom = bonito((perfil.nombre || '').split(' ')[0]);
+    var it = function (a, v, txt) { return '<li><button type="button" class="rs-i" data-a="rs-ir" data-v="' + a + '">' + txt + '</button></li>'; };
+    if (c.sinLeer) l.push(it('nolei', 0, '<b>' + c.sinLeer + '</b> ' + (c.sinLeer === 1 ? 'mensaje sin leer' : 'mensajes sin leer')));
+    if (c.men) l.push(it('men', 0, '<b>' + c.men + '</b> ' + (c.men === 1 ? 'conversación donde te mencionaron' : 'conversaciones donde te mencionaron')));
+    if (c.com) l.push(it('com', 0, '<b>' + c.com + '</b> ' + (c.com === 1 ? 'comunicado por confirmar' : 'comunicados por confirmar')));
+    if (c.venc) l.push(it('ag', 0, '<b>' + c.venc + '</b> ' + (c.venc === 1 ? 'recordatorio vencido' : 'recordatorios vencidos')));
+    if (c.hoy) l.push(it('ag', 0, '<b>' + c.hoy + '</b> ' + (c.hoy === 1 ? 'recordatorio para hoy' : 'recordatorios para hoy') + (c.prox ? ' · el próximo a las ' + esc(hhmm(c.prox.cuando)) : '')));
+    if (c.avi) l.push(it('avi', 0, '<b>' + c.avi + '</b> ' + (c.avi === 1 ? 'aviso del CRM sin leer' : 'avisos del CRM sin leer')));
+    if (c.enc) l.push('<li><span class="rs-i st">' + '<b>' + c.enc + '</b> ' + (c.enc === 1 ? 'encuesta sin votar' : 'encuestas sin votar') + '</span></li>');
+    if (!l.length) return '';
+    return '<section class="rs-card" aria-label="Resumen de tu turno"><div class="rs-h"><span class="rs-ico" aria-hidden="true">' + ic(h < 19 ? IC.sol : IC.luna, 20) + '</span><div class="rs-t"><b>' + saludo + (nom ? ', ' + esc(nom) : '') + '</b><small>Esto es lo que tienes pendiente</small></div>' +
+      '<button type="button" class="mz-ib chico" data-a="rs-cerrar" aria-label="Cerrar el resumen de hoy" title="Cerrar el resumen de hoy">' + ic(IC.x, 16) + '</button></div><ul class="rs-l">' + l.join('') + '</ul></section>';
+  }
+  function resumenCierra() { lsSet('crm_chat_resumen_' + me.id, hoyLima()); pintaLista(); }
+
+  /* ----- Abrir y cerrar las pantallas propias (Comunicados · Avisos del CRM) ----- */
+  function abreVista(vv) {
+    var B = Y(); if (B.sin) return;
+    if (!C.open) abrirVentana(true, true);
+    guardaBorrador(); cancelaGrab(); cierraLB(); C.peer = null; C.resp = null; C.edit = null; C.busq = { on: false, q: '', i: 0, n: 0 }; cierraPop(); sugCierra();
+    C.verAg = true; C.vv = vv; C.vista = 'conv'; B.com.conf = null;
+    pintaMain(); aplicaVista(); pintaLista(); pintaInfo();
+    if (vv === 'com') { cargaCom(); if (B.puedeCom && B.com.tab === 'env') cargaEnviados(); } else cargaAvisos();
+    var b = $('mz-vb'); if (b && window.innerWidth > 700) b.focus();
+  }
+  function vistaOk() { return (C.vv === 'com' || C.vv === 'avi') ? !Y().sin : !X().sin; }
+  function htmlVista() { return C.vv === 'com' ? htmlComunicados() : C.vv === 'avi' ? htmlAvisos() : htmlAgenda(); }
+  function pintaVista() {
+    var M = $('mz-main'); if (!M || !C.verAg || C.peer || (C.vv !== 'com' && C.vv !== 'avi')) return;
+    var b = $('mz-vb'), top = b ? b.scrollTop : 0, f = document.activeElement, sel = null;
+    if (f && M.contains(f)) sel = f.id === 'mz-vb' ? '#mz-vb' : selectorFoco(f);
+    M.innerHTML = htmlVista();
+    var b2 = $('mz-vb'); if (b2) b2.scrollTop = top;
+    if (sel) { var n = document.querySelector('#mz ' + sel) || $('mz-vb'); if (n && n.focus) { try { n.focus({ preventScroll: true }); } catch (e) { } } }
+  }
+  function cabVista(titulo, sub, icono, clase, derecha) {
+    return '<div class="mz-ch" role="group" aria-label="' + esc(titulo) + '"><button type="button" class="mz-ib mz-atras" data-a="ag-atras" aria-label="Volver a la lista">' + ic(IC.atras) + '</button>' +
+      '<span class="mz-agav ' + clase + '" aria-hidden="true">' + ic(icono, 22) + '</span><div class="mz-ct"><b>' + esc(titulo) + '</b><span class="est">' + sub + '</span></div>' + (derecha || '') + '</div>';
+  }
+
+  /* ----- Entrar desde la campana con el identificador de un comunicado ----- */
+  async function abre62Ref(uid) {
+    var B = Y(); if (B.sin) return false;
+    if (!B.ok) await cargaExtras2(true);
+    if (B.sin || C.cerrando) return false;
+    if (!B.com.cargado) await cargaCom();
+    var it = B.com.items.filter(function (x) { return x.id === uid; })[0];
+    if (!it && B.puedeCom) { await cargaEnviados(); if ((B.com.env || []).some(function (x) { return x.id === uid; })) { B.com.tab = 'env'; abreVista('com'); return true; } }
+    if (!it) return false;
+    B.com.tab = 'rec'; abreVista('com');
+    var el = $('mz-cm-' + uid); if (el) { try { el.scrollIntoView({ block: 'center' }); } catch (e) { } el.classList.add('mz-flash'); setTimeout(function () { el.classList.remove('mz-flash'); }, 1300); }
+    return true;
+  }
+
+  /* ----- Comunicados: recibidos (con «Entendido») y enviados (con seguimiento) ----- */
+  async function cargaCom() {
+    var B = Y(), K = B.com, C0 = C; if (K.cargando) return; K.cargando = true; K.err = null;
+    var r = await llama('chat_comunicados_mis', {}, 10000);
+    if (C !== C0 || C.cerrando) return;
+    K.cargando = false;
+    if (r.error || !r.data || r.data.ok !== true) { if (falta62(r)) { ocultaPor62(); return; } K.err = r.error ? msgE(r.error) : 'Respuesta vacía'; }
+    else {
+      syncReloj(r.data); K.items = arr(r.data.items).map(comItem).filter(Boolean); K.pend = +r.data.pendientes || 0;
+      K.top = K.items.filter(function (x) { return !x.conf; }).slice(0, 5); K.cargado = true;
+    }
+    if (C.open) { pintaLista(); if (C.verAg && !C.peer && C.vv === 'com' && !C.modal) pintaVista(); }
+  }
+  async function cargaEnviados() {
+    var B = Y(), K = B.com, C0 = C; if (!B.puedeCom || K.envCargando) return; K.envCargando = true; K.envErr = null;
+    var r = await llama('chat_comunicados_enviados', {}, 10000);
+    if (C !== C0 || C.cerrando) return;
+    K.envCargando = false;
+    if (r.error || !r.data || r.data.ok !== true) { if (falta62(r)) { ocultaPor62(); return; } K.envErr = r.error ? msgE(r.error) : 'Respuesta vacía'; }
+    else K.env = arr(r.data.items).map(function (d) { return { id: d.id, titulo: String(d.titulo || ''), urgente: !!d.urgente, creado: Date.parse(d.creado_at) || 0, deNombre: d.de_nombre ? String(d.de_nombre) : '', roles: d.roles ? arr(d.roles) : null, total: +d.total || 0, conf: +d.confirmados || 0 }; });
+    if (C.open && C.verAg && !C.peer && C.vv === 'com' && !C.modal) pintaVista();
+  }
+  function htmlComItem(it) {
+    var pend = !it.conf, busy = Y().com.busy[it.id];
+    return '<li class="cm-it' + (pend ? ' pend' : '') + (it.urgente ? ' urg' : '') + '" id="mz-cm-' + esc(it.id) + '">' +
+      '<div class="cm-h"><span class="cm-ico" aria-hidden="true">' + ic(it.urgente ? IC.alerta : IC.megafono, 20) + '</span><div class="cm-ht"><b>' + esc(it.titulo) + '</b><small>' + (it.urgente ? '<em>Urgente</em> · ' : '') + esc((it.deNombre || 'Administración') + ' · ' + haceTxt(it.creado)) + '</small></div>' +
+      '<span class="mz-cl ' + (pend ? 'PENDIENTE' : 'CONFORME') + '">' + (pend ? 'Por confirmar' : 'Confirmado') + '</span></div>' +
+      '<div class="cm-x">' + textoHtml(it.texto, '') + '</div>' +
+      '<div class="cm-a">' + (pend ? '<button type="button" class="mz-btn chico" data-a="cm-conf" data-id="' + esc(it.id) + '"' + (busy ? ' disabled' : '') + '>' + ic(IC.ok, 16) + (busy ? 'Un momento…' : 'Entendido, lo leí') + '</button>'
+        : '<span class="cm-ok">' + ic(IC.ok, 14) + ' Lo confirmaste ' + esc(haceTxt(it.conf)) + '</span>') + '</div></li>';
+  }
+  function htmlComRecibidos() {
+    var K = Y().com;
+    if (!K.cargado && K.err) return vacio(IC.alerta, 'No se pudieron cargar los comunicados', K.err, '<button type="button" class="mz-btn chico" data-a="cm-reint">' + ic(IC.otra, 16) + 'Reintentar</button>');
+    if (!K.cargado) return '<div class="mz-buscando" role="status">Cargando comunicados…</div>';
+    if (!K.items.length) return vacio(IC.megafono, 'Sin comunicados por ahora', 'Cuando la administración o tu supervisor envíe uno, aparecerá aquí y en tu campana. Tú solo pulsas «Entendido».');
+    var pend = K.items.filter(function (x) { return !x.conf; }), hechos = K.items.filter(function (x) { return !!x.conf; }), h = '';
+    if (pend.length) h += '<h4 class="ag-gr venc">Por confirmar (' + pend.length + ')</h4><ul class="ag-l" aria-label="Comunicados por confirmar">' + pend.map(htmlComItem).join('') + '</ul>';
+    if (hechos.length) h += '<h4 class="ag-gr">Confirmados (' + hechos.length + ')</h4><ul class="ag-l" aria-label="Comunicados confirmados">' + hechos.map(htmlComItem).join('') + '</ul>';
+    return h;
+  }
+  function htmlComEnviados() {
+    var K = Y().com;
+    if (K.envErr && !K.env) return vacio(IC.alerta, 'No se pudieron cargar', K.envErr, '<button type="button" class="mz-btn chico" data-a="cm-reint">' + ic(IC.otra, 16) + 'Reintentar</button>');
+    if (!K.env) return '<div class="mz-buscando" role="status">Cargando…</div>';
+    if (!K.env.length) return vacio(IC.megafono, 'Aún no has enviado comunicados', 'Un comunicado llega a la campana de cada persona y queda pendiente hasta que pulse «Entendido». Tú ves quién falta.', '<button type="button" class="mz-btn chico" data-a="cm-nuevo">' + ic(IC.mas2, 16) + 'Nuevo comunicado</button>');
+    return '<ul class="ag-l" aria-label="Comunicados enviados">' + K.env.map(function (e) {
+      var p = e.total ? Math.round(e.conf * 100 / e.total) : 0, quien = !e.roles ? 'Todo el equipo' : e.roles.map(function (r) { return (ROLES_COM.filter(function (x) { return x[0] === r; })[0] || [r, r])[1]; }).join(', ');
+      return '<li class="cm-it env' + (e.urgente ? ' urg' : '') + '" id="mz-cm-' + esc(e.id) + '"><div class="cm-h"><span class="cm-ico" aria-hidden="true">' + ic(e.urgente ? IC.alerta : IC.megafono, 20) + '</span><div class="cm-ht"><b>' + esc(e.titulo) + '</b><small>' +
+        esc((e.urgente ? 'Urgente · ' : '') + haceTxt(e.creado) + ' · Para: ' + quien) + '</small></div></div>' +
+        '<div class="cm-prog"><div class="cm-bar" role="img" aria-label="' + e.conf + ' de ' + e.total + ' confirmaron"><i style="width:' + p + '%"></i></div><span><b>' + e.conf + '</b> de ' + e.total + ' confirmaron</span></div>' +
+        '<div class="cm-a"><button type="button" class="mz-btn chico" data-a="cm-seg" data-id="' + esc(e.id) + '">' + ic(IC.ojo, 16) + 'Ver quién falta</button></div></li>';
+    }).join('') + '</ul>';
+  }
+  function htmlComunicados() {
+    var B = Y(), K = B.com, pend = K.pend;
+    var der = B.puedeCom ? '<button type="button" class="mz-btn chico" data-a="cm-nuevo">' + ic(IC.mas2, 16) + 'Nuevo</button>' : '';
+    var h = '<div class="ag-v">' + cabVista('Comunicados', pend ? pend + (pend === 1 ? ' por confirmar' : ' por confirmar') : 'Avisos oficiales del equipo', IC.megafono, 'cm', der) + '<div class="ag-b" id="mz-vb" role="region" aria-label="Comunicados" tabindex="0">';
+    if (B.puedeCom) h += '<div class="ag-tabs" role="group" aria-label="Qué comunicados ver"><button type="button" data-a="cm-tab" data-v="rec" aria-pressed="' + (K.tab !== 'env') + '">Recibidos' + (pend ? ' (' + pend + ')' : '') + '</button><button type="button" data-a="cm-tab" data-v="env" aria-pressed="' + (K.tab === 'env') + '">Enviados</button></div>';
+    h += (B.puedeCom && K.tab === 'env') ? htmlComEnviados() : htmlComRecibidos();
+    h += '<p class="ag-pie">Los comunicados son avisos oficiales: llegan a tu campana y se quedan aquí hasta que pulses «Entendido». Quien lo envió ve quién lo confirmó, pero no lee tus chats.</p></div></div>';
+    return h;
+  }
+  async function comConfirma(id) {
+    var K = Y().com, C0 = C, it = K.items.filter(function (x) { return x.id === id; })[0]; if (!it || K.busy[id]) return;
+    K.busy[id] = true; pintaVista();
+    var r = await llama('chat_comunicado_confirmar', { p_id: id }, 10000);
+    if (C !== C0 || C.cerrando) return;
+    delete K.busy[id];
+    if (r.error || !r.data || r.data.ok !== true) {
+      aviso(msgE(r.error) + (esRed(r.error) ? '. Vuelve a pulsar «Entendido»' : ''), true);
+      if (/comunicado_no_existe/.test(String(r.error && r.error.message))) { K.cargado = false; cargaCom(); } else pintaVista();
+      return;
+    }
+    it.conf = Date.parse(r.data.confirmado_at) || ahoraAg(); K.pend = +r.data.pendientes || 0; K.top = K.items.filter(function (x) { return !x.conf; }).slice(0, 5);
+    nt48Tick(); aviso('Listo, quedó confirmado'); pintaVista(); pintaLista(); boton();
+  }
+
+  /* seguimiento de un comunicado enviado: quién confirmó y quién falta */
+  function abrirSeg(id) {
+    var M = { tipo: 'cmseg', key: '_cs', id: id, d: null, err: '', cargando: true, busy: false, solo: true, enfoque: 'button' };
+    abreModal(M); cargaSeg(M);
+  }
+  async function cargaSeg(M) {
+    var C0 = C, r = await llama('chat_comunicado_seguimiento', { p_id: M.id }, 10000);
+    if (C !== C0 || C.modal !== M) return;
+    M.cargando = false;
+    if (r.error || !r.data || r.data.ok !== true) M.err = r.error ? msgE(r.error) : 'Respuesta vacía'; else { M.d = r.data; M.err = ''; }
+    var foco = document.activeElement, a = foco && foco.getAttribute && foco.getAttribute('data-a');
+    pintaModal(); var O = $('mz-modal'), f = O && (a && O.querySelector('[data-a="' + a + '"]') || O.querySelector('button')); if (f) f.focus();
+  }
+  function htmlSeg(M) {
+    if (M.cargando) return '<div class="mz-buscando" role="status">Cargando…</div>';
+    if (!M.d) return '<p class="mz-ae">' + esc(M.err || 'No se pudo cargar') + '</p>';
+    var d = M.d, items = arr(d.items), falta = items.filter(function (x) { return !x.confirmado_at; }), hechos = items.filter(function (x) { return !!x.confirmado_at; }), p = d.total ? Math.round(d.confirmados * 100 / d.total) : 0;
+    var fila = function (x) { return '<li><span class="n">' + esc(bonito(x.nombre || '')) + '</span><small>' + esc(DEPTO[x.rol] || x.rol || '') + (x.confirmado_at ? ' · ' + esc(haceTxt(x.confirmado_at)) : '') + '</small></li>'; };
+    var rec = d.recordado_at ? Date.parse(d.recordado_at) : 0, espera = rec && ahoraAg() - rec < 30 * 60000;
+    return '<div class="cm-sg-t"><b>' + esc(d.titulo) + '</b><small>' + esc(haceTxt(d.creado_at)) + (d.urgente ? ' · Urgente' : '') + '</small></div>' +
+      '<div class="cm-prog"><div class="cm-bar" role="img" aria-label="' + d.confirmados + ' de ' + d.total + ' confirmaron"><i style="width:' + p + '%"></i></div><span><b>' + d.confirmados + '</b> de ' + d.total + ' confirmaron</span></div>' +
+      (falta.length ? '<h4 class="ag-gr venc">Faltan (' + falta.length + ')</h4><ul class="cm-sg" aria-label="Faltan por confirmar">' + falta.map(fila).join('') + '</ul>' : '<p class="ag-sg">Todos confirmaron. ' + '👏</p>') +
+      (hechos.length ? '<h4 class="ag-gr">Ya confirmaron (' + hechos.length + ')</h4><ul class="cm-sg ok" aria-label="Ya confirmaron">' + hechos.map(fila).join('') + '</ul>' : '') +
+      (M.err ? '<p class="mz-ae">' + esc(M.err) + '</p>' : '') +
+      '<div class="rt-b">' + (falta.length ? '<button type="button" class="mz-btn chico" data-a="cm-rec" data-id="' + esc(M.id) + '"' + (M.busy || espera ? ' disabled' : '') + '>' + ic(IC.campana, 16) + (espera ? 'Ya se recordó hace poco' : M.busy ? 'Un momento…' : 'Recordar a los que faltan') + '</button>' : '') +
+      '<button type="button" class="mz-btn sec chico peligro" data-a="cm-ret" data-id="' + esc(M.id) + '">' + ic(IC.papelera, 16) + 'Retirar comunicado</button></div>';
+  }
+  async function comRecuerda(id) {
+    var M = C.modal; if (!M || M.tipo !== 'cmseg' || M.busy) return;
+    M.busy = true; M.err = ''; pintaModal();
+    var r = await llama('chat_comunicado_recordar', { p_id: id }, 15000);
+    if (C.modal !== M) return; M.busy = false;
+    if (r.error || !r.data || r.data.ok !== true) { M.err = msgE(r.error); pintaModal(); return; }
+    aviso(r.data.avisados ? 'Aviso enviado a ' + r.data.avisados + (r.data.avisados === 1 ? ' persona' : ' personas') : 'No había a quién recordar');
+    cargaSeg(M);
+  }
+  function pideRetirar(id) {
+    var K = Y().com, it = (K.env || []).filter(function (x) { return x.id === id; })[0];
+    abreModal({ tipo: 'confirmar', titulo: 'Retirar el comunicado', ok: 'Retirar', peligro: true, key: '_cs', texto: 'Desaparece para todas las personas que lo recibieron y se borran sus avisos de la campana.' + (it ? ' «' + it.titulo + '»' : '') + ' Quedará anotado en la auditoría.', accion: function () { return retiraCom(id); } });
+  }
+  async function retiraCom(id) {
+    var r = await llama('chat_comunicado_retirar', { p_id: id }, 15000);
+    if (r.error || !r.data || r.data.ok !== true) { aviso(msgE(r.error), true); return false; }
+    var K = Y().com; K.env = (K.env || []).filter(function (x) { return x.id !== id; }); K.cargado = false; aviso('Comunicado retirado');
+    if (C.verAg && C.vv === 'com') { pintaVista(); cargaCom(); } return true;
+  }
+
+  /* nuevo comunicado */
+  function rolesPermitidos() { return ROLES_COM.filter(function (r) { return perfil.rol === 'admin' || (r[0] !== 'supervisor' && r[0] !== 'admin'); }); }
+  function abrirNuevoCom() {
+    var B = Y(); if (!B.puedeCom) { aviso(ERR_CHAT.sin_permiso || 'No tienes permiso para esto', true); return; }
+    var rs = {}; rolesPermitidos().forEach(function (x) { rs[x[0]] = 1; });
+    abreModal({ tipo: 'comunicado', key: '_cm', id: uuid(), titulo: '', texto: '', urgente: false, roles: rs, err: '', enviando: false, enfoque: '#mz-cmt' });
+  }
+  function htmlNuevoCom(M) {
+    var rp = rolesPermitidos();
+    return '<div class="mz-fld"><label for="mz-cmt">Título</label><input id="mz-cmt" data-minus autocomplete="off" maxlength="120" placeholder="Ej.: Cambio de horario del sábado"></div>' +
+      '<div class="mz-fld"><label for="mz-cmx">Mensaje <span class="op" id="mz-cmc">0/2000</span></label><textarea id="mz-cmx" data-minus rows="6" maxlength="2000" placeholder="Escribe lo que tu equipo debe saber. Cada persona tendrá que pulsar «Entendido»."></textarea></div>' +
+      '<fieldset class="mz-roles"><legend>Para quién</legend>' + rp.map(function (x) { return '<label class="mz-chk"><input type="checkbox" data-cmrol="' + x[0] + '"' + (M.roles[x[0]] ? ' checked' : '') + '><span>' + esc(x[1]) + '</span></label>'; }).join('') + '</fieldset>' +
+      '<label class="mz-chk"><input type="checkbox" id="mz-cmu"' + (M.urgente ? ' checked' : '') + '><span>Marcar como <b>urgente</b></span></label>' +
+      '<p class="ag-sg">Llega a la campana de cada persona y queda pendiente hasta que pulse «Entendido». Podrás ver quién falta y recordárselo (una vez cada 30 minutos).</p>';
+  }
+  function cuentaCom(M) { var c = $('mz-cmc'); if (c) c.textContent = (M.texto || '').length + '/2000'; }
+  async function enviaCom(M) {
+    var rp = rolesPermitidos(), roles = rp.map(function (x) { return x[0]; }).filter(function (x) { return M.roles[x]; }), todos = perfil.rol === 'admin' && roles.length === ROLES_COM.length;
+    var r = await llama('chat_comunicado_enviar', { p_id: M.id, p_titulo: M.titulo.trim(), p_texto: M.texto.trim(), p_roles: todos ? null : roles, p_urgente: !!M.urgente }, 25000);
+    if (r.error || !r.data || r.data.ok !== true) { M.err = msgE(r.error) + (esRed(r.error) ? '. Puedes volver a pulsar «Enviar»: no se duplicará.' : ''); return false; }
+    var K = Y().com; K.env = null; K.tab = 'env'; K.cargado = false;
+    aviso(r.data.duplicado ? 'Ese comunicado ya estaba enviado' : 'Comunicado enviado a ' + r.data.destinatarios + (r.data.destinatarios === 1 ? ' persona' : ' personas'));
+    if (C.verAg && C.vv === 'com') { pintaVista(); cargaEnviados(); }
+    return true;
+  }
+
+  /* ----- Avisos del CRM dentro del Messenger ----- */
+  function avItem(d) {
+    if (!d || d.id == null) return null; var t = d.creada ? Date.parse(d.creada) : NaN;
+    return { id: +d.id, evento: String(d.evento || ''), grupo: String(d.grupo || ''), icono: String(d.icono || ''), prioridad: String(d.prioridad || ''), titulo: String(d.titulo || ''), texto: String(d.texto || ''), destino: d.destino ? String(d.destino) : '', ref: d.ref ? String(d.ref) : '', creada: isNaN(t) ? 0 : t, leida: !!d.leida };
+  }
+  async function cargaAvisos() {
+    var B = Y(), K = B.avi, C0 = C; if (K.cargando) return; K.cargando = true; K.err = null;
+    var r = await llama('chat_avisos_crm', { p_limite: 40 }, 10000);
+    if (C !== C0 || C.cerrando) return;
+    K.cargando = false;
+    if (r.error || !r.data || r.data.ok !== true) { if (falta62(r)) { ocultaPor62(); return; } K.err = r.error ? msgE(r.error) : 'Respuesta vacía'; }
+    else { syncReloj(r.data); K.items = arr(r.data.items).map(avItem).filter(Boolean); K.sin = +r.data.no_leidas || 0; K.cargado = true; }
+    if (C.open) { pintaLista(); if (C.verAg && !C.peer && C.vv === 'avi' && !C.modal) pintaVista(); }
+  }
+  function htmlAvisos() {
+    var K = Y().avi, der = K.sin ? '<button type="button" class="mz-btn chico sec" data-a="av-todos"' + (K.busy ? ' disabled' : '') + '>' + ic(IC.ok, 16) + 'Marcar todo como leído</button>' : '';
+    var h = '<div class="ag-v">' + cabVista('Avisos del CRM', K.sin ? K.sin + (K.sin === 1 ? ' sin leer' : ' sin leer') : 'Lo mismo que tu campana, aquí dentro', IC.campana, 'av', der) + '<div class="ag-b" id="mz-vb" role="region" aria-label="Avisos del CRM" tabindex="0">';
+    if (!K.cargado && K.err) h += vacio(IC.alerta, 'No se pudieron cargar los avisos', K.err, '<button type="button" class="mz-btn chico" data-a="av-reint">' + ic(IC.otra, 16) + 'Reintentar</button>');
+    else if (!K.cargado) h += '<div class="mz-buscando" role="status">Cargando avisos…</div>';
+    else if (!K.items.length) h += vacio(IC.campana, 'Sin avisos del CRM', 'Aquí llegan las ventas, incidencias, revisiones y demás avisos que también ves en la campana del CRM.');
+    else h += '<ul class="ag-l" aria-label="Avisos del CRM">' + K.items.map(function (x) {
+      return '<li class="av-it' + (x.leida ? '' : ' nuevo') + (x.prioridad === 'alta' || x.prioridad === 'critica' ? ' alta' : '') + '" id="mz-av-' + x.id + '"><span class="av-ico" aria-hidden="true">' + (esc(x.icono) || ic(IC.campana, 18)) + '</span>' +
+        '<div class="ag-tx"><span class="tt">' + esc(x.titulo) + '</span>' + (x.texto ? '<span class="nt">' + esc(x.texto) + '</span>' : '') + '<span class="mt">' + esc((x.grupo ? x.grupo + ' · ' : '') + haceTxt(x.creada)) + (x.leida ? '' : ' · <b>Nuevo</b>') + '</span></div>' +
+        '<div class="ag-ac">' + (x.destino ? '<button type="button" class="mz-btn chico sec" data-a="av-abrir" data-id="' + x.id + '">Abrir</button>' : '') +
+        (x.leida ? '' : '<button type="button" class="mz-ib" data-a="av-leer" data-id="' + x.id + '" aria-label="Marcar como leído: ' + esc(x.titulo) + '" title="Marcar como leído">' + ic(IC.ok, 18) + '</button>') + '</div></li>';
+    }).join('') + '</ul>';
+    return h + '<p class="ag-pie">Son los mismos avisos de la campana del CRM: si los marcas aquí, también quedan leídos allí. Los avisos del propio chat (mensajes, menciones, comunicados) no se repiten en esta lista.</p></div></div>';
+  }
+  async function avMarcar(ids) {
+    var K = Y().avi, C0 = C; if (K.busy) return false; K.busy = true; if (!ids) pintaVista();
+    var r = await llama('chat_avisos_marcar', ids ? { p_ids: ids } : {}, 10000);
+    if (C !== C0 || C.cerrando) return false;
+    K.busy = false;
+    if (r.error) { aviso(msgE(r.error), true); pintaVista(); return false; }
+    K.items.forEach(function (x) { if (!ids || ids.indexOf(x.id) >= 0) x.leida = true; });
+    K.sin = ids ? Math.max(0, K.sin - (+r.data || 0)) : 0;
+    nt48Tick(); pintaVista(); pintaLista(); return true;
+  }
+  async function avAbrir(id) {
+    var it = Y().avi.items.filter(function (x) { return x.id === id; })[0]; if (!it) return;
+    if (!it.leida) avMarcar([id]);
+    if (it.destino === 'chat') {
+      var mu = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.exec(it.ref); if (mu) { if (!(await abrirCon(mu[0]))) aviso('Ya no se puede abrir ese aviso', true); } return;
+    }
+    if (!window.nt48 || typeof window.nt48.navegar !== 'function') { aviso('No pude abrir esa pantalla desde aquí. Búscala en el CRM', true); return; }
+    abrirVentana(false, true);
+    try { window.nt48.navegar(it.destino); } catch (e) { console.error(e); }
+    if (it.destino === 'incidencias' && it.ref && window.inc54 && typeof window.inc54.abrir === 'function') setTimeout(function () { try { window.inc54.abrir(it.ref); } catch (e) { } }, 150);
+  }
+
+  /* ----- Tarjetas nuevas: ENCUESTA y OFERTA ----- */
+  function esEnc(m) { return esTarjeta(m) && m.crm.t === 'ENCUESTA' && typeof m.crm.id === 'string' && Array.isArray(m.crm.opciones) && m.crm.opciones.length >= 2; }
+  function esOfe(m) { return esTarjeta(m) && m.crm.t === 'OFERTA' && Array.isArray(m.crm.items); }
+  function esTarjeta8(m) { return esEnc(m) || esOfe(m); }
+  function titulo8b(m) { return m.crm.t === 'ENCUESTA' ? 'Encuesta: ' + String(m.crm.pregunta || '').slice(0, 100) : m.crm.t === 'OFERTA' ? 'Oferta ' + String(m.crm.operador || '').slice(0, 60) : 'Tarjeta'; }
+  function itemInsertaMio(key, d) {   // el mensaje que la base acaba de crear por mí; si el tiempo real ya lo trajo, no se duplica
+    if (!d || !d.id) return;
+    if (d.conversacion_id) C.convId[key] = d.conversacion_id;
+    var l = C.msgs[key] = C.msgs[key] || [];
+    if (!l.some(function (x) { return x.id === d.id; })) l.push(d);
+    ordena(l); anotaReciente(d);
+    if (C.open && C.peer === key) pintaMsgs({ fuerza: true });
+    pintaLista();
+  }
+
+  /* ----- Encuestas ----- */
+  function encVista(d) {
+    if (!d || !d.id) return null; var c = d.cierra_at ? Date.parse(d.cierra_at) : NaN;
+    return { id: d.id, cerrada: !!d.cerrada, cierra: isNaN(c) ? 0 : c, total: +d.votantes_total || 0, conteos: arr(d.conteos).map(Number), mis: arr(d.mis).map(Number), votantes: Array.isArray(d.votantes) ? d.votantes.map(arr) : null, t: Date.now(), err: false };
+  }
+  function encCerrada(cr, V) { return V ? (V.cerrada || (V.cierra > 0 && ahoraAg() >= V.cierra)) : (!!cr.cierra_at && Date.parse(cr.cierra_at) <= ahoraAg()); }
+  function puedeCerrarEnc(m) { return m.de === me.id || moderador() || (!!C.peer && esGrupo(C.peer) && soyAdminDe(C.peer)); }
+  function htmlEncuesta(m, q) {
+    var cr = m.crm, B = Y(), V = B.enc[cr.id], real = !m._est, mult = !!cr.multiple, anon = !!cr.anonima, cargando = !V, sinDatos = V && V.err && !V.conteos.length;
+    var cerrada = encCerrada(cr, V), busy = !!B.encBusy[cr.id], sel = B.encSel[cr.id] || (V ? V.mis : []), conteos = V && V.conteos.length ? V.conteos : [];
+    var suma = conteos.reduce(function (a, b) { return a + b; }, 0), tot = V ? V.total : 0, hayCambio = mult && B.encSel[cr.id] && JSON.stringify(B.encSel[cr.id].slice().sort()) !== JSON.stringify((V ? V.mis : []).slice().sort());
+    var ops = cr.opciones.map(function (o, i) {
+      var n = conteos[i] || 0, pc = suma ? Math.round(n * 100 / suma) : 0, mio = sel.indexOf(i) >= 0, nombres = !anon && V && V.votantes && V.votantes[i] ? V.votantes[i] : [];
+      var lista = nombres.length ? '<div class="en-nm">' + esc(nombres.slice(0, 6).map(function (x) { return bonito(x); }).join(', ') + (nombres.length > 6 ? ' y ' + (nombres.length - 6) + ' más' : '')) + '</div>' : '';
+      return '<li><button type="button" class="en-o' + (mio ? ' mio' : '') + '" data-a="enc-voto" data-id="' + esc(m.id) + '" data-i="' + i + '" aria-pressed="' + mio + '"' + (cerrada || !real || busy || cargando ? ' disabled' : '') +
+        ' aria-label="' + esc(o + (conteos.length ? ', ' + n + (n === 1 ? ' voto' : ' votos') + ' (' + pc + ' %)' : '') + (mio ? ', tu voto' : '')) + '">' +
+        '<span class="en-bar" aria-hidden="true" style="width:' + pc + '%"></span><span class="en-ck" aria-hidden="true">' + (mio ? ic(IC.ok, 14) : '') + '</span><span class="en-tx">' + esc(o) + '</span>' +
+        '<span class="en-n" aria-hidden="true">' + (conteos.length ? n + ' · ' + pc + '%' : '') + '</span></button>' + lista + '</li>';
+    }).join('');
+    var cierre = cerrada ? 'Encuesta cerrada' : (V && V.cierra) ? 'Se cierra ' + agCuando(V.cierra).toLowerCase() : (!V && cr.cierra_at) ? 'Se cierra ' + agCuando(Date.parse(cr.cierra_at)).toLowerCase() : 'Sin límite de tiempo';
+    var ac = '';
+    if (real && !cerrada) {
+      if (mult) ac += '<button type="button" class="mz-cb pri" data-a="enc-enviar" data-id="' + esc(m.id) + '"' + (!hayCambio || busy ? ' disabled' : '') + '>' + ic(IC.ok, 15) + '<span>Votar</span></button>';
+      if (V && V.mis.length) ac += '<button type="button" class="mz-cb" data-a="enc-quitar" data-id="' + esc(m.id) + '"' + (busy ? ' disabled' : '') + '><span>Quitar mi voto</span></button>';
+      if (puedeCerrarEnc(m)) ac += '<button type="button" class="mz-cb" data-a="enc-cerrar" data-id="' + esc(m.id) + '"' + (busy ? ' disabled' : '') + '><span>Cerrar encuesta</span></button>';
+    }
+    if (sinDatos && real) ac += '<button type="button" class="mz-cb" data-a="enc-reint" data-id="' + esc(m.id) + '">' + ic(IC.otra, 15) + '<span>Reintentar</span></button>';
+    return '<div class="mz-cd enc' + (cerrada ? ' cerrada' : '') + '" role="group" aria-label="Encuesta ' + (cerrada ? 'cerrada' : 'abierta') + ': ' + esc(cr.pregunta || '') + '" data-mid="' + esc(m.id) + '" data-eid="' + esc(cr.id) + '">' +
+      '<div class="mz-cdh"><span class="mz-cdi" aria-hidden="true">' + ic(IC.encuesta, 20) + '</span><div class="mz-cdt"><small>Encuesta' + (anon ? ' anónima' : '') + (mult ? ' · varias respuestas' : '') + ' · ' + esc(nombreDe(m.de)) + '</small><b>' + textoHtml(cr.pregunta || '', q) + '</b></div>' +
+      '<span class="mz-cl ' + (cerrada ? 'neutro' : 'ACT') + '">' + (cerrada ? 'Cerrada' : 'Abierta') + '</span></div>' +
+      '<ul class="en-l" aria-label="Opciones">' + ops + '</ul>' +
+      '<div class="en-pie"><span>' + (cargando ? 'Cargando votos…' : sinDatos ? 'No se pudieron cargar los votos' : tot + (tot === 1 ? ' persona votó' : ' personas votaron')) + '</span><span>' + esc(cierre) + '</span></div>' +
+      (ac ? '<div class="mz-cda">' + ac + '</div>' : '') + '</div>';
+  }
+  function encRepinta(id) {
+    var b = $('mz-ms'); if (!b || !C.peer || !C.open) return;
+    var q = C.busq.on ? C.busq.q.trim() : '', cerca = b.scrollHeight - b.scrollTop - b.clientHeight < 90;
+    Array.prototype.slice.call(b.querySelectorAll('.mz-cd.enc[data-eid="' + String(id).replace(/"/g, '') + '"]')).forEach(function (el) {
+      var m = msgPorId(C.peer, el.getAttribute('data-mid')); if (!m || !esEnc(m)) return;
+      var f = document.activeElement, foco = f && el.contains(f) ? [f.getAttribute('data-a'), f.getAttribute('data-i')] : null, mid = el.getAttribute('data-mid');
+      el.outerHTML = htmlEncuesta(m, q);
+      if (foco) {
+        var n = document.querySelector('#mz-ms .mz-cd.enc[data-mid="' + mid + '"] [data-a="' + foco[0] + '"]' + (foco[1] != null ? '[data-i="' + foco[1] + '"]' : ''));
+        if (n && !n.disabled) { try { n.focus({ preventScroll: true }); } catch (e) { } }
+      }
+    });
+    if (cerca) b.scrollTop = b.scrollHeight;
+    actualizaAbajo();
+  }
+  function encPide(forzar) {
+    var B = Y(); if (B.sin || C.cerrando || !C.peer || !C.open || document.hidden || B.encPend) return;
+    var l = C.msgs[C.peer] || [], ids = [], vistos = {}, ahora = Date.now();
+    for (var i = l.length - 1; i >= 0 && ids.length < MAX_ENC_VISTAS; i--) {
+      var m = l[i]; if (!esEnc(m) || m.borrado_at || m._est || vistos[m.crm.id]) continue; vistos[m.crm.id] = 1;
+      var V = B.enc[m.crm.id];
+      if (!V || forzar || (!encCerrada(m.crm, V) && ahora - V.t > T_ENC) || (V.err && ahora - V.t > 8000)) ids.push(m.crm.id);
+      else if (!V.cerrada && encCerrada(m.crm, V)) encRepinta(m.crm.id);   // pasó la hora de cierre: la tarjeta se actualiza sola
+    }
+    if (ids.length) encTrae(ids);
+  }
+  async function encTrae(ids) {
+    var B = Y(), C0 = C; B.encPend = true;
+    var r = await llama('chat_encuestas_ver', { p_ids: ids }, 10000);
+    if (C !== C0 || C.cerrando) return;
+    B.encPend = false;
+    if (r.error || !r.data || r.data.ok !== true) {
+      if (falta62(r)) { ocultaPor62(); return; }
+      ids.forEach(function (id) { var V = B.enc[id]; if (V) V.t = Date.now(); else B.enc[id] = { id: id, cerrada: false, cierra: 0, total: 0, conteos: [], mis: [], votantes: null, t: Date.now(), err: true }; encRepinta(id); });
+      return;
+    }
+    var vistas = {}; arr(r.data.items).forEach(function (d) {
+      var V = encVista(d); if (!V) return; vistas[V.id] = 1;
+      var antes = B.enc[V.id], f0 = antes ? JSON.stringify([antes.cerrada, antes.total, antes.conteos, antes.mis, antes.votantes, antes.err]) : '', f1 = JSON.stringify([V.cerrada, V.total, V.conteos, V.mis, V.votantes, V.err]);
+      if (antes && antes.cerrada) V.cerrada = true;
+      B.enc[V.id] = V; if (f0 !== f1) encRepinta(V.id);
+    });
+    ids.forEach(function (id) { if (!vistas[id]) { B.enc[id] = { id: id, cerrada: false, cierra: 0, total: 0, conteos: [], mis: [], votantes: null, t: Date.now(), err: true }; encRepinta(id); } });
+  }
+  async function encVota(mid, i) {
+    var m = msgPorId(C.peer, mid); if (!m || !esEnc(m)) return; var cr = m.crm, B = Y(), V = B.enc[cr.id];
+    if (B.encBusy[cr.id] || encCerrada(cr, V)) return;
+    if (cr.multiple) {
+      var sel = (B.encSel[cr.id] || (V ? V.mis : [])).slice(), p = sel.indexOf(i); if (p >= 0) sel.splice(p, 1); else sel.push(i);
+      B.encSel[cr.id] = sel; encRepinta(cr.id); return;
+    }
+    if (V && V.mis.length === 1 && V.mis[0] === i) return;
+    return encEnvia(cr.id, [i]);
+  }
+  async function encEnvia(id, ops) {
+    var B = Y(), C0 = C; B.encBusy[id] = true; encRepinta(id);
+    var r = await llama('chat_encuesta_votar', { p_id: id, p_opciones: ops }, 10000);
+    if (C !== C0 || C.cerrando) return;
+    delete B.encBusy[id];
+    if (r.error || !r.data || r.data.ok !== true) {
+      aviso(msgE(r.error) + (esRed(r.error) ? '. Inténtalo otra vez' : ''), true);
+      if (/encuesta_cerrada|encuesta_no_existe/.test(String(r.error && r.error.message))) encPide(true); else encRepinta(id);
+      return;
+    }
+    var V = encVista(r.data.encuesta); if (V) B.enc[id] = V; delete B.encSel[id];
+    if (ops.length && B.encSin > 0) B.encSin--;
+    aviso(ops.length ? 'Voto guardado' : 'Quitaste tu voto'); encRepinta(id); pintaLista();
+  }
+  async function encCierra(mid) {
+    var m = msgPorId(C.peer, mid); if (!m || !esEnc(m)) return; var B = Y(), id = m.crm.id, C0 = C;
+    if (B.encBusy[id]) return; B.encBusy[id] = true; encRepinta(id);
+    var r = await llama('chat_encuesta_cerrar', { p_id: id }, 10000);
+    if (C !== C0 || C.cerrando) return;
+    delete B.encBusy[id];
+    if (r.error || !r.data || r.data.ok !== true) { aviso(msgE(r.error), true); encRepinta(id); return; }
+    var V = encVista(r.data.encuesta); if (V) B.enc[id] = V; aviso('Encuesta cerrada'); encRepinta(id);
+  }
+  function encTick() { if (!document.hidden) encPide(false); }
+
+  /* crear una encuesta */
+  function puedeEncuesta(k) { var B = C.x9; return !!(B && B.ok && !B.sin && k && puedeEscribir(k) && (k !== GEN || moderador())); }
+  function abrirNuevaEnc() {
+    var k = C.peer; if (!puedeEncuesta(k)) { aviso(ERR_CHAT.sin_permiso || 'No puedes crear una encuesta aquí', true); return; }
+    abreModal({ tipo: 'encuesta', key: k, id: uuid(), preg: '', ops: ['', ''], multiple: false, anonima: false, horas: 0, err: '', enviando: false, enfoque: '#mz-enp' });
+  }
+  function encOpsLimpias(M) { return M.ops.map(function (x) { return String(x || '').replace(/\s+/g, ' ').trim(); }).filter(Boolean); }
+  function encValida(M) {
+    var ops = encOpsLimpias(M), vistos = {}, dup = false;
+    ops.forEach(function (o) { var k = o.toLowerCase(); if (vistos[k]) dup = true; vistos[k] = 1; });
+    return M.preg.trim().length >= 1 && M.preg.length <= 200 && ops.length >= 2 && ops.length <= 8 && !dup && ops.every(function (o) { return o.length <= 80; });
+  }
+  function htmlNuevaEnc(M) {
+    var h = '<div class="mz-fld"><label for="mz-enp">Pregunta</label><input id="mz-enp" data-minus autocomplete="off" maxlength="200" placeholder="Ej.: ¿A qué hora hacemos la reunión del sábado?"></div>' +
+      '<fieldset class="en-ops"><legend>Opciones <span class="op">(de 2 a 8)</span></legend>';
+    M.ops.forEach(function (o, i) {
+      h += '<div class="en-fo"><input data-eno="' + i + '" data-minus autocomplete="off" maxlength="80" placeholder="Opción ' + (i + 1) + '" aria-label="Opción ' + (i + 1) + '">' +
+        (M.ops.length > 2 ? '<button type="button" class="mz-ib chico" data-a="enc-quitaop" data-i="' + i + '" aria-label="Quitar la opción ' + (i + 1) + '" title="Quitar">' + ic(IC.x, 16) + '</button>' : '') + '</div>';
+    });
+    h += (M.ops.length < 8 ? '<button type="button" class="mz-btn sec chico" data-a="enc-masop">' + ic(IC.mas2, 16) + 'Añadir opción</button>' : '') + '</fieldset>' +
+      '<label class="mz-chk"><input type="checkbox" id="mz-enm"' + (M.multiple ? ' checked' : '') + '><span>Permitir elegir <b>varias</b> opciones</span></label>' +
+      '<label class="mz-chk"><input type="checkbox" id="mz-ena"' + (M.anonima ? ' checked' : '') + '><span>Votación <b>anónima</b> (solo se ven los totales, no quién votó)</span></label>' +
+      '<div class="mz-fld"><label for="mz-end">Duración</label><select id="mz-end">' + ENC_DUR.map(function (x) { return '<option value="' + x[0] + '"' + (M.horas === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></div>' +
+      '<p class="ag-sg">Todas las personas de esta conversación verán la encuesta y los resultados en vivo. Quien la creó, un grupo-administrador, supervisión y administración pueden cerrarla.</p>';
+    return h;
+  }
+  async function enviaEnc(M) {
+    var key = M.key; if (!puedeEncuesta(key)) { M.err = ERR_CHAT.sin_permiso || 'No puedes crear una encuesta aquí'; return false; }
+    var r = await llama('chat_encuesta_crear', { p_id: M.id, p_conversacion: C.convId[key] || (esGrupo(key) ? key : null), p_para: compartida(key) ? null : key, p_pregunta: M.preg.trim(), p_opciones: encOpsLimpias(M), p_multiple: !!M.multiple, p_anonima: !!M.anonima, p_horas: M.horas || null }, 20000);
+    if (r.error || !r.data || r.data.ok !== true) { M.err = msgE(r.error) + (esRed(r.error) ? '. Puedes volver a pulsar «Crear»: no se duplicará.' : ''); return false; }
+    var V = encVista(r.data.encuesta); if (V) Y().enc[V.id] = V;
+    itemInsertaMio(key, r.data.mensaje); aviso('Encuesta publicada'); return true;
+  }
+
+  /* ----- Ofertas del catálogo ----- */
+  function puedeOferta(k) {
+    var B = C.x9; if (!B || !B.ok || B.sin || !B.puedeOfe || !k || k === GEN || !puedeEscribir(k)) return false;
+    try { return !!(window.ofe56 && typeof window.ofe56.catalogo === 'function'); } catch (e) { return false; }   // el permiso lo decide la base (puede_ofertas); el servicio de correo lo comprueba catalogo()
+  }
+  function abrirOferta() {
+    var k = C.peer; if (!puedeOferta(k)) { aviso('Tu usuario no puede compartir ofertas aquí', true); return; }
+    var M = { tipo: 'oferta', key: k, id: uuid(), est: 'carga', msgCat: '', cat: null, calc: null, op: '', imp: 0, items: [], q: '', nota: '', err: '', enviando: false, enfoque: 'button' };
+    abreModal(M); cargaCatOfe(M, false);
+  }
+  async function cargaCatOfe(M, reintento) {
+    M.est = 'carga'; M.msgCat = ''; if (C.modal === M && reintento) pintaModal();
+    var C0 = C, r;
+    try { r = await window.ofe56.catalogo(reintento); } catch (e) { r = { ok: false, error: 'No se pudo cargar el catálogo' }; }
+    if (C !== C0 || C.modal !== M) return;
+    if (!r || !r.ok || !r.cat || !r.cat.porOperador) { M.est = 'error'; M.msgCat = (r && r.error) || 'No se pudo cargar el catálogo de ofertas'; }
+    else {
+      M.est = 'ok'; M.cat = r.cat; M.calc = r.calcular;
+      if (!M.op) M.op = (r.cat.operadores || Object.keys(r.cat.porOperador))[0] || '';
+      var ix = -1; arr(r.cat.impuestos).forEach(function (x, i) { if (ix < 0 && x.defecto) ix = i; }); M.imp = ix < 0 ? 0 : ix;
+    }
+    pintaModal();
+  }
+  function ofCalc(M) {
+    if (M.est !== 'ok' || !M.items.length || !M.calc) return null;
+    var co = M.cat.porOperador[M.op], im = arr(M.cat.impuestos)[M.imp]; if (!co) return null;
+    try { return M.calc({ productos: co.productos }, { impuesto: im ? im.porcentaje : 21, importeActual: 0, items: M.items.map(function (x) { return { id: x.id, c: x.c }; }) }); } catch (e) { return { ok: false, error: 'No se pudo calcular el precio' }; }
+  }
+  function ofNorm(s) { return plano(String(s == null ? '' : s)).replace(/\s+/g, ' ').trim(); }
+  function htmlOfOperadores(M) {
+    var ops = M.cat.operadores || Object.keys(M.cat.porOperador);
+    return '<div class="of-ops" role="group" aria-label="Operador">' + ops.map(function (o, i) { return '<button type="button" class="of-op" data-a="of-op" data-i="' + i + '" aria-pressed="' + (M.op === o) + '">' + esc(o) + '</button>'; }).join('') + '</div>';
+  }
+  function htmlOfProductos(M) {
+    var co = M.cat.porOperador[M.op]; if (!co) return '<div class="mz-buscando">Elige el operador.</div>';
+    var im = arr(M.cat.impuestos)[M.imp], k = 1 + (im ? im.porcentaje : 21) / 100, q = ofNorm(M.q), h = '', hay = false;
+    KINDS_OFE.forEach(function (g) {
+      var todos = co.productos.filter(function (p) { return p.kind === g[0]; }), ps = todos.filter(function (p) { return !q || ofNorm(p.nombre).indexOf(q) >= 0; });
+      if (!todos.length) return; hay = true;
+      h += '<div class="of-g">' + esc(g[1]) + ' · ' + (q ? ps.length + ' de ' : '') + todos.length + '</div>';
+      if (!ps.length) h += '<div class="of-nada">Ninguno coincide con la búsqueda.</div>';
+      ps.forEach(function (p) {
+        var it = M.items.filter(function (x) { return x.id === p.id; })[0], tiene = p.descuento > 0 && p.descuento <= p.precio, full = Math.round(p.precio * k * 100) / 100, prom = Math.round((p.precio - (tiene ? p.descuento : 0)) * k * 100) / 100;
+        h += '<div class="of-p' + (it ? ' on' : '') + '"><button type="button" class="of-pb" data-a="of-tg" data-id="' + esc(p.id) + '" role="checkbox" aria-checked="' + !!it + '"><span class="of-ck" aria-hidden="true">' + (it ? ic(IC.ok, 14) : '') + '</span>' +
+          '<span class="of-pn"><b>' + esc(p.nombre) + '</b>' + (p.permanencia ? '<small>Permanencia: ' + esc(p.permanencia) + '</small>' : '') + '</span><span class="of-pp"><b>' + esc(eur(tiene ? prom : full)) + '</b>' + (tiene ? '<s>' + esc(eur(full)) + '</s>' : '') + '</span></button>' +
+          (it && p.kind !== 'seg' ? '<div class="of-q" role="group" aria-label="Cantidad de ' + esc(p.nombre) + '"><button type="button" class="mz-ib chico" data-a="of-menos" data-id="' + esc(p.id) + '" aria-label="Quitar uno">−</button><b aria-live="polite">' + it.c + '</b><button type="button" class="mz-ib chico" data-a="of-mas" data-id="' + esc(p.id) + '" aria-label="Añadir uno">+</button></div>' : '') + '</div>';
+      });
+    });
+    return hay ? h : '<div class="mz-buscando">Este operador no tiene productos en la hoja.</div>';
+  }
+  function htmlOfResumen(M) {
+    var c = ofCalc(M);
+    if (!M.items.length) return '<div class="of-nada">Marca los productos para ver el precio.</div>';
+    if (!c || !c.ok) return '<div class="of-nada">' + esc((c && c.error) || 'Revisa la selección') + '</div>';
+    var h = '<div class="of-tot"><small>' + (c.hayPromo ? 'Precio con promoción' : 'Precio mensual') + '</small><b>' + esc(eur(c.mensual)) + '<span> /mes</span></b>' + (c.hayPromo ? '<s>Sin promociones: ' + esc(eur(c.sinPromoConImp)) + '</s>' : '') + '<small>' + (c.impuesto > 0 ? 'impuestos incluidos (' + c.impuesto + '%)' : 'sin impuestos') + '</small></div>';
+    if (c.cronograma.length > 1) h += '<table class="of-cr" aria-label="Evolución del precio">' + c.cronograma.slice(0, 6).map(function (t) { return '<tr><td>' + esc(t.etiqueta) + '</td><td>' + esc(eur(t.precio)) + '</td></tr>'; }).join('') + '</table>';
+    if (c.permanencia) h += '<div class="of-pm">Permanencia: ' + esc(c.permanencia) + '</div>';
+    if (M.items.length > 12) h += '<div class="of-pm mal">Máximo 12 productos por oferta.</div>';
+    return h;
+  }
+  function htmlOfertaModal(M) {
+    if (M.est === 'carga') return '<div class="mz-buscando" role="status">Cargando el catálogo de ofertas…</div>';
+    if (M.est === 'error') return '<p class="mz-ae">' + esc(M.msgCat) + '</p><div class="rt-b"><button type="button" class="mz-btn chico" data-a="of-reint">' + ic(IC.otra, 16) + 'Reintentar</button></div>';
+    return '<div class="mz-fld"><label id="mz-ofl">Operador</label><div id="mz-ofops">' + htmlOfOperadores(M) + '</div></div>' +
+      '<div class="of-dos"><div class="mz-fld"><label for="mz-ofi">Impuestos</label><select id="mz-ofi">' + arr(M.cat.impuestos).map(function (x, i) { return '<option value="' + i + '"' + (M.imp === i ? ' selected' : '') + '>' + esc(x.nombre ? x.nombre + ' ' : '') + x.porcentaje + '%</option>'; }).join('') + '</select></div>' +
+      '<div class="mz-fld"><label for="mz-ofq">Buscar un producto</label><input type="search" id="mz-ofq" data-minus autocomplete="off" placeholder="Nombre del producto"></div></div>' +
+      '<div class="of-prod" id="mz-ofprod" role="group" aria-label="Productos">' + htmlOfProductos(M) + '</div>' +
+      '<div class="of-res" id="mz-ofres" aria-live="polite">' + htmlOfResumen(M) + '</div>' +
+      '<div class="mz-fld"><label for="mz-ofn">Nota <span class="op">(opcional · <span id="mz-ofc">0</span>/300)</span></label><textarea id="mz-ofn" data-minus rows="2" maxlength="300" placeholder="Ej.: Válida hasta fin de mes"></textarea></div>' +
+      '<p class="ag-sg">Se comparte la oferta (productos y precios). Nunca lleva datos del cliente. Los precios los calcula el mismo motor de tu calculadora.</p>';
+  }
+  function ofRepinta(M, que) {
+    if (C.modal !== M) return;
+    if (que.ops) { var a = $('mz-ofops'); if (a) a.innerHTML = htmlOfOperadores(M); }
+    if (que.prod) { var b = $('mz-ofprod'), top = b ? b.scrollTop : 0; if (b) { b.innerHTML = htmlOfProductos(M); b.scrollTop = top; } }
+    if (que.res) { var c = $('mz-ofres'); if (c) c.innerHTML = htmlOfResumen(M); }
+    actualizaModalBtn();
+  }
+  function ofToggle(M, id) {
+    var i = -1; M.items.forEach(function (x, j) { if (x.id === id) i = j; });
+    if (i >= 0) M.items.splice(i, 1);
+    else {
+      if (M.items.length >= 12) { M.err = 'Máximo 12 productos por oferta'; actualizaModalBtn(); return; }
+      var co = M.cat.porOperador[M.op], p = co && co.productos.filter(function (x) { return x.id === id; })[0]; if (!p) return;
+      if (p.kind === 'seg') M.items = M.items.filter(function (x) { var q = co.productos.filter(function (y) { return y.id === x.id; })[0]; return !(q && q.kind === 'seg'); });
+      M.items.push({ id: id, c: 1 });
+    }
+    M.err = ''; ofRepinta(M, { prod: true, res: true });
+  }
+  function ofCantidad(M, id, d) {
+    var it = M.items.filter(function (x) { return x.id === id; })[0]; if (!it) return;
+    var co = M.cat.porOperador[M.op], p = co && co.productos.filter(function (x) { return x.id === id; })[0], lim = LIM_OFE[p && p.kind] || 20;
+    it.c = Math.max(1, Math.min(lim, it.c + d)); ofRepinta(M, { prod: true, res: true });
+  }
+  async function enviaOferta(M) {
+    var c = ofCalc(M); if (!c || !c.ok) { M.err = 'Elige al menos un producto'; return false; }
+    if (c.lineas.length > 12) { M.err = 'Máximo 12 productos por oferta'; return false; }
+    var oferta = { operador: String(M.op).slice(0, 60), items: c.lineas.map(function (l) { return { n: String(l.nombre).slice(0, 100), c: l.cantidad, k: l.kind }; }), imp: c.impuesto, mensual: c.mensual, definitivo: c.definitivo,
+      cron: c.cronograma.slice(0, 6).map(function (t) { return { e: String(t.etiqueta).slice(0, 30), p: t.precio }; }) };
+    if (c.hayPromo) oferta.sin_promo = c.sinPromoConImp;
+    if (c.permanencia) oferta.perm = String(c.permanencia).slice(0, 60);
+    var key = M.key;
+    var r = await llama('chat_oferta_compartir', { p_id: M.id, p_conversacion: C.convId[key] || (esGrupo(key) ? key : null), p_para: compartida(key) ? null : key, p_oferta: oferta, p_nota: (M.nota || '').trim() || null }, 20000);
+    if (r.error || !r.data || r.data.ok !== true) { M.err = msgE(r.error) + (esRed(r.error) ? '. Puedes volver a pulsar «Compartir»: no se duplicará.' : ''); return false; }
+    itemInsertaMio(key, r.data.mensaje); aviso('Oferta compartida'); return true;
+  }
+  function textoOferta(cr) {
+    var l = ['Oferta ' + cr.operador + ': ' + arr(cr.items).map(function (x) { return x.n + (x.c > 1 ? ' × ' + x.c : ''); }).join(' + '), eur(cr.mensual) + ' al mes' + (cr.imp > 0 ? ' (impuestos incluidos, ' + cr.imp + '%)' : '')];
+    if (arr(cr.cron).length > 1) l.push(cr.cron.map(function (t) { return t.e + ': ' + eur(t.p); }).join(' · '));
+    if (cr.perm) l.push('Permanencia: ' + cr.perm);
+    if (cr.nota) l.push(cr.nota);
+    return l.join('\n');
+  }
+  function htmlOferta(m, q) {
+    var cr = m.crm, cron = arr(cr.cron), promo = +cr.sin_promo > +cr.mensual;
+    return '<div class="mz-cd ofe" role="group" aria-label="Oferta ' + esc(cr.operador || '') + '" data-mid="' + esc(m.id) + '">' +
+      '<div class="mz-cdh"><span class="mz-cdi" aria-hidden="true">' + ic(IC.oferta, 20) + '</span><div class="mz-cdt"><small>Oferta compartida · ' + esc(nombreDe(m.de)) + '</small><b>' + esc(cr.operador || '') + '</b></div></div>' +
+      '<ul class="mz-cdl" aria-label="Productos de la oferta">' + arr(cr.items).map(function (x) { return '<li><span class="p">' + esc(x.n) + '</span>' + (x.c > 1 ? '<em class="mz-cl neutro">× ' + x.c + '</em>' : '') + '</li>'; }).join('') + '</ul>' +
+      '<div class="of-tot"><b>' + esc(eur(cr.mensual)) + '<span> /mes</span></b>' + (promo ? '<s>' + esc(eur(cr.sin_promo)) + '</s>' : '') + '</div>' +
+      '<div class="mz-cdm">' + esc((+cr.imp > 0 ? 'Impuestos incluidos (' + cr.imp + '%)' : 'Sin impuestos') + (cr.perm ? ' · Permanencia: ' + cr.perm : '')) + '</div>' +
+      (cron.length > 1 ? '<table class="of-cr" aria-label="Evolución del precio">' + cron.map(function (t) { return '<tr><td>' + esc(t.e) + '</td><td>' + esc(eur(t.p)) + '</td></tr>'; }).join('') + '</table>' : '') +
+      (cr.nota ? '<div class="mz-cdn">' + textoHtml(cr.nota, q) + '</div>' : '') +
+      (!m._est ? '<div class="mz-cda"><button type="button" class="mz-cb" data-a="of-copiar" data-id="' + esc(m.id) + '">' + ic(IC.copiar, 15) + '<span>Copiar resumen</span></button></div>' : '') +
+      '<div class="mz-cdm">Los precios los calculó el catálogo cuando se compartió la oferta.</div></div>';
+  }
+
+  /* ----- Fotos · archivos · audios · enlaces de una conversación ----- */
+  function MM(k) { var B = Y(); return B.mm[k] || (B.mm[k] = { tab: 'rec', d: {}, cuentas: null }); }
+  function mmD(k, t) { var M = MM(k); return M.d[t] || (M.d[t] = { items: [], hay: false, cargando: false, err: null, cargado: false, t: 0 }); }
+  function archExtra(k) {   // lo cargado en las pestañas de fotos, archivos y audios: así el visor, la descarga y el reproductor lo encuentran igual que lo demás
+    var B = C.x9, o = []; if (B && B.mm && B.mm[k]) Object.keys(B.mm[k].d).forEach(function (t) { if (t !== 'enl') o = o.concat(B.mm[k].d[t].items); });
+    return o;
+  }
+  function archBusca(k, id) {   // un mensaje con archivo: primero lo que ya tenía el panel «Recientes», luego lo cargado en las pestañas
+    var A = C.arch && C.arch[k], i; if (A && A.items) for (i = 0; i < A.items.length; i++) if (A.items[i].id === id) return A.items[i];
+    var ex = archExtra(k); for (i = 0; i < ex.length; i++) if (ex[i].id === id) return ex[i];
+    return null;
+  }
+  function urlSegura(u) {
+    try { var x = new URL(String(u)); if (x.protocol !== 'http:' && x.protocol !== 'https:') return ''; if (x.username || x.password) return ''; return x.href; } catch (e) { return ''; }
+  }
+  function mmFilaArch(x) {
+    var a = x.adjunto, inf = infoTipoArch(a.nombre || '', a.mime || ''), voz = x.tipo === 'AUDIO', id = esc(x.id);
+    return '<li><span class="mz-fi chico" data-t="' + inf.cls + '" aria-hidden="true">' + (voz ? ic(IC.mic, 14) : esc(inf.ext)) + '</span><span class="mz-aln"><b>' + esc(voz && a.peaks ? 'Nota de voz' : a.nombre || 'Archivo') + '</b><small>' + esc((voz && a.dur ? mmss(a.dur) + ' · ' : '') + tamHum(a.bytes) + ' · ' + nombreDe(x.de) + ' · ' + etiquetaDia(x.created_at)) + '</small></span>' +
+      (voz ? '<span class="mz-au mini" data-au="' + id + '"><button type="button" class="mz-aup" data-a="audio" data-id="' + id + '" aria-label="Reproducir">' + ic(IC.play, 16) + '</button><span class="mz-atm" aria-hidden="true">' + mmss(a.dur) + '</span></span>' : '') +
+      '<button type="button" class="mz-ib chico" data-a="descarga" data-id="' + id + '" aria-label="Descargar ' + esc(a.nombre || 'archivo') + '" title="Descargar">' + ic(IC.descarga, 16) + '</button></li>';
+  }
+  function htmlMm(k, tab) {
+    var D = mmD(k, tab);
+    if (D.err && !D.items.length) return '<p class="mz-ae">' + esc(D.err) + '</p><button type="button" class="mz-acc" data-a="mm-reint">' + ic(IC.otra, 18) + 'Reintentar</button>';
+    if (!D.cargado) return '<div class="mz-ask" role="status" aria-label="Cargando"><i></i><i></i><i></i></div>';
+    if (!D.items.length) return '<p class="vacio">' + (tab === 'fot' ? 'Aún no hay fotos' : tab === 'arc' ? 'Aún no hay archivos' : tab === 'aud' ? 'Aún no hay audios' : 'Aún no hay enlaces') + ' en esta conversación.</p>';
+    var h;
+    if (tab === 'fot') h = '<div class="mz-gal" role="group" aria-label="Fotos">' + D.items.map(function (x) {
+      var a = x.adjunto, c = cacheGet(a.id), src = c ? c.url : (miniOk(a.thumb) ? a.thumb : '');
+      return '<button type="button" class="mz-gi" data-a="verimg" data-id="' + esc(x.id) + '" aria-label="Ver foto: ' + esc(a.nombre || 'foto') + '">' + (src ? '<img src="' + esc(src) + '" alt="" draggable="false" decoding="async">' : ic(IC.imagen, 22)) + '</button>';
+    }).join('') + '</div>';
+    else if (tab === 'enl') h = '<ul class="mz-al mm-en" aria-label="Enlaces">' + D.items.map(function (x) {
+      var u = urlSegura(x.url); if (!u) return '';
+      var host = ''; try { host = new URL(u).hostname.replace(/^www\./, ''); } catch (e) { }
+      return '<li><span class="mz-fi chico" data-t="web" aria-hidden="true">' + ic(IC.enlace, 14) + '</span><span class="mz-aln"><b>' + esc(host) + '</b><small>' + esc(u.length > 70 ? u.slice(0, 70) + '…' : u) + ' · ' + esc(nombreDe(x.de) + ' · ' + etiquetaDia(x.created_at)) + '</small></span>' +
+        '<a class="mz-ib chico" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer" aria-label="Abrir el enlace de ' + esc(host) + ' en una pestaña nueva" title="Abrir">' + ic(IC.externo, 16) + '</a>' +
+        '<button type="button" class="mz-ib chico" data-a="mm-copiar" data-u="' + esc(u) + '" aria-label="Copiar el enlace de ' + esc(host) + '" title="Copiar enlace">' + ic(IC.copiar, 16) + '</button></li>';
+    }).join('') + '</ul>';
+    else h = '<ul class="mz-al" aria-label="' + (tab === 'aud' ? 'Audios' : 'Archivos') + '">' + D.items.map(mmFilaArch).join('') + '</ul>';
+    if (D.hay) h += '<button type="button" class="mz-acc mm-mas" data-a="mm-mas"' + (D.cargando ? ' disabled' : '') + '>' + (D.cargando ? 'Cargando…' : 'Ver más') + '</button>';
+    return h;
+  }
+  function htmlArch(k) {
+    var B = C.x9; if (!B || B.sin || !B.ok) return htmlArchRec(k);
+    var M = MM(k), c = M.cuentas || {}, num = { fot: c.fotos, arc: c.archivos, aud: c.audios, enl: c.enlaces };
+    return '<div class="mm-tabs" role="group" aria-label="Qué mostrar">' + MM_TABS.map(function (t) {
+      return '<button type="button" class="mm-t" data-a="mm-tab" data-v="' + t[0] + '" aria-pressed="' + (M.tab === t[0]) + '">' + t[1] + (num[t[0]] ? ' <i>' + (num[t[0]] > 99 ? '99+' : num[t[0]]) + '</i>' : '') + '</button>';
+    }).join('') + '</div><div class="mm-b">' + (M.tab === 'rec' ? htmlArchRec(k) : htmlMm(k, M.tab)) + '</div>';
+  }
+  async function mmCarga(k, tab, mas) {
+    var D = mmD(k, tab), cid = idConv(k), C0 = C, tipo = (MM_TABS.filter(function (x) { return x[0] === tab; })[0] || [])[2]; if (!cid || !tipo || D.cargando) return;
+    D.cargando = true; D.err = null; if (C.peer === k) pintaArch();
+    var antes = mas && D.items.length ? D.items[D.items.length - 1].created_at : null;
+    var r = await llama('chat_multimedia', { p_conversacion: cid, p_tipo: tipo, p_antes: antes, p_limite: 30 }, 12000);
+    if (C !== C0 || C.cerrando) return;
+    D.cargando = false;
+    if (r.error || !r.data || r.data.ok !== true) { if (falta62(r)) { ocultaPor62(); return; } D.err = r.error ? msgE(r.error) : 'Respuesta vacía'; }
+    else {
+      var nuevos = arr(r.data.items).filter(function (x) { return tab === 'enl' ? (x && typeof x.id === 'string' && typeof x.url === 'string') : archValido(x); });
+      if (mas) { var ya = {}; D.items.forEach(function (x) { ya[x.id + '|' + (x.url || '')] = 1; }); nuevos.forEach(function (x) { if (!ya[x.id + '|' + (x.url || '')]) D.items.push(x); }); } else D.items = nuevos;
+      D.hay = !!r.data.hay_mas; D.cargado = true; D.t = Date.now(); if (r.data.cuentas) MM(k).cuentas = r.data.cuentas;
+    }
+    if (C.peer === k) pintaArch();
+  }
+  function mmViejo(k) {   // llegó un archivo nuevo: lo que ya estaba cargado se vuelve a pedir si se está mirando
+    var B = C.x9; if (!B || B.sin || !B.mm[k]) return; var M = B.mm[k];
+    Object.keys(M.d).forEach(function (t) { M.d[t].t = 0; });
+    if (C.info && C.peer === k && M.tab !== 'rec') mmCarga(k, M.tab, false);
+  }
+  function mmElige(k, tab) {
+    var M = MM(k); M.tab = tab; var D = tab === 'rec' ? null : mmD(k, tab);
+    pintaArch();
+    var bt = document.querySelector('#mz-arch [data-a="mm-tab"][data-v="' + tab + '"]'); if (bt) { try { bt.focus({ preventScroll: true }); } catch (e) { } }
+    if (D && (!D.cargado || Date.now() - D.t > 30000)) mmCarga(k, tab, false);
+  }
+
+  /* ----- Exportar un grupo (CSV: se abre en Excel o en Google Sheets) ----- */
+  function puedeExportar(k) { var B = C.x9, g = k && C.grupos[k]; return !!(B && B.ok && !B.sin && g && (g.rol_chat === 'ADMIN' || moderador())); }
+  function btnExportar(k) { return puedeExportar(k) ? '<button type="button" class="mz-acc" data-a="exportar">' + ic(IC.tabla, 18) + 'Exportar historial (CSV)</button>' : ''; }
+  function celdaCsv(v) {
+    var s = String(v == null ? '' : v).replace(/\r\n?/g, '\n');
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;   // una celda que empieza con = + - @ se podría tomar como fórmula
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  async function exportaGrupo(k) {
+    var B = Y(), cid = idConv(k), g = C.grupos[k]; if (!cid || !g || B.exportando) return;
+    B.exportando = true; aviso('Preparando el archivo…');
+    var C0 = C, r = await llama('chat_exportar_grupo', { p_conversacion: cid }, 60000);
+    B.exportando = false; if (C !== C0 || C.cerrando) return;
+    if (r.error || !r.data || r.data.ok !== true) { if (falta62(r)) { ocultaPor62(); return; } aviso(msgE(r.error), true); return; }
+    var d = r.data, filas = arr(d.filas), lineas = [['Fecha', 'Hora', 'Autor', 'Tipo', 'Texto']].concat(filas).map(function (f) { return arr(f).map(celdaCsv).join(','); });
+    var blob = new Blob(['\ufeff' + lineas.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' }), url = URL.createObjectURL(blob);
+    var slug = plano(String(d.nombre || g.nombre || 'grupo')).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'grupo', el = document.createElement('a');
+    el.href = url; el.download = 'chat-' + slug + '-' + hoyLima() + '.csv'; el.rel = 'noopener'; el.style.display = 'none'; document.body.appendChild(el); el.click();
+    setTimeout(function () { el.remove(); URL.revokeObjectURL(url); }, 4000);
+    aviso('Listo: ' + filas.length + (filas.length === 1 ? ' mensaje exportado' : ' mensajes exportados') + (d.truncado ? ' (los primeros ' + d.max + ' de ' + d.total + ')' : '') + '. Quedó anotado en la auditoría.');
+  }
+
+  /* ----- Ajustes: No molestar por horario y resumen de turno ----- */
+  function dndBorrador() {
+    var B = Y(); if (!B.dndBorr && B.dnd) B.dndBorr = { activo: B.dnd.activo, desde: B.dnd.desde, hasta: B.dnd.hasta, dias: B.dnd.dias.slice() };
+    return B.dndBorr;
+  }
+  function dndCambiado() {
+    var B = Y(), b = B.dndBorr, d = B.dnd; if (!b || !d) return false;
+    return b.activo !== d.activo || b.desde !== d.desde || b.hasta !== d.hasta || JSON.stringify(b.dias.slice().sort()) !== JSON.stringify(d.dias.slice().sort());
+  }
+  function dndError(b) { return !b ? '' : (!/^\d\d:\d\d$/.test(b.desde) || !/^\d\d:\d\d$/.test(b.hasta)) ? 'Elige la hora de inicio y la de fin' : b.desde === b.hasta ? 'El horario no puede empezar y terminar a la misma hora' : !b.dias.length ? 'Elige al menos un día' : ''; }
+  function seccionDnd() {
+    var B = Y(); if (B.sin) return '';
+    if (!B.ok || !B.dnd) return '<h4>No molestar automático</h4><div class="mz-nota2">' + (B.errCarga ? esc(B.errCarga) : 'Cargando…') + '</div>';
+    var d = B.dndBorr || B.dnd, err = dndError(B.dndBorr), msg = B.dndMsg;
+    return '<h4>No molestar automático</h4>' +
+      '<label class="mz-sw"><span class="t"><b>Activar el horario</b><small>Dentro del horario no suenan ni avisan los mensajes nuevos y nadie puede enviarte zumbidos. Los mensajes siguen llegando. Es la hora de Lima (Perú).</small></span><input type="checkbox" role="switch" id="mz-dn-a"' + (d.activo ? ' checked' : '') + '></label>' +
+      '<div class="dn-hor"><div class="mz-fld"><label for="mz-dn-d">Desde</label><input type="time" id="mz-dn-d" value="' + esc(d.desde) + '" required></div><div class="mz-fld"><label for="mz-dn-h">Hasta</label><input type="time" id="mz-dn-h" value="' + esc(d.hasta) + '" required></div></div>' +
+      '<div class="dn-dias" role="group" aria-label="Días en que se aplica">' + DIAS_ISO.map(function (x) { return '<button type="button" data-a="dn-dia" data-v="' + x[0] + '" aria-pressed="' + (d.dias.indexOf(x[0]) >= 0) + '" aria-label="' + x[2] + '">' + x[1] + '</button>'; }).join('') + '</div>' +
+      '<div class="dn-pie"><button type="button" class="mz-btn chico" id="mz-dn-g" data-a="dn-guardar"' + (!dndCambiado() || err || B.dndBusy ? ' disabled' : '') + '>' + (B.dndBusy ? 'Guardando…' : 'Guardar horario') + '</button><span class="dn-msg' + (msg && msg.mal ? ' mal' : '') + '" id="mz-dn-m" role="status">' + esc(err || (msg && msg.t) || '') + '</span></div>' +
+      '<div class="mz-nota2">Si cruza la medianoche (por ejemplo de 22:00 a 07:00), cuenta desde el día elegido. Puedes pausarlo desde el aviso que sale arriba de la lista.</div>';
+  }
+  function seccionResumen() {
+    return interruptor('resumenTurno', 'Resumen de tu turno', 'Una tarjeta al empezar el día con lo pendiente: mensajes sin leer, menciones, comunicados y recordatorios. Se puede cerrar y no vuelve hasta mañana.') +
+      '<button type="button" class="mz-btn sec chico" data-a="rs-ahora" style="margin-top:6px">Ver el resumen de hoy</button>';
+  }
+  function dndActualizaUi() {
+    var g = $('mz-dn-g'), m = $('mz-dn-m'), B = Y(), err = dndError(B.dndBorr);
+    if (g) g.disabled = !dndCambiado() || !!err || B.dndBusy; if (m) { m.textContent = err || ''; m.classList.toggle('mal', !!err); }
+  }
+  async function dndGuarda() {
+    var B = Y(), b = B.dndBorr, C0 = C; if (!b || B.dndBusy || dndError(b)) return;
+    B.dndBusy = true; B.dndMsg = null; dndActualizaUi();
+    var r = await llama('chat_dnd_set', { p_activo: !!b.activo, p_desde: b.desde, p_hasta: b.hasta, p_dias: b.dias.slice().sort() }, 10000);
+    if (C !== C0 || C.cerrando) return;
+    B.dndBusy = false;
+    if (r.error || !r.data || r.data.ok !== true) B.dndMsg = { t: msgE(r.error), mal: true };
+    else { B.dnd = dndNorm(r.data); B.dndBorr = null; B.dndMsg = { t: b.activo ? 'Guardado. Se aplicará en ese horario.' : 'Guardado. El horario está apagado.' }; B.dndPrev = dndOn(); cargaExtras2(true); }
+    if (C.aj) pintaAjustes(); pintaLista();
+  }
+  async function dndPausa(pausar) {
+    var B = Y(), C0 = C; if (B.dndBusy) return; B.dndBusy = true; pintaLista();
+    var r = await llama('chat_dnd_pausar', { p_pausar: !!pausar }, 10000);
+    if (C !== C0 || C.cerrando) return;
+    B.dndBusy = false;
+    if (r.error || !r.data || r.data.ok !== true) aviso(msgE(r.error), true);
+    else { B.dnd = dndNorm(r.data); B.dndPrev = dndOn(); aviso(pausar ? 'No molestar en pausa hasta que termine este horario' : 'No molestar otra vez en marcha'); cargaExtras2(true); }
+    pintaLista();
+  }
+  function monta62() { var B = Y(); B.encT = setInterval(encTick, T_ENC); B.dndT = setInterval(dndTick, 15000); B.dndPrev = dndOn(); }
+  function quita62() { var B = C.x9; if (!B) return; clearInterval(B.encT); clearInterval(B.dndT); B.encT = B.dndT = null; }
+  function dndTick() {
+    var B = C.x9; if (!B || B.sin) return; var on = dndOn(), pa = dndPausado(), f = on + '|' + pa;
+    if (f !== B.dndPrevF) { B.dndPrevF = f; B.dndPrev = on; if (C.open) pintaLista(); }
+  }
+  function itemsExtra(k) {   // lo que suma el botón del cuadro de escribir (junto a compartir venta, cliente, ayuda y anuncio)
+    var l = []; if (puedeEncuesta(k)) l.push(['enc-nueva', IC.encuesta, 'Crear una encuesta']); if (puedeOferta(k)) l.push(['ofe-nueva', IC.oferta, 'Compartir una oferta']); return l;
+  }
+
+  /* ----- Ventanas de esta fase (se enganchan a la cadena de ventanas de las fases anteriores) ----- */
+  function modal8b(M) {
+    if (M.tipo === 'comunicado') return { titulo: 'Nuevo comunicado', ok: 'Enviar comunicado', cuerpo: htmlNuevoCom(M) };
+    if (M.tipo === 'cmseg') return { titulo: 'Seguimiento del comunicado', ok: 'Cerrar', cuerpo: htmlSeg(M) };
+    if (M.tipo === 'encuesta') return { titulo: 'Nueva encuesta', ok: 'Crear encuesta', cuerpo: htmlNuevaEnc(M) };
+    if (M.tipo === 'oferta') return { titulo: 'Compartir una oferta', ok: 'Compartir oferta', cuerpo: htmlOfertaModal(M) };
+    return null;
+  }
+  function modal8bPost(M) {
+    var t = M.tipo, f;
+    if (t === 'comunicado') { f = $('mz-cmt'); if (f) f.value = M.titulo; f = $('mz-cmx'); if (f) f.value = M.texto; cuentaCom(M); }
+    else if (t === 'encuesta') { f = $('mz-enp'); if (f) f.value = M.preg; M.ops.forEach(function (o, i) { var x = document.querySelector('#mz-modal [data-eno="' + i + '"]'); if (x) x.value = o; }); }
+    else if (t === 'oferta' && M.est === 'ok') { f = $('mz-ofq'); if (f) f.value = M.q; f = $('mz-ofn'); if (f) f.value = M.nota; f = $('mz-ofc'); if (f) f.textContent = (M.nota || '').length; }
+  }
+  function modal8bBtn(M) {
+    var t = M.tipo;
+    if (t === 'comunicado') return { listo: M.titulo.trim().length >= 1 && M.titulo.length <= 120 && M.texto.trim().length >= 1 && M.texto.length <= 2000 && rolesPermitidos().some(function (x) { return M.roles[x[0]]; }), etiqueta: 'Enviar comunicado' };
+    if (t === 'cmseg') return { listo: true, etiqueta: 'Cerrar' };
+    if (t === 'encuesta') return { listo: encValida(M), etiqueta: 'Crear encuesta' };
+    if (t === 'oferta') { var c = M.est === 'ok' ? ofCalc(M) : null; return { listo: !!(c && c.ok) && M.items.length <= 12, etiqueta: 'Compartir oferta' }; }
+    return null;
+  }
+  async function ok8b(M) {
+    if (M.tipo === 'comunicado') return enviaCom(M);
+    if (M.tipo === 'encuesta') return enviaEnc(M);
+    if (M.tipo === 'oferta') return enviaOferta(M);
+    return true;
+  }
+
+  /* ----- Pulsaciones, escritura y cambios de este bloque (devuelven true si eran de aquí) ----- */
+  function clic8b(a, b, e) {
+    var id = b.getAttribute('data-id'), B = Y(), M = C.modal;
+    switch (a) {
+      case 'cm-vista': abreVista('com'); return true;
+      case 'av-vista': abreVista('avi'); return true;
+      case 'cm-nuevo': abrirNuevoCom(); return true;
+      case 'cm-tab': B.com.tab = b.getAttribute('data-v') === 'env' ? 'env' : 'rec'; if (B.com.tab === 'env') cargaEnviados(); pintaVista(); return true;
+      case 'cm-reint': B.com.cargado = false; cargaCom(); if (B.puedeCom) cargaEnviados(); return true;
+      case 'cm-conf': comConfirma(id); return true;
+      case 'cm-seg': abrirSeg(id); return true;
+      case 'cm-rec': comRecuerda(id); return true;
+      case 'cm-ret': pideRetirar(id); return true;
+      case 'av-reint': B.avi.cargado = false; cargaAvisos(); return true;
+      case 'av-todos': avMarcar(null); return true;
+      case 'av-leer': avMarcar([+id]); return true;
+      case 'av-abrir': avAbrir(+id); return true;
+      case 'rs-cerrar': resumenCierra(); return true;
+      case 'rs-ahora': try { localStorage.removeItem('crm_chat_resumen_' + me.id); } catch (x) { } C.pref.resumenTurno = true; guardaPrefs(); ajustes(false); C.q = ''; C.filtro = 'todos'; pintaLista(); return true;
+      case 'rs-ir': {
+        var v = b.getAttribute('data-v');
+        if (v === 'nolei') { C.filtro = 'nolei'; pintaLista(); }
+        else if (v === 'men') { var A = X(), ks = Object.keys(A.men || {}); if (ks.length) abrirConv(ks[0], { resaltar: A.men[ks[0]].msg || null }); }
+        else if (v === 'com') abreVista('com'); else if (v === 'avi') abreVista('avi'); else if (v === 'ag') abrirAgenda();
+        return true;
+      }
+      case 'dn-pausa': dndPausa(b.getAttribute('data-v') === '1'); return true;
+      case 'dn-dia': { var bo = dndBorrador(); if (!bo) return true; var dd = +b.getAttribute('data-v'), p = bo.dias.indexOf(dd); if (p >= 0) bo.dias.splice(p, 1); else bo.dias.push(dd); b.setAttribute('aria-pressed', String(bo.dias.indexOf(dd) >= 0)); B.dndMsg = null; dndActualizaUi(); return true; }
+      case 'dn-guardar': dndGuarda(); return true;
+      case 'enc-nueva': abrirNuevaEnc(); return true;
+      case 'ofe-nueva': abrirOferta(); return true;
+      case 'enc-voto': encVota(id, +b.getAttribute('data-i')); return true;
+      case 'enc-enviar': { var me1 = msgPorId(C.peer, id); if (esEnc(me1) && B.encSel[me1.crm.id]) encEnvia(me1.crm.id, B.encSel[me1.crm.id].slice().sort(function (x, y) { return x - y; })); return true; }
+      case 'enc-quitar': { var me2 = msgPorId(C.peer, id); if (esEnc(me2)) encEnvia(me2.crm.id, []); return true; }
+      case 'enc-cerrar': encCierra(id); return true;
+      case 'enc-reint': { var me3 = msgPorId(C.peer, id); if (esEnc(me3)) delete B.enc[me3.crm.id]; encPide(true); return true; }
+      case 'enc-masop': if (M && M.tipo === 'encuesta' && M.ops.length < 8) { M.ops.push(''); pintaModal(); var nx = document.querySelector('#mz-modal [data-eno="' + (M.ops.length - 1) + '"]'); if (nx) nx.focus(); } return true;
+      case 'enc-quitaop': if (M && M.tipo === 'encuesta' && M.ops.length > 2) { M.ops.splice(+b.getAttribute('data-i'), 1); pintaModal(); var n2 = document.querySelector('#mz-modal [data-eno]'); if (n2) n2.focus(); } return true;
+      case 'of-op': if (M && M.tipo === 'oferta') { var ops = M.cat.operadores || Object.keys(M.cat.porOperador), nuevo = ops[+b.getAttribute('data-i')]; if (nuevo && nuevo !== M.op) { M.op = nuevo; M.items = []; M.err = ''; ofRepinta(M, { ops: true, prod: true, res: true }); } } return true;
+      case 'of-tg': if (M && M.tipo === 'oferta') ofToggle(M, id); return true;
+      case 'of-mas': if (M && M.tipo === 'oferta') ofCantidad(M, id, 1); return true;
+      case 'of-menos': if (M && M.tipo === 'oferta') ofCantidad(M, id, -1); return true;
+      case 'of-reint': if (M && M.tipo === 'oferta') cargaCatOfe(M, true); return true;
+      case 'of-copiar': { var mo = msgPorId(C.peer, id); if (esOfe(mo)) { copiar(textoOferta(mo.crm)); } return true; }
+      case 'mm-tab': if (C.peer) mmElige(C.peer, b.getAttribute('data-v')); return true;
+      case 'mm-mas': if (C.peer) mmCarga(C.peer, MM(C.peer).tab, true); return true;
+      case 'mm-reint': if (C.peer) mmCarga(C.peer, MM(C.peer).tab, false); return true;
+      case 'mm-copiar': copiar(b.getAttribute('data-u')); return true;
+      case 'exportar': if (C.peer) exportaGrupo(C.peer); return true;
+    }
+    return false;
+  }
+  function entrada8b(e) {
+    var t = e.target, id = t.id, M = C.modal, eno = t.getAttribute && t.getAttribute('data-eno');
+    if (id === 'mz-dn-d' || id === 'mz-dn-h') { var bo = dndBorrador(); if (bo) { bo[id === 'mz-dn-d' ? 'desde' : 'hasta'] = t.value; Y().dndMsg = null; dndActualizaUi(); } return true; }
+    if (!M) return false;
+    if (M.tipo === 'comunicado') {
+      if (id === 'mz-cmt') { M.titulo = t.value; M.err = ''; actualizaModalBtn(); return true; }
+      if (id === 'mz-cmx') { M.texto = t.value; M.err = ''; cuentaCom(M); actualizaModalBtn(); return true; }
+    } else if (M.tipo === 'encuesta') {
+      if (id === 'mz-enp') { M.preg = t.value; M.err = ''; actualizaModalBtn(); return true; }
+      if (eno != null && eno !== '') { M.ops[+eno] = t.value; M.err = ''; actualizaModalBtn(); return true; }
+    } else if (M.tipo === 'oferta' && M.est === 'ok') {
+      if (id === 'mz-ofq') { M.q = t.value; ofRepinta(M, { prod: true }); return true; }
+      if (id === 'mz-ofn') { M.nota = t.value; var c = $('mz-ofc'); if (c) c.textContent = t.value.length; return true; }
+    }
+    return false;
+  }
+  function cambio8b(e) {
+    var t = e.target, id = t.id, M = C.modal, B = Y();
+    if (id === 'mz-dn-a') { var b1 = dndBorrador(); if (b1) { b1.activo = t.checked; B.dndMsg = null; dndActualizaUi(); } return true; }
+    if (id === 'mz-dn-d' || id === 'mz-dn-h') { var b2 = dndBorrador(); if (b2) { b2[id === 'mz-dn-d' ? 'desde' : 'hasta'] = t.value; B.dndMsg = null; dndActualizaUi(); } return true; }
+    if (!M) return false;
+    var rol = t.getAttribute && t.getAttribute('data-cmrol');
+    if (rol && M.tipo === 'comunicado') { M.roles[rol] = t.checked ? 1 : 0; M.err = ''; actualizaModalBtn(); return true; }
+    if (id === 'mz-cmu' && M.tipo === 'comunicado') { M.urgente = t.checked; return true; }
+    if (M.tipo === 'encuesta') {
+      if (id === 'mz-enm') { M.multiple = t.checked; return true; }
+      if (id === 'mz-ena') { M.anonima = t.checked; return true; }
+      if (id === 'mz-end') { M.horas = +t.value || 0; return true; }
+    }
+    if (id === 'mz-ofi' && M.tipo === 'oferta') { M.imp = +t.value || 0; ofRepinta(M, { prod: true, res: true }); return true; }
+    return false;
+  }
+
   /* ================= MONTAJE ================= */
   function montar() {
     if ($('mz') || typeof me === 'undefined' || !me || typeof perfil === 'undefined' || !perfil || !$('app')) return;
@@ -14550,10 +15678,10 @@ function ofcCalcular(cat, sel) {
     window.addEventListener('online', enLineaNav); window.addEventListener('offline', sinRed);
     C.globales = true; aplicaPrefs(); boton(); pintaMe(); pintaLista(); pintaMain();
     cargaTodo().then(function () { C.cargaCont = false; C.ultimaVez = Date.now(); pintaMe(); pintaLista(); if (C.cargadoEn) { llama('chat_entregar', {}); reintentaCola(); } });
-    suscribir(); C.latido = setInterval(latir, CADA); montaAg();
+    suscribir(); C.latido = setInterval(latir, CADA); montaAg(); monta62();
   }
   function quitar() {
-    C.cerrando = true; quitaAg();
+    C.cerrando = true; quitaAg(); quita62();
     try { if (C.chM) sb.removeChannel(C.chM); if (C.chP) sb.removeChannel(C.chP); } catch (e) { }
     clearInterval(C.buzzT); clearInterval(C.latido); clearTimeout(C.resyncT); clearTimeout(C.colaT); clearTimeout(C.entregaT); clearTimeout(C.refrescaT); clearTimeout(C.busqT); clearTimeout(C.perfT); clearTimeout(C.silT);
     Object.keys(C.markT).forEach(function (k) { clearTimeout(C.markT[k]); });
@@ -14579,7 +15707,7 @@ function ofcCalcular(cat, sel) {
   var oL = window.loginView;
   if (typeof oL === 'function') window.loginView = function () { quitar(); return oL.apply(this, arguments); };
   window.mz57 = { montar: montar, quitar: quitar, abrir: function (v) { abrirVentana(v !== false); }, estado: function () { return C; }, latir: latir, abrirCon: abrirCon,
-    x8: function () { return X(); }, tick: tickAgenda, extras: cargaExtras, abrirAgenda: abrirAgenda, rt: function () { return RT(); }, rtVigila: rtVigila,
+    x9: function () { return Y(); }, extras2: cargaExtras2, vista: abreVista, dndOn: dndOn, abre62: abre62Ref, enc: encPide, x8: function () { return X(); }, tick: tickAgenda, extras: cargaExtras, abrirAgenda: abrirAgenda, rt: function () { return RT(); }, rtVigila: rtVigila,
     informe: function () { return rtInforme(C.modal && C.modal.tipo === 'conexion' ? C.modal : {}); }, msgE: msgE };
 })();
 
@@ -14819,9 +15947,10 @@ function ofcCalcular(cat, sel) {
   var ACC = { GRUPO_CREADO: 'Creó un grupo o canal', GRUPO_RENOMBRADO: 'Cambió el nombre de un grupo', GRUPO_ARCHIVADO: 'Archivó un grupo', GRUPO_RESTAURADO: 'Restauró un grupo', GRUPO_ELIMINADO: 'Eliminó un grupo', MIEMBRO_ANADIDO: 'Añadió a una persona', MIEMBRO_QUITADO: 'Quitó a una persona',
     MIEMBRO_SALIO: 'Salió de un grupo', ROL_CAMBIADO: 'Cambió un papel', MENSAJE_MODERADO: 'Retiró un mensaje', ANUNCIO_ENVIADO: 'Envió un anuncio', SILENCIO_APLICADO: 'Silenció a una persona', SILENCIO_QUITADO: 'Quitó un silencio',
     CONFIG_CAMBIADA: 'Cambió la configuración', RETENCION_EJECUTADA: 'Aplicó la conservación', DRIVE_LIMPIEZA: 'Limpió archivos del Drive',
-    RESPUESTA_EQUIPO_CREADA: 'Creó una respuesta rápida del equipo', RESPUESTA_EQUIPO_EDITADA: 'Editó una respuesta rápida del equipo', RESPUESTA_EQUIPO_BORRADA: 'Borró una respuesta rápida del equipo' };
+    RESPUESTA_EQUIPO_CREADA: 'Creó una respuesta rápida del equipo', RESPUESTA_EQUIPO_EDITADA: 'Editó una respuesta rápida del equipo', RESPUESTA_EQUIPO_BORRADA: 'Borró una respuesta rápida del equipo',
+    COMUNICADO_ENVIADO: 'Envió un comunicado', COMUNICADO_RETIRADO: 'Retiró un comunicado', GRUPO_EXPORTADO: 'Exportó un grupo a un archivo' };
   var DET = { antes: 'antes', despues: 'después', motivo: 'motivo', horas: 'horas', hasta: 'hasta', miembros: 'miembros', mensajes: 'mensajes', archivos: 'archivos', bytes: 'bytes', total: 'total', privadas: 'privadas', grupos: 'grupos', general: 'general', destino: 'destino', rol: 'papel', tipo: 'tipo', creada_at: 'creado', archivada_at: 'archivado',
-    usuario_nombre: 'persona', rol_chat: 'papel en el grupo', autor_nombre: 'autor', urgente: 'urgente' };
+    usuario_nombre: 'persona', rol_chat: 'papel en el grupo', autor_nombre: 'autor', urgente: 'urgente', destinatarios: 'destinatarios', roles: 'roles', filas: 'mensajes exportados', desde: 'desde' };
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   var VAL = { ADMIN: 'administrador del grupo', MIEMBRO: 'miembro', LECTOR: 'solo lectura', true: 'sí', false: 'no' };
   var CLAVES = { ret_privadas_dias: 'Plazo de los chats privados', ret_grupos_dias: 'Plazo de grupos y canales', ret_general_dias: 'Plazo de la sala general', ret_conservar_fijados: 'Conservar mensajes fijados' };
@@ -14830,7 +15959,7 @@ function ofcCalcular(cat, sel) {
     if (!d || typeof d !== 'object') return '';
     if (x && x.accion === 'CONFIG_CAMBIADA' && CLAVES[x.objetivo_id]) return 'antes: ' + valCfg(x.objetivo_id, d.antes) + ' · después: ' + valCfg(x.objetivo_id, d.despues);
     return Object.keys(d).filter(function (k) { return d[k] != null && d[k] !== '' && !(typeof d[k] === 'string' && UUID.test(d[k])) && k !== 'dias_privadas' && k !== 'dias_grupos' && k !== 'dias_general' && k !== 'conservar_fijados' && k !== 'mas_antiguo'; }).slice(0, 8).map(function (k) {
-      var v = d[k]; if (/_at$|^hasta$/.test(k) && typeof v === 'string') v = fh(v); else if (k === 'bytes') v = mb(v); else if (typeof v === 'object') v = JSON.stringify(v); else if (VAL[v] != null) v = VAL[v];
+      var v = d[k]; if (/_at$|^hasta$/.test(k) && typeof v === 'string') v = fh(v); else if (k === 'bytes') v = mb(v); else if (Array.isArray(v)) v = v.join(', '); else if (typeof v === 'object') v = JSON.stringify(v); else if (VAL[v] != null) v = VAL[v];
       return (DET[k] || k) + ': ' + v;
     }).join(' · ');
   }
