@@ -15859,7 +15859,7 @@ function ofcCalcular(cat, sel) {
       k(d.privadas, 'chats privados') + k(d.mensajes_7d, 'mensajes en 7 días') + k(d.mensajes, 'mensajes en total') + '<div class="c60-k"><b>' + nf(d.archivos) + '</b><span>archivos · ' + mb(d.bytes) + '</span></div></div>' +
       '<div class="c60-nota">El mensaje más antiguo que hay guardado es del <b>' + esc(fh(d.mas_antiguo) || '—') + '</b>.' + (S.adm ? ' Conservación: ' + (d.config && (d.config.ret_privadas_dias || d.config.ret_grupos_dias || d.config.ret_general_dias) ? 'activada (los plazos están en la pestaña Conservación).' : '<b>no se borra nada</b> (así queda hasta que tú lo cambies).') : '') + '</div>' +
       (S.adm ? '<div class="c60-nota">Registros en la auditoría: <b>' + nf(d.auditoria) + '</b> · última conservación: <b>' + esc(d.ultima_retencion ? hace(d.ultima_retencion) : 'nunca') + '</b> · última limpieza del Drive: <b>' + esc(d.ultima_limpieza_drive ? hace(d.ultima_limpieza_drive) : 'nunca') + '</b>.</div>' : '') +
-      '<div class="c60-nota">Los mensajes <b>no tienen cifrado de extremo a extremo</b> (viajan por HTTPS y se guardan en tu Supabase). Esta pantalla no muestra lo que escriben las personas y el administrador no lee chats privados ajenos.</div>';
+      '<div class="c60-nota">Los mensajes <b>no tienen cifrado de extremo a extremo</b> </div>';
   }
 
   /* ----- Personas ----- */
