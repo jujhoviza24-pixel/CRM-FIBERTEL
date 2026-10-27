@@ -3503,10 +3503,11 @@ function ventaForm(l) {
 
   /* ---------- listas de servicios (estilo libro del agente) ---------- */
   function filas(d) {
-    var a = (d.servicios || []).map(function (s) { s.act = true; return s; });
-    var o = (d.otros || []).map(function (s) { s.act = false; return s; });
-    return a.concat(o);
-  }
+  var NO = /DESCONE|CANCEL|ANUL|BAJA|CA[IÍ]D/;
+  var a = (d.servicios || []).map(function (s) { s.act = true; return s; });
+  var o = (d.otros || []).map(function (s) { s.act = false; return s; });
+  return a.concat(o).filter(function (s) { return !NO.test(N(s.estado)); });
+}
   function coincide(s) {
     var q = N(ST.q); if (!q) return true;
     return N([s.cliente, s.dni, s.id_venta, s.numero, s.producto, s.campana].join(' ')).indexOf(q) >= 0;
