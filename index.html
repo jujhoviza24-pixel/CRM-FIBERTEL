@@ -2503,7 +2503,7 @@ function ventaForm(l) {
   var MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   var DIAS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
   var HOY = new Date(), ROL = null;
-  function mk() { return { y: HOY.getFullYear(), m: HOY.getMonth() + 1, d: '', h: '', q: '', f: 'TODAS', b: 'venta', max: 30, data: null, t: 0, busy: false, dirty: false }; }
+  function mk() { return { y: HOY.getFullYear(), m: HOY.getMonth() + 1, d: '', h: '', q: '', f: 'TODAS', o: 'TODAS', b: 'venta', max: 30, data: null, t: 0, busy: false, dirty: false }; }
   var EST = { ven: mk(), ana: mk() };
   var MAC = { TRA: ['En trámite', 'info'], INC: ['Con incidencia', 'warn'], ACT: ['Activas', 'ok'], CAI: ['Caídas', 'bad'] };
   var TIPO = { CONVERGENTE: 'Internet', LINEA_PAGA: 'Línea móvil', 'LINEA PAGA': 'Línea móvil', LINEA_GRATIS: 'Línea gratis', 'LINEA GRATIS': 'Línea gratis', 'LINEA FIJA': 'Línea fija', LINEA_FIJA: 'Línea fija', TELEVISION: 'TV', FIJO: 'Línea fija' };
@@ -2551,13 +2551,13 @@ function ventaForm(l) {
       return sb.from('ventas_sync').select('*').or(filtro)
         .order('fecha_venta', { ascending: false, nullsFirst: false }).order('id_venta').order('fila_matriz');
     });
-    var ids = [], vi = {}, lm = {}, pn = {}, i;
+    var ids = [], vi = {}, lm = {}, pn = {}, pr = {}, i;
     rows.forEach(function (r) { if (r.lead_id && !vi[r.lead_id]) { vi[r.lead_id] = 1; ids.push(r.lead_id); } });
     var tr = [];
     for (i = 0; i < ids.length; i += 150) tr.push(ids.slice(i, i + 150));
-    var res = await Promise.all(tr.map(function (t) { return sb.from('leads').select('*').in('id', t); }).concat([sb.from('perfiles').select('id,nombre')]));
+    var res = await Promise.all(tr.map(function (t) { return sb.from('leads').select('*').in('id', t); }).concat([sb.from('perfiles').select('id,nombre,rol')]));
     res.forEach(function (r, j) {
-      (r.data || []).forEach(function (x) { if (j < tr.length) lm[x.id] = x; else pn[x.id] = x.nombre; });
+      (r.data || []).forEach(function (x) { if (j < tr.length) lm[x.id] = x; else { pn[x.id] = x.nombre; pr[x.id] = x.rol; } });
     });
     var raw = rows;   // todo lo que trajo MATRIZ; para las cifras se queda solo lo que cuenta según el botón 🧩
     rows = window.svc49 && window.svc49.activo() ? window.svc49.filtra(raw) : raw;
@@ -2578,7 +2578,9 @@ function ventaForm(l) {
       if (r.fecha_estado && (!x.f || r.fecha_estado > x.f)) x.f = r.fecha_estado;
     });
     o.forEach(function (x) {
-      x.n = x.items.length;
+            x.n = x.items.length;
+      var cid = x.lead && x.lead.concertador_id;
+      x.origen = !x.lead ? 'MX' : (cid && (!pr[cid] || pr[cid] === 'concertador')) ? 'CONC' : 'DIR';
       x.act = x.items.filter(function (i) { return mac(i.estado) === 'ACT'; }).length;
       var pend = x.items.filter(function (i) { var m = mac(i.estado); return m === 'TRA' || m === 'INC'; });
       x.est = pend.length ? (pend.some(function (i) { return mac(i.estado) === 'INC'; }) ? 'INC' : 'TRA') : (x.act ? 'ACT' : 'CAI');
@@ -2658,14 +2660,18 @@ function ventaForm(l) {
   }
   function pintaV() {
     var s = EST.ven, D = s.data, out = document.getElementById('r16-ven'); if (!out || !D) return;
-    var q = N(s.q), base = D.o.filter(function (x) { return !q || x.txt.indexOf(q) >= 0; }), c = { TODAS: base.length };
+        var q = N(s.q), base0 = D.o.filter(function (x) { return !q || x.txt.indexOf(q) >= 0; });
+    var co = { TODAS: base0.length, CONC: 0, DIR: 0, MX: 0 }; base0.forEach(function (x) { co[x.origen]++; });
+    var base = base0.filter(function (x) { return s.o === 'TODAS' || x.origen === s.o; }), c = { TODAS: base.length };
+    var opills = ROL === 'concertador' ? '' : '<div class="d15-pills" style="margin-bottom:8px">' + [['TODAS', 'Todas las ventas'], ['CONC', '📞 Captado por concertador'], ['DIR', '🤝 Directas de cerradores'], ['MX', 'Sin CRM (solo MATRIZ)']].map(function (p) {
+      return '<button class="d15-pill' + (s.o === p[0] ? ' on' : '') + '" data-x="o" data-v="' + p[0] + '">' + p[1] + '<b>' + co[p[0]] + '</b></button>'; }).join('') + '</div>';
     ['TRA', 'INC', 'ACT', 'CAI'].forEach(function (m) { c[m] = base.filter(function (x) { return x.est === m; }).length; });
     var lista = base.filter(function (x) { return s.f === 'TODAS' || x.est === s.f; }).sort(function (a, b) { return (b.f || '') > (a.f || '') ? 1 : -1; });
     var svc = lista.reduce(function (n, x) { return n + x.n; }, 0);
     var pills = [['TODAS', 'Todas']].concat(['TRA', 'INC', 'ACT', 'CAI'].map(function (m) { return [m, MAC[m][0]]; })).map(function (p) {
       return '<button class="d15-pill' + (s.f === p[0] ? ' on' : '') + '" data-x="f" data-v="' + p[0] + '">' + p[1] + '<b>' + c[p[0]] + '</b></button>';
     }).join('');
-    out.innerHTML = (s.b === 'act' ? '<div class="svc49-nota">✅ Viendo lo que se <b>activó o cayó</b> en este periodo (por fecha de activación), aunque la venta sea de un mes anterior.</div>' : '') + (window.svc49 ? window.svc49.nota(D.raw.length - D.rows.length, D.raw, EST.ven.b === 'act') : '') + '<div class="d15-vbar"><div class="d15-pills">' + pills + '</div>' + (ROL === 'admin' ? '<button class="sec" data-x="csv" style="margin-left:auto">⬇ Exportar CSV</button>' : '') + '</div>' +
+    out.innerHTML = (s.b === 'act' ? '<div class="svc49-nota">✅ Viendo lo que se <b>activó o cayó</b> en este periodo (por fecha de activación), aunque la venta sea de un mes anterior.</div>' : '') + (window.svc49 ? window.svc49.nota(D.raw.length - D.rows.length, D.raw, EST.ven.b === 'act') : '') + opills + '<div class="d15-vbar"><div class="d15-pills">' + pills + '</div>' + (ROL === 'admin' ? '<button class="sec" data-x="csv" style="margin-left:auto">⬇ Exportar CSV</button>' : '') + '</div>' +
       '<div class="meta" style="margin-bottom:10px">' + lista.length + ' venta(s) · ' + svc + ' servicio(s) con movimiento en el periodo</div>' +
       (lista.length ? '<div class="d15-vl">' + lista.slice(0, s.max).map(card).join('') + '</div>' +
         (lista.length > s.max ? '<p style="text-align:center;margin:14px 0 0"><button class="sec" data-x="mas">Ver más (' + (lista.length - s.max) + ')</button></p>' : '') :
@@ -2674,12 +2680,12 @@ function ventaForm(l) {
   function csv() {
         if (ROL !== 'admin') return;
     var s = EST.ven, D = s.data; if (!D) return;
-    var q = N(s.q), f = [], cab = ['Cliente', 'DNI', 'Teléfono', 'Provincia', 'Localidad', 'Operador donante', 'Campaña', 'Agente', 'ID venta', 'Tipo', 'Producto', 'Número', 'Estado', 'Fecha estado'];
+    var q = N(s.q), f = [], cab = ['Cliente', 'DNI', 'Teléfono', 'Provincia', 'Localidad', 'Operador donante', 'Campaña', 'Agente', 'ID venta', 'Tipo', 'Producto', 'Número', 'Estado', 'Fecha estado', 'Origen'];
     function cel(v) { var t = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; }
     D.o.forEach(function (x) {
       if ((q && x.txt.indexOf(q) < 0) || (s.f !== 'TODAS' && x.est !== s.f)) return;
       var L = x.lead || {};
-      x.items.forEach(function (i) { f.push([x.nombre, x.dni, x.tel, x.prov, x.loc, x.donante, x.campana, x.agente, x.id, i.tipo_producto, i.producto, i.numero_linea, i.estado, i.fecha_estado]); });
+      x.items.forEach(function (i) { f.push([x.nombre, x.dni, x.tel, x.prov, x.loc, x.donante, x.campana, x.agente, x.id, i.tipo_producto, i.producto, i.numero_linea, i.estado, i.fecha_estado, x.origen === 'CONC' ? 'Concertador' : x.origen === 'DIR' ? 'Cerrador directo' : 'Sin CRM']); });
     });
     var url = URL.createObjectURL(new Blob(['\ufeff' + [cab].concat(f).map(function (r) { return r.map(cel).join(';'); }).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
     var a = document.createElement('a'); a.href = url; a.download = 'ventas_' + rango(s)[0] + (window.svc49 ? window.svc49.sufijo() : '') + '.csv';
@@ -2764,7 +2770,8 @@ function ventaForm(l) {
     el.addEventListener('click', function (e) {
       var b = e.target.closest('[data-x]'); if (!b) return;
       var x = b.getAttribute('data-x'), s = EST.ven;
-      if (x === 'f') { s.f = b.getAttribute('data-v'); s.max = 30; pintaV(); }
+            if (x === 'o') { s.o = b.getAttribute('data-v'); s.max = 30; pintaV(); }
+      else if (x === 'f') { s.f = b.getAttribute('data-v'); s.max = 30; pintaV(); }
       else if (x === 'mas') { s.max += 30; pintaV(); }
       else if (x === 'csv') csv();
       else if (x === 'ficha' && s.data) {
@@ -4102,6 +4109,10 @@ function ventaForm(l) {
   function hoyLima() { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }); }
   function fd(s) { var m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + '/' + m[2] + '/' + m[1] : '—'; }
   function fh(d) { var x = new Date(d); return isNaN(x) ? '' : x.toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }); }
+    function tabsDrawer() {
+    if (ROL === 'back') return (ST.modo === 'CONTRA' && ST.contra) ? ['CONTRA'] : ['SEG'];
+    var l = ['SEG']; if (puedeContra()) l.push('CONTRA'); return l;
+  }
   function puede(c) { return ROL === 'admin' || !ST.perm || ST.perm[c] === true; }
   function buscar(id) { return ((ST.d && ST.d.ventas) || []).filter(function (v) { return v.id_venta === id; })[0]; }
   function entradas(t) { return String(t || '').split(/\s*\/\/\s*/).filter(function (x) { return x.trim(); }); }
@@ -4325,6 +4336,7 @@ function ventaForm(l) {
     cerrarDrawer();
     var t = tab || (ROL === 'cerrador' ? 'CONTRA' : (ST.modo === 'CONTRA' && puedeContra() ? 'CONTRA' : 'SEG'));
     if (t === 'CONTRA' && !puedeContra()) t = 'SEG';
+    var perm = tabsDrawer(); if (perm.indexOf(t) < 0) t = perm[0];
     DR = { id: id, v: v, tab: t, notas: { SEGUIMIENTO: null, CONTRAOFERTA: null }, cambios: null, pend: [], errN: '' };
     var ov = document.createElement('div'); ov.className = 'p37-ov'; ov.id = 'd37';
     ov.innerHTML = '<div class="p37-dr" role="dialog" aria-label="Cliente"></div>';
@@ -4340,8 +4352,8 @@ function ventaForm(l) {
     var d = DR; if (!d) return;
     var id = d.id, edit = ROL !== 'cerrador';
     var P = [
-      sb.rpc('nt_listar', { p_id_venta: id, p_canal: 'SEGUIMIENTO' }),
-      puedeContra() ? sb.rpc('nt_listar', { p_id_venta: id, p_canal: 'CONTRAOFERTA' }) : Promise.resolve({ data: [] }),
+      tabsDrawer().indexOf('SEG') >= 0 ? sb.rpc('nt_listar', { p_id_venta: id, p_canal: 'SEGUIMIENTO' }) : Promise.resolve({ data: [] }),
+      tabsDrawer().indexOf('CONTRA') >= 0 ? sb.rpc('nt_listar', { p_id_venta: id, p_canal: 'CONTRAOFERTA' }) : Promise.resolve({ data: [] }),
       edit ? sb.from('matriz_cambios').select('id,campo,valor_anterior,valor_nuevo,estado,created_at,autor_id,autor_nombre,revertido,reverso_de').eq('id_venta', id).order('id', { ascending: false }).limit(40) : Promise.resolve({ data: [] }),
       edit ? pendDe([id]) : Promise.resolve({})];
     var R = await Promise.all(P);
@@ -4445,6 +4457,7 @@ function ventaForm(l) {
     var sg = d.notas.SEGUIMIENTO || [], cf = d.notas.CONTRAOFERTA || [];
     var tabs = '<div class="p37-tabs"><button type="button" class="p37-tab' + (d.tab === 'SEG' ? ' on' : '') + '" data-d="tab" data-t="SEG">📋 Seguimiento (' + sg.length + ')</button>' +
       (contra ? '<button type="button" class="p37-tab' + (d.tab === 'CONTRA' ? ' on' : '') + '" data-d="tab" data-t="CONTRA">💬 Contraoferta (' + cf.length + ')</button>' : '') + '</div>';
+        if (tabsDrawer().length < 2) tabs = '';
     var cuerpoTab;
     if (d.tab === 'CONTRA' && contra) {
       cuerpoTab = '<div class="meta" style="margin:0 0 8px">' + (ROL === 'cerrador' ? 'Conversación con el back sobre esta contraoferta. Solo la ven tú y el equipo de back.' : 'Conversación con el comercial. Solo vive en el CRM; no se escribe en MATRIZ.') + '</div>' +
@@ -6394,6 +6407,14 @@ function ventaForm(l) {
       (xAp && sv ? kpi('ap', n0(xAp.activados), sv.icono(kAp) + ' ' + esc(sv.etiquetaAct(kAp)), 'Aparte: no se suman · ' + n0(xAp.tramite) + ' en trámite') : '') +
       kpi(tk.vencidas ? 'bad' : '', n0(tk.vencidas), 'Tareas vencidas', n0(tk.sin_asignar) + ' sin asignar · ' + n0(tk.pendientes) + ' pendientes') + '</div>';
 
+        if (d.concertadores) {
+      var sc = 0, vc = 0; d.concertadores.forEach(function (r) { sc += r.servicios || 0; vc += r.vendidos || 0; });
+      var dir = Math.max(0, t.servicios - sc);
+      h += '<div class="s46-sec"><div class="s46-sh"><h3>¿De dónde vienen las ventas?</h3><span class="meta">Servicios vendidos en el periodo, por origen</span></div><div class="s46-kpis">' +
+        kpi('', n0(sc), '📞 De lo que captaron los concertadores', n0(vc) + ' clientes vendidos') +
+        kpi('', n0(dir), '🤝 Directas de cerradores / otras', 'Venta manual, subidas al back o sin CRM') +
+        kpi('', t.servicios ? pcn(sc, t.servicios) + ' %' : '—', 'Parte de concertadores', 'del total de ' + n0(t.servicios)) + '</div></div>';
+    }
     if (d.por_clase && sv) h += seccionTipos(d, sv);
     h += seccionObjetivo(d, sv);
 
@@ -6498,7 +6519,8 @@ function ventaForm(l) {
   function bloqueContra(id) {
     var n = CONTRA[id];
     if (n === undefined) { cargaContra(id); return ''; }
-    if (n === 'carga' || (Array.isArray(n) && !n.length)) return '';
+        if (n === 'carga') return '';
+    if (Array.isArray(n) && !n.length) return '<div class="s46-h4">💬 Contraoferta</div><div class="meta">Todavía no hay mensajes de contraoferta en esta venta.</div>';
     if (n === 'sin53') return '<div class="meta" style="margin-top:10px">Para ver aquí la conversación de contraoferta falta ejecutar <b>53_reporte_agentes_y_contraoferta.sql</b> en Supabase.</div>';
     if (n === 'err') return '<div class="meta" style="margin-top:10px">No se pudo cargar la conversación de contraoferta.</div>';
     return '<div class="s46-h4">💬 Contraoferta · lo que habla el back con el comercial <span class="s46-ro" title="Solo lectura: la conversación la llevan el back de contraofertas y el comercial">👁 solo lectura</span></div>' + n.map(notaHtml).join('');
