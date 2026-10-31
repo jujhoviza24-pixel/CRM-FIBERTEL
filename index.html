@@ -11024,7 +11024,7 @@ function ofcCalcular(cat, sel) {
   function av(id, nombre, tam, gen, mostrarEstado, ov) {
     var P = ov || (!gen && C.perf[id]) || null, s = tam || 40, grp = gen === 'g' || gen === 'c';
     var h = (P && typeof P.color === 'number') ? HUES12[P.color] : HUES[hash(id) % HUES.length], emo = !gen && P && P.emoji ? P.emoji : '';
-    return '<span class="mz-av' + (gen === true ? ' gen' : '') + (emo ? ' emo' : '') + '" style="--s:' + s + 'px;--h:' + h + ';--h2:' + (h + 24) + '">' + (grp ? ic(gen === 'c' ? IC.canal : IC.equipo, Math.round(s * .5)) : gen ? ic(IC.equipo, Math.round(s * .5)) : emo ? esc(emo) : esc(ini(nombre))) +
+    return '<span class="mz-av' + (gen === true ? ' gen' : '') + (emo ? ' emo' : '') + '" style="--s:' + s + 'px;--h:' + h + ';--h2:' + (h + 24) + '">' + (grp ? ic(gen === 'c' ? IC.canal : IC.equipo, Math.round(s * .5)) : gen ? ic(IC.equipo, Math.round(s * .5)) : emo ? esc(emo) : esc(ini(nombre))) + (!gen && window.mz65 ? window.mz65.img(id) : '') +
       (mostrarEstado ? dot(mostrarEstado) : '') + '</span>';
   }
   function avConv(k, tam, estado) {   // avatar de cualquier conversación
@@ -11243,7 +11243,7 @@ function ofcCalcular(cat, sel) {
     return '<div class="mz-ch" role="group" aria-label="Conversación"><button type="button" class="mz-ib mz-atras" data-a="atras" aria-label="Volver a la lista">' + ic(IC.atras) + '</button>' +
       avConv(id, 44) +
       '<div class="mz-ct"><b>' + esc(nombre) + (silenciada(id) ? ' <span class="mz-mini" title="Silenciada">' + ic(IC.mudo, 14) + '<span class="mz-sr">Silenciada</span></span>' : '') + '</b><span id="mz-es">' + lineaEstado() + '</span></div>' +
-      '<button type="button" class="mz-ib" id="mz-bqb" data-a="busqconv" aria-label="Buscar en la conversación" title="Buscar en la conversación" aria-pressed="' + C.busq.on + '">' + ic(IC.lupa) + '</button>' +
+      (window.mz65 ? window.mz65.botones(id) : '') + '<button type="button" class="mz-ib" id="mz-bqb" data-a="busqconv" aria-label="Buscar en la conversación" title="Buscar en la conversación" aria-pressed="' + C.busq.on + '">' + ic(IC.lupa) + '</button>' +
       '<button type="button" class="mz-ib" data-a="menuconv" data-id="' + esc(id) + '" aria-haspopup="menu" aria-label="Opciones de la conversación" title="Opciones: fijar, favorito, silenciar">' + ic(IC.mas) + '</button>' +
       '<button type="button" class="mz-ib" id="mz-ib" data-a="info" aria-label="Información de la conversación" title="Información" aria-pressed="' + C.info + '" aria-controls="mz-info">' + ic(IC.info) + '</button></div>';
   }
@@ -11496,7 +11496,7 @@ function ofcCalcular(cat, sel) {
         '<div class="mz-bl"><h4>Acciones</h4><button type="button" class="mz-acc" data-a="zumbido" id="mz-izb">' + ic(IC.campana, 18) + 'Enviar zumbido</button>' +
         '<button type="button" class="mz-acc" data-a="busqconv">' + ic(IC.lupa, 18) + 'Buscar en la conversación</button></div>';
     }
-    I.innerHTML = h;
+    if (window.mz65) h += window.mz65.fondoHtml(id); I.innerHTML = h;
   }
   function autoTam() { var i = $('mz-in'); if (!i) return; i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 140) + 'px'; }
   function actualizaEnvio() {
@@ -13152,7 +13152,7 @@ function ofcCalcular(cat, sel) {
       ICONOS_AV.map(function (e) { return '<button type="button" role="radio" aria-checked="false" data-a="pf-emoji" data-v="' + e + '" aria-label="Icono ' + e + '">' + e + '</button>'; }).join('');
     var em = '<button type="button" role="radio" aria-checked="false" data-a="pf-me" data-v="" aria-label="Sin emoji" title="Sin emoji">—</button>' +
       EMO_ESTADO.map(function (e) { return '<button type="button" role="radio" aria-checked="false" data-a="pf-me" data-v="' + e + '" aria-label="Emoji ' + e + '">' + e + '</button>'; }).join('');
-    return '<div class="mz-pv" id="mz-pv"></div>' +
+    return '<div class="mz-pv" id="mz-pv"></div>' + (window.mz65 ? window.mz65.fotoHtml() : '') +
       '<div class="mz-fld"><span class="lb" id="mz-pl1">Color del avatar</span><div class="mz-sws" role="radiogroup" aria-labelledby="mz-pl1">' + sw + '</div></div>' +
       '<div class="mz-fld"><span class="lb" id="mz-pl2">Icono <span class="op">(sin icono se ven tus iniciales)</span></span><div class="mz-sws ico" role="radiogroup" aria-labelledby="mz-pl2">' + ic2 + '</div></div>' +
       '<div class="mz-fld"><label for="mz-pm">Mensaje de estado <span class="op">(lo ven tus compañeros)</span></label>' +
@@ -15732,7 +15732,7 @@ function ofcCalcular(cat, sel) {
   });
   var oL = window.loginView;
   if (typeof oL === 'function') window.loginView = function () { quitar(); return oL.apply(this, arguments); };
-  window.mz57 = { montar: montar, quitar: quitar, abrir: function (v) { abrirVentana(v !== false); }, estado: function () { return C; }, latir: latir, abrirCon: abrirCon,
+  window.mz57 = { repinta: function () { repintaPerfiles(); }, montar: montar, quitar: quitar, abrir: function (v) { abrirVentana(v !== false); }, estado: function () { return C; }, latir: latir, abrirCon: abrirCon,
     x9: function () { return Y(); }, extras2: cargaExtras2, vista: abreVista, dndOn: dndOn, abre62: abre62Ref, enc: encPide, x8: function () { return X(); }, tick: tickAgenda, extras: cargaExtras, abrirAgenda: abrirAgenda, rt: function () { return RT(); }, rtVigila: rtVigila,
     informe: function () { return rtInforme(C.modal && C.modal.tipo === 'conexion' ? C.modal : {}); }, msgE: msgE };
 })();
@@ -16430,6 +16430,615 @@ function ofcCalcular(cat, sel) {
   });
 
   window.col64 = { color: color, carga: carga };
+})();
+  /* 65 · MESSENGER: fondos de chat, foto de perfil y llamadas de voz / vídeo
+   Requiere el SQL 65_chat_foto_y_llamadas.sql (los fondos funcionan sin él; la foto y las llamadas lo necesitan).
+   PEGAR al final del script de index.html, DESPUÉS de los demás bloques y antes del cierre del script.
+   Además hay 5 cambios pequeños dentro del bloque del Messenger (están en INSTRUCCIONES_tanda2.txt): sin ellos este bloque no hace nada visible.
+   · Fondos: tonos claros con dibujos suaves (como los chats de móvil), uno distinto para cada conversación. Se guardan en este navegador.
+   · Foto de perfil: se elige un archivo de tu equipo; el navegador la reduce a 96×96 y la guarda en la base de datos.
+   · Llamadas: de persona a persona (no en grupos). El audio y el vídeo van directos entre los dos equipos (WebRTC) y usan los servidores gratuitos
+     de Google solo para que los dos equipos se encuentren; por eso, en redes de empresa muy cerradas puede que alguna llamada no llegue a conectar.
+   OJO: el CRM pone en MAYÚSCULAS todos los campos de texto; este bloque no tiene campos de texto libre. */
+(function () {
+  if (window.mz65) return;
+  var CFG = { idleMs: 8000, rapidoMs: 900, activaMs: 2500, sonandoMs: 45000, conectaMs: 30000, fotosMs: 300000,
+    ice: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }] };
+  var ST = { uid: null, fotos: {}, fotosT: null, fotosN: 0, sinSQL: false, canal: null, vistas: {}, perdidasOk: false, peerPrev: undefined, iniciado: false };
+  var K = null;                                   // la llamada actual (si la hay)
+  var SIG = { ult: 0, tmr: null, ocupado: false };
+  var AUD = { ctx: null, tmr: null, gain: null };
+  var FOTO_OK = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/]+={0,2}$/;
+
+  function $(i) { return document.getElementById(i); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function yo() { try { return (typeof perfil !== 'undefined' && perfil && perfil.id) ? perfil.id : null; } catch (e) { return null; } }
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { } }
+  function aviso(t, err) { try { if (typeof toast === 'function') toast(t, !!err); } catch (e) { } }
+  function bonito(n) { return String(n || '').trim().toLowerCase().replace(/(^|\s)\S/g, function (c) { return c.toUpperCase(); }); }
+  function C57() { try { return window.mz57 && window.mz57.estado ? window.mz57.estado() : null; } catch (e) { return null; } }
+  function llama(n, a) {
+    return new Promise(function (res) {
+      var hecho = false, t = setTimeout(function () { if (!hecho) { hecho = true; res({ data: null, error: { message: 'tiempo agotado' } }); } }, 15000);
+      Promise.resolve().then(function () { return sb.rpc(n, a || {}); }).then(
+        function (r) { if (!hecho) { hecho = true; clearTimeout(t); res(r || { data: null, error: { message: 'sin respuesta' } }); } },
+        function (e) { if (!hecho) { hecho = true; clearTimeout(t); res({ data: null, error: { message: String((e && e.message) || e) } }); } });
+    });
+  }
+  function falta(e) { var t = String(e && ((e.code || '') + ' ' + (e.message || ''))); return /PGRST202|PGRST205|42883|42P01/.test(t) || /Could not find the function public\.chat_/.test(t); }
+  function codigo(e) { var m = /chat:([a-z_]+)/.exec(String((e && e.message) || '')); return m ? m[1] : ''; }
+  function repinta() { try { if (window.mz57 && window.mz57.repinta) window.mz57.repinta(); } catch (e) { } }
+
+  /* ============================== 1 · FONDOS DE CHAT ============================== */
+  // [clave, nombre, color claro, color de los dibujos, color en modo oscuro]  (en modo oscuro el mismo tono, pero apagado, para que el texto claro se lea)
+  var FONDOS = [['cl', 'Clásico', '#efeae2', '#6f5f4a', '#1d1b17'], ['me', 'Menta', '#d9f0df', '#3f7d57', '#112219'], ['ci', 'Cielo', '#d8e9f8', '#3d6f9f', '#10202e'], ['ro', 'Rosa', '#f6e0e7', '#a04d6a', '#27171e'],
+    ['li', 'Lila', '#e6dff5', '#6b559f', '#1c1830'], ['ar', 'Arena', '#f3e8cc', '#8f7433', '#262012'], ['pi', 'Pizarra', '#d6dde5', '#4d5e70', '#171f28'], ['bl', 'Blanco', '#ffffff', '#7b8794', '#0f1519']];
+  var ICONOS = {
+    burbuja: '<path d="M5 4h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H10l-5 4v-4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/>',
+    corazon: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+    estrella: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+    telefono: '<path d="M6 3h3l1.5 4-2 1.3a11 11 0 0 0 5.2 5.2L15 11.5l4 1.5v3a2 2 0 0 1-2 2A13 13 0 0 1 4 5a2 2 0 0 1 2-2z"/>',
+    reloj: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    sobre: '<path d="M3 6h18v12H3z"/><path d="M3 7l9 6 9-6"/>',
+    nota: '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>',
+    sonrisa: '<circle cx="12" cy="12" r="9"/><path d="M8.5 14a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/>',
+    avion: '<path d="M3 11l18-8-6 18-3-7z"/><path d="M12 14l9-11"/>',
+    taza: '<path d="M5 8h11v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"/><path d="M16 9h2a2 2 0 0 1 0 5h-2"/><path d="M8 3v2M12 3v2"/>',
+    rayo: '<path d="M13 2L5 14h6l-1 8 8-12h-6z"/>',
+    auricular: '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M4 14h3v5H5a1 1 0 0 1-1-1z"/><path d="M20 14h-3v5h2a1 1 0 0 0 1-1z"/>',
+    camara: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+    check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>'
+  };
+  var COLOCA = [['burbuja', 12, 14, -8], ['corazon', 68, 8, 12], ['estrella', 126, 20, 0], ['telefono', 184, 10, -14], ['reloj', 18, 70, 10], ['sobre', 76, 62, -6], ['nota', 138, 76, 14],
+    ['sonrisa', 194, 68, 0], ['avion', 8, 130, -10], ['taza', 70, 126, 6], ['rayo', 130, 132, -4], ['auricular', 188, 126, 8], ['camara', 38, 188, 6], ['check', 108, 190, -10], ['burbuja', 168, 188, 12]];
+  var TEJAS = {};
+  function teja(trazo, op) {
+    op = op || .26; var clave = trazo + op;
+    if (TEJAS[clave]) return TEJAS[clave];
+    var g = COLOCA.map(function (c) { return '<g transform="translate(' + c[1] + ' ' + c[2] + ') rotate(' + c[3] + ' 14 14) scale(1.15)">' + ICONOS[c[0]] + '</g>'; }).join('');
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="230" height="230" viewBox="0 0 230 230"><g fill="none" stroke="' + trazo + '" stroke-opacity="' + op + '" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' + g + '</g></svg>';
+    return (TEJAS[clave] = 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")');
+  }
+  function fondoLee() { try { var o = JSON.parse(lsGet('crm_chat_fondo65_' + yo()) || '{}'); return (o && typeof o === 'object') ? o : {}; } catch (e) { return {}; } }
+  function fondoGuarda(o) { lsSet('crm_chat_fondo65_' + yo(), JSON.stringify(o)); }
+  function fondoDe(k) { var o = fondoLee(); return o[k] || o._ || null; }
+  function defFondo(c) { for (var i = 0; i < FONDOS.length; i++) if (FONDOS[i][0] === c) return FONDOS[i]; return null; }
+  function peerAct() { var c = C57(); return c ? (c.peer || null) : null; }
+  function aplicaFondo() {
+    var M = $('mz-main'); if (!M) return;
+    var k = peerAct(), f = k && fondoDe(k), d = f && defFondo(f.c);
+    if (!d) { M.classList.remove('f65'); ['--f65-bg', '--f65-img', '--f65-bgo', '--f65-imgo'].forEach(function (v) { M.style.removeProperty(v); }); return; }
+    M.classList.add('f65'); M.style.setProperty('--f65-bg', d[2]); M.style.setProperty('--f65-img', f.d === 0 ? 'none' : teja(d[3]));
+    M.style.setProperty('--f65-bgo', d[4]); M.style.setProperty('--f65-imgo', f.d === 0 ? 'none' : teja('#ffffff', .1));
+  }
+  function fondoHtml(id) {
+    if (!id) return '';
+    var f = fondoDe(id) || {}, h = '<div class="mz-bl f65-bl" id="f65-bl"><h4>Fondo del chat</h4><div class="f65-sw" role="radiogroup" aria-label="Color del fondo de este chat">';
+    FONDOS.forEach(function (x) { h += '<button type="button" role="radio" class="f65-s" data-a65="fondo" data-c="' + x[0] + '" aria-checked="' + (f.c === x[0]) + '" style="--b:' + x[2] + ';--t:' + x[3] + '" title="' + x[1] + '" aria-label="' + x[1] + '"></button>'; });
+    return h + '</div><label class="f65-ck"><input type="checkbox" data-a65="dib"' + (f.d === 0 ? '' : ' checked') + '> Con dibujos</label>' +
+      '<button type="button" class="mz-acc" data-a65="fondo-todos">' + SVG_TODOS + 'Usar este fondo en todos los chats</button>' +
+      '<button type="button" class="mz-acc" data-a65="fondo-quita">' + SVG_QUITA + 'Sin fondo especial (el de siempre)</button></div>';
+  }
+  function marcaFondo() {
+    var k = peerAct(), f = (k && fondoDe(k)) || {};
+    document.querySelectorAll('#f65-bl [data-a65="fondo"]').forEach(function (b) { b.setAttribute('aria-checked', String(b.getAttribute('data-c') === f.c)); });
+    var ck = document.querySelector('#f65-bl [data-a65="dib"]'); if (ck) ck.checked = f.d !== 0;
+  }
+  function acFondo(a, b) {
+    var k = peerAct(); if (!k) return;
+    var o = fondoLee(), cur = o[k] || o._ || {};
+    if (a === 'fondo') o[k] = { c: b.getAttribute('data-c'), d: cur.d === 0 ? 0 : 1 };
+    else if (a === 'dib') o[k] = { c: (cur.c && defFondo(cur.c)) ? cur.c : 'cl', d: b.checked ? 1 : 0 };
+    else if (a === 'fondo-todos') { if (!cur.c || !defFondo(cur.c)) { aviso('Primero elige un color', true); return; } o._ = { c: cur.c, d: cur.d === 0 ? 0 : 1 }; aviso('Fondo aplicado a todos tus chats'); }
+    else if (a === 'fondo-quita') { o[k] = { c: '', d: 1 }; }
+    fondoGuarda(o); aplicaFondo(); marcaFondo();
+  }
+
+  /* ============================== 2 · FOTO DE PERFIL ============================== */
+  function img(id) { var s = id && ST.fotos[id]; return s ? '<img class="mz-avf" src="' + esc(s) + '" alt="" draggable="false">' : ''; }
+  async function cargaFotos(todo) {
+    if (ST.sinSQL || !yo()) return;
+    var r = await llama('chat_fotos', (todo || !ST.fotosT) ? {} : { p_desde: ST.fotosT });
+    if (r.error) { if (falta(r.error)) ST.sinSQL = true; return; }
+    var d = r.data || {}, f = d.fotos || {}, cambio = false, antes = ST.fotos, nuevo = {};
+    if (todo || !ST.fotosT) {
+      Object.keys(f).forEach(function (k) { if (typeof f[k] === 'string' && FOTO_OK.test(f[k])) nuevo[k] = f[k]; });
+      var ka = Object.keys(antes), kn = Object.keys(nuevo);
+      cambio = ka.length !== kn.length || kn.some(function (k) { return antes[k] !== nuevo[k]; });
+      ST.fotos = nuevo;
+    } else {
+      Object.keys(f).forEach(function (k) {
+        var v = f[k];
+        if (typeof v === 'string' && FOTO_OK.test(v)) { if (antes[k] !== v) { antes[k] = v; cambio = true; } }
+        else if (antes[k]) { delete antes[k]; cambio = true; }
+      });
+    }
+    if (d.ahora) ST.fotosT = d.ahora;
+    ST.fotosN++;
+    if (cambio || ST.fotosN === 1) repinta();
+  }
+  function fotoHtml() {
+    var me = yo(), tiene = !!(me && ST.fotos[me]);
+    return '<div class="mz-fld f65-ft" id="f65-ft"><span class="lb" id="f65-l">Foto de perfil <span class="op">(se reduce sola; la ven tus compañeros)</span></span>' +
+      '<div class="f65-fr"><span class="f65-pv" id="f65-pv">' + (tiene ? '<img src="' + esc(ST.fotos[me]) + '" alt="Tu foto actual">' : '<i>Sin foto</i>') + '</span>' +
+      '<div class="f65-bs"><button type="button" class="mz-btn sec chico" data-a65="foto-sube">Elegir foto de mi equipo…</button>' +
+      '<button type="button" class="mz-btn sec chico" data-a65="foto-quita" id="f65-q"' + (tiene ? '' : ' hidden') + '>Quitar foto</button></div>' +
+      '<input type="file" id="f65-file" accept="image/jpeg,image/png,image/webp" hidden aria-labelledby="f65-l"></div>' +
+      '<div class="f65-msg" id="f65-msg" role="status" aria-live="polite"></div></div>';
+  }
+  function mensajeFoto(t, err) { var m = $('f65-msg'); if (m) { m.textContent = t || ''; m.classList.toggle('err', !!err); } }
+  function procesaImagen(file) {
+    return new Promise(function (res, rej) {
+      if (!file) return rej(new Error('Elige una imagen'));
+      if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return rej(new Error('Elige una foto JPG, PNG o WebP'));
+      if (file.size > 12 * 1024 * 1024) return rej(new Error('Esa imagen pesa más de 12 MB'));
+      var url = URL.createObjectURL(file), im = new Image();
+      im.onload = function () {
+        try {
+          var w = im.naturalWidth, h = im.naturalHeight, lado = Math.min(w, h), c = document.createElement('canvas'), x = c.getContext('2d');
+          if (!lado) throw new Error('Imagen vacía');
+          c.width = 96; c.height = 96; x.fillStyle = '#ffffff'; x.fillRect(0, 0, 96, 96);
+          x.drawImage(im, (w - lado) / 2, (h - lado) / 2, lado, lado, 0, 0, 96, 96);
+          var q = .82, out = c.toDataURL('image/jpeg', q);
+          while (out.length > 24000 && q > .35) { q -= .1; out = c.toDataURL('image/jpeg', q); }
+          URL.revokeObjectURL(url);
+          if (!FOTO_OK.test(out) || out.length > 29000) return rej(new Error('No se pudo reducir esa imagen'));
+          res(out);
+        } catch (e) { URL.revokeObjectURL(url); rej(new Error('No se pudo leer esa imagen')); }
+      };
+      im.onerror = function () { URL.revokeObjectURL(url); rej(new Error('No se pudo abrir esa imagen')); };
+      im.src = url;
+    });
+  }
+  function actualizaVistaFoto() {
+    var me = yo(), pv = $('f65-pv'), q = $('f65-q'), tiene = !!(me && ST.fotos[me]);
+    if (pv) pv.innerHTML = tiene ? '<img src="' + esc(ST.fotos[me]) + '" alt="Tu foto actual">' : '<i>Sin foto</i>';
+    if (q) q.hidden = !tiene;
+    var a = document.querySelector('#mz-pv .mz-av');
+    if (a) { var v = a.querySelector('img.mz-avf'); if (v) v.remove(); if (tiene) a.insertAdjacentHTML('beforeend', img(me)); }
+  }
+  async function subeFoto(file) {
+    var me = yo(); if (!me) return;
+    mensajeFoto('Preparando la foto…');
+    var url;
+    try { url = await procesaImagen(file); } catch (e) { mensajeFoto(e.message, true); return; }
+    mensajeFoto('Guardando…');
+    var r = await llama('chat_avatar_foto_set', { p_foto: url });
+    if (r.error) { mensajeFoto(falta(r.error) ? 'Falta ejecutar el SQL 65 en Supabase' : (codigo(r.error) === 'foto_invalida' ? 'Esa foto no es válida' : 'No se pudo guardar. Intenta de nuevo'), true); return; }
+    ST.fotos[me] = url; actualizaVistaFoto(); repinta(); mensajeFoto('Foto guardada'); nudge('foto');
+  }
+  async function quitaFoto() {
+    var me = yo(); if (!me) return;
+    var r = await llama('chat_avatar_foto_set', { p_foto: null });
+    if (r.error) { mensajeFoto('No se pudo quitar. Intenta de nuevo', true); return; }
+    delete ST.fotos[me]; actualizaVistaFoto(); repinta(); mensajeFoto('Foto quitada'); nudge('foto');
+  }
+
+  /* ============================== 3 · LLAMADAS ============================== */
+  var SVG_TODOS = '<svg class="mz-ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>';
+  var SVG_QUITA = '<svg class="mz-ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M6.3 6.3l11.4 11.4"/></svg>';
+  var SVG_TEL = '<svg class="mz-ic" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 3h3l1.5 4-2 1.3a11 11 0 0 0 5.2 5.2L15 11.5l4 1.5v3a2 2 0 0 1-2 2A13 13 0 0 1 4 5a2 2 0 0 1 2-2z"/></svg>';
+  var SVG_CAM = '<svg class="mz-ic" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="M15 10l6-3v10l-6-3z"/></svg>';
+  var SVG_MIC = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+  var SVG_MIC_OFF = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M3 3l18 18"/></svg>';
+  var SVG_CAM_ON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="M15 10l6-3v10l-6-3z"/></svg>';
+  var SVG_CAM_OFF = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="M15 10l6-3v10l-6-3zM3 3l18 18"/></svg>';
+  var SVG_COLGAR = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 14c5-5 13-5 18 0l-2 3-4-1.5v-2.5a10 10 0 0 0-6 0V15.5L5 17z"/></svg>';
+  var SVG_COGER = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 3h3l1.5 4-2 1.3a11 11 0 0 0 5.2 5.2L15 11.5l4 1.5v3a2 2 0 0 1-2 2A13 13 0 0 1 4 5a2 2 0 0 1 2-2z"/></svg>';
+
+  function soporta() { return !!(window.RTCPeerConnection && navigator.mediaDevices && navigator.mediaDevices.getUserMedia); }
+  function nombreCabecera() { var b = document.querySelector('#mz-main .mz-ct b'); return b && b.firstChild ? String(b.firstChild.nodeValue || '').trim() : ''; }
+  function botones(id) {
+    try {
+      if (ST.sinSQL || !soporta() || !id || id === 'GEN' || id === yo()) return '';
+      var c = C57(); if (!c || (c.grupos && c.grupos[id])) return '';
+      return '<button type="button" class="mz-ib" data-a65="llamar" data-v="0" data-id="' + esc(id) + '" aria-label="Llamada de voz" title="Llamada de voz">' + SVG_TEL + '</button>' +
+        '<button type="button" class="mz-ib" data-a65="llamar" data-v="1" data-id="' + esc(id) + '" aria-label="Videollamada" title="Videollamada">' + SVG_CAM + '</button>';
+    } catch (e) { return ''; }
+  }
+  function nuevoK(o) { o.cola = []; o.pend = []; o.ice = []; o.cadena = Promise.resolve(); o.mudo = false; o.sinCam = false; return o; }
+
+  /* --- avisos en el canal de «mira de nuevo» (no llevan datos, solo dicen a quién le toca consultar) --- */
+  function abreCanal() {
+    if (ST.canal || !yo()) return;
+    try {
+      var ch = sb.channel('chat65-aviso', { config: { broadcast: { self: false } } });
+      ch.on('broadcast', { event: 'llamada' }, function (pl) { var d = pl && pl.payload; if (d && d.para === yo()) programa(60); })
+        .on('broadcast', { event: 'foto' }, function () { cargaFotos(false); })
+        .subscribe();
+      ST.canal = ch;
+    } catch (e) { ST.canal = null; }
+  }
+  function nudge(que, para) { try { if (ST.canal) ST.canal.send({ type: 'broadcast', event: que === 'foto' ? 'foto' : 'llamada', payload: { para: para || null, de: yo() } }); } catch (e) { } }
+
+  /* --- sonidos: se fabrican en el momento (sin archivos) --- */
+  function ctxAudio() { try { if (!AUD.ctx) AUD.ctx = new (window.AudioContext || window.webkitAudioContext)(); if (AUD.ctx.state === 'suspended') AUD.ctx.resume(); return AUD.ctx; } catch (e) { return null; } }
+  function paraTono() { if (AUD.tmr) { clearInterval(AUD.tmr); AUD.tmr = null; } }
+  function pitido(c, f, ini, dur, vol) {
+    var o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.value = f; o.connect(g); g.connect(c.destination);
+    g.gain.setValueAtTime(0, ini); g.gain.linearRampToValueAtTime(vol, ini + .03); g.gain.setValueAtTime(vol, ini + dur - .05); g.gain.linearRampToValueAtTime(0, ini + dur);
+    o.start(ini); o.stop(ini + dur + .02);
+  }
+  function tono(tipo) {
+    paraTono(); var c = ctxAudio(); if (!c) return;
+    var suena = function () {
+      var t = c.currentTime;
+      if (tipo === 'entra') { pitido(c, 784, t, .32, .16); pitido(c, 988, t, .32, .12); pitido(c, 784, t + .45, .32, .16); pitido(c, 988, t + .45, .32, .12); }
+      else { pitido(c, 425, t, 1, .07); }
+    };
+    try { suena(); AUD.tmr = setInterval(function () { try { suena(); } catch (e) { } }, tipo === 'entra' ? 2400 : 3500); } catch (e) { }
+  }
+  var TIT = { tmr: null, orig: null };
+  function parpadeaTitulo(txt) {
+    if (TIT.tmr) return; TIT.orig = document.title; var on = false;
+    TIT.tmr = setInterval(function () { on = !on; document.title = on ? ('📞 ' + txt) : TIT.orig; }, 900);
+  }
+  function paraTitulo() { if (TIT.tmr) { clearInterval(TIT.tmr); TIT.tmr = null; if (TIT.orig != null) document.title = TIT.orig; } }
+
+  /* --- pantalla de la llamada --- */
+  function hue(id) { var h = 0, s = String(id || ''); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; }
+  function inic(n) { return String(n || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase() || '?'; }
+  function avatarLl(k) {
+    var f = ST.fotos[k.peer];
+    return '<span class="c65-av" style="--h:' + hue(k.peer) + '">' + esc(inic(k.nombre)) + (f ? '<img src="' + esc(f) + '" alt="" draggable="false">' : '') + '</span>';
+  }
+  function estadoTexto(k) {
+    switch (k.estado) {
+      case 'preparando': return 'Preparando el micrófono' + (k.video ? ' y la cámara' : '') + '…';
+      case 'sonando': return 'Llamando…';
+      case 'timbrando': return k.video ? 'Videollamada entrante' : 'Llamada entrante';
+      case 'aceptando': return 'Contestando…';
+      case 'conectando': return 'Conectando…';
+      case 'activa': return durTxt(k);
+      default: return '';
+    }
+  }
+  function durTxt(k) { var s = Math.max(0, Math.round((Date.now() - (k.t0 || Date.now())) / 1000)), m = Math.floor(s / 60); s = s % 60; return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s; }
+  function enganchaMedios() {
+    var k = K; if (!k) return;
+    var rv = $('c65-rv'), lv = $('c65-lv'), ra = $('c65-ra');
+    if (lv && k.local && lv.srcObject !== k.local) { lv.srcObject = k.local; try { lv.play(); } catch (e) { } }
+    if (k.remote) {
+      if (k.video && rv && rv.srcObject !== k.remote) { rv.srcObject = k.remote; try { rv.play(); } catch (e) { } }
+      if (ra && ra.srcObject !== k.remote) { ra.srcObject = k.remote; try { ra.play(); } catch (e) { } }
+    }
+  }
+  function pintaLlamada() {
+    var k = K; var w = $('c65');
+    if (!k) { if (w) w.remove(); document.body.classList.remove('c65-on'); return; }
+    document.body.classList.add('c65-on');
+    if (!w) {
+      w = document.createElement('div'); w.id = 'c65'; w.setAttribute('role', 'dialog'); w.setAttribute('aria-modal', 'false'); w.setAttribute('aria-labelledby', 'c65-t'); w.setAttribute('aria-describedby', 'c65-s');
+      w.innerHTML = '<div class="c65-stage" id="c65-stg"><video id="c65-rv" autoplay playsinline></video><video id="c65-lv" autoplay playsinline muted></video></div><audio id="c65-ra" autoplay></audio>' +
+        '<div class="c65-id" id="c65-id"></div><div class="c65-bt" id="c65-bt"></div><div class="c65-sr" id="c65-live" role="status" aria-live="polite"></div>';
+      document.body.appendChild(w);
+    }
+    w.className = 'c65 ' + k.estado + (k.video ? ' vid' : '') + ((k.video && k.estado === 'activa') ? ' conVideo' : '');
+    var idEl = $('c65-id'), nuevoId = avatarLl(k) + '<div class="c65-tx"><b id="c65-t">' + esc(k.nombre) + '</b><span id="c65-s">' + esc(estadoTexto(k)) + '</span></div>';
+    if (idEl.getAttribute('data-k') !== k.estado + '|' + k.nombre) { idEl.innerHTML = nuevoId; idEl.setAttribute('data-k', k.estado + '|' + k.nombre); }
+    var b = '';
+    if (k.estado === 'timbrando') {
+      b = '<button type="button" class="c65-b rojo" data-a65="rechazar" aria-label="Rechazar la llamada" title="Rechazar">' + SVG_COLGAR + '<span>Rechazar</span></button>' +
+          '<button type="button" class="c65-b verde" data-a65="coger" id="c65-coger" aria-label="Contestar la llamada" title="Contestar">' + SVG_COGER + '<span>Contestar</span></button>';
+    } else if (k.estado === 'activa') {
+      b = '<button type="button" class="c65-b" data-a65="mudo" aria-pressed="' + k.mudo + '" aria-label="' + (k.mudo ? 'Activar el micrófono' : 'Silenciar el micrófono') + '" title="' + (k.mudo ? 'Activar micrófono' : 'Silenciar micrófono') + '">' + (k.mudo ? SVG_MIC_OFF : SVG_MIC) + '<span>' + (k.mudo ? 'Sin micro' : 'Micro') + '</span></button>' +
+          (k.video ? '<button type="button" class="c65-b" data-a65="cam" aria-pressed="' + k.sinCam + '" aria-label="' + (k.sinCam ? 'Encender la cámara' : 'Apagar la cámara') + '" title="' + (k.sinCam ? 'Encender cámara' : 'Apagar cámara') + '">' + (k.sinCam ? SVG_CAM_OFF : SVG_CAM_ON) + '<span>' + (k.sinCam ? 'Sin cámara' : 'Cámara') + '</span></button>' : '') +
+          '<button type="button" class="c65-b rojo" data-a65="colgar" aria-label="Colgar" title="Colgar">' + SVG_COLGAR + '<span>Colgar</span></button>';
+    } else {
+      b = '<button type="button" class="c65-b rojo" data-a65="colgar" aria-label="' + (k.estado === 'sonando' || k.estado === 'preparando' ? 'Cancelar la llamada' : 'Colgar') + '" title="Colgar">' + SVG_COLGAR + '<span>' + (k.estado === 'sonando' || k.estado === 'preparando' ? 'Cancelar' : 'Colgar') + '</span></button>';
+    }
+    var bt = $('c65-bt'); if (bt.getAttribute('data-k') !== b) { var tenia = document.activeElement && bt.contains(document.activeElement) ? document.activeElement.getAttribute('data-a65') : null; bt.innerHTML = b; bt.setAttribute('data-k', b); if (tenia) { var n = bt.querySelector('[data-a65="' + tenia + '"]'); if (n) n.focus(); } }
+    var live = $('c65-live'), t = estadoTexto(k); if (k.estado !== 'activa' && live.textContent !== (k.nombre + ': ' + t)) live.textContent = k.nombre + ': ' + t;
+    enganchaMedios();
+  }
+  function anuncia(t) { var l = $('c65-live'); if (l) l.textContent = t; }
+
+  /* --- permisos de micrófono y cámara --- */
+  async function pideMedios(video) {
+    try {
+      var s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: video ? { width: { ideal: 640 }, height: { ideal: 480 } } : false });
+      return { ok: true, stream: s };
+    } catch (e) {
+      var n = e && e.name, m = 'No se pudo usar el micrófono' + (video ? ' o la cámara' : '') + '.';
+      if (n === 'NotAllowedError' || n === 'SecurityError') m = 'El navegador no te deja usar el micrófono' + (video ? ' y la cámara' : '') + '. Pulsa el candado de la barra de direcciones, permítelos y vuelve a intentarlo.';
+      else if (n === 'NotFoundError' || n === 'OverconstrainedError') m = 'No se encuentra ' + (video ? 'micrófono o cámara' : 'ningún micrófono') + ' en este equipo.';
+      else if (n === 'NotReadableError') m = 'El micrófono' + (video ? ' o la cámara' : '') + ' está siendo usado por otra aplicación.';
+      return { ok: false, msg: m };
+    }
+  }
+  function paraMedios(s) { try { if (s) s.getTracks().forEach(function (t) { t.stop(); }); } catch (e) { } }
+
+  function errLlamada(e, nombre) {
+    var c = codigo(e), n = nombre || 'Esa persona';
+    if (falta(e)) return 'Falta ejecutar el SQL 65 en Supabase para poder llamar';
+    return ({ no_molestar: n + ' tiene activado «No molestar»', en_llamada_estado: n + ' tiene el estado «En llamada»', ocupado: n + ' está en otra llamada', ya_en_llamada: 'Ya estás en una llamada',
+      silenciado: 'La administración te silenció: no puedes llamar ahora', usuario_invalido: 'Esa persona no está disponible', demasiadas_llamadas: 'Has hecho muchas llamadas seguidas. Espera un poco',
+      sin_permiso: 'No tienes permiso para llamar' })[c] || 'No se pudo iniciar la llamada. Intenta de nuevo';
+  }
+
+  /* --- ciclo de la llamada --- */
+  function cierra(msg, err) {
+    var k = K; K = null;
+    if (k) {
+      clearTimeout(k.tTimeout); clearTimeout(k.tCaida); clearTimeout(k.tLote); clearTimeout(k.tConecta); clearInterval(k.tReloj);
+      try { if (k.pc) { k.pc.onicecandidate = null; k.pc.ontrack = null; k.pc.onconnectionstatechange = null; k.pc.oniceconnectionstatechange = null; k.pc.close(); } } catch (e) { }
+      paraMedios(k.local);
+    }
+    paraTono(); paraTitulo(); pintaLlamada();
+    if (msg) aviso(msg, !!err);
+    programa(CFG.idleMs);
+  }
+  async function iniciar(peer, video) {
+    if (K) { aviso('Ya estás en una llamada', true); return; }
+    if (!soporta()) { aviso('Este navegador no permite llamadas. Usa Chrome, Edge o Firefox actualizados', true); return; }
+    var nombre = nombreCabecera() || 'Compañero';
+    var k = K = nuevoK({ rol: 'llama', peer: peer, nombre: nombre, video: !!video, estado: 'preparando', id: null });
+    pintaLlamada(); ctxAudio();
+    var ms = await pideMedios(video);
+    if (K !== k) { if (ms.ok) paraMedios(ms.stream); return; }
+    if (!ms.ok) { cierra(ms.msg, true); return; }
+    k.local = ms.stream;
+    var r = await llama('chat_llamada_iniciar', { p_para: peer, p_video: !!video });
+    if (K !== k) { if (r.data && r.data.id) llama('chat_llamada_responder', { p_id: r.data.id, p_accion: 'cancelar' }); return; }
+    if (r.error || !r.data || !r.data.id) { if (falta(r.error)) ST.sinSQL = true; cierra(errLlamada(r.error, nombre), true); return; }
+    k.id = r.data.id; k.estado = 'sonando'; k.t0 = Date.now();
+    pintaLlamada(); tono('sale'); nudge('llamada', peer); programa(CFG.rapidoMs);
+    k.tTimeout = setTimeout(function () {
+      if (K === k && k.estado === 'sonando') { llama('chat_llamada_responder', { p_id: k.id, p_accion: 'sin_respuesta' }); nudge('llamada', peer); cierra(nombre + ' no contesta', false); }
+    }, CFG.sonandoMs);
+  }
+  function recibe(l) {
+    var k = K = nuevoK({ rol: 'recibe', peer: l.de, nombre: bonito(l.de_nombre) || 'Compañero', video: !!l.video, estado: 'timbrando', id: l.id, t0: Date.now() });
+    pintaLlamada(); tono('entra'); ctxAudio();
+    if (document.hidden) parpadeaTitulo((k.video ? 'Videollamada de ' : 'Llamada de ') + k.nombre);
+    try { if (document.hidden && window.Notification && Notification.permission === 'granted') { var nt = new Notification((k.video ? 'Videollamada de ' : 'Llamada de ') + k.nombre, { tag: 'c65' }); nt.onclick = function () { window.focus(); nt.close(); }; } } catch (e) { }
+    var b = $('c65-coger'); if (b) { try { b.focus(); } catch (e) { } }
+  }
+  async function coger() {
+    var k = K; if (!k || k.rol !== 'recibe' || k.estado !== 'timbrando') return;
+    k.estado = 'aceptando'; paraTono(); paraTitulo(); pintaLlamada();
+    var ms = await pideMedios(k.video);
+    if (K !== k) { if (ms.ok) paraMedios(ms.stream); return; }
+    if (!ms.ok) { llama('chat_llamada_responder', { p_id: k.id, p_accion: 'rechazar', p_motivo: 'sin_micro' }); nudge('llamada', k.peer); cierra(ms.msg, true); return; }
+    k.local = ms.stream;
+    var r = await llama('chat_llamada_responder', { p_id: k.id, p_accion: 'aceptar' });
+    if (K !== k) { paraMedios(ms.stream); return; }
+    if (r.error) { cierra(codigo(r.error) === 'llamada_terminada' ? (k.nombre + ' ya colgó') : 'No se pudo contestar. Intenta de nuevo', true); return; }
+    k.estado = 'conectando'; crearPc(k); nudge('llamada', k.peer); pintaLlamada(); programaConecta(k); programa(CFG.rapidoMs);
+    var cola = k.cola.splice(0); cola.forEach(function (s) { procesaSenal(s); });
+  }
+  function rechaza() {
+    var k = K; if (!k || k.rol !== 'recibe') return;
+    llama('chat_llamada_responder', { p_id: k.id, p_accion: 'rechazar' }); nudge('llamada', k.peer); cierra(null);
+  }
+  function cuelga(texto) {
+    var k = K; if (!k) return;
+    if (k.id) { llama('chat_llamada_responder', { p_id: k.id, p_accion: k.estado === 'timbrando' ? 'rechazar' : (k.estado === 'sonando' ? 'cancelar' : 'colgar') }); nudge('llamada', k.peer); }
+    cierra(texto || (k.estado === 'activa' ? 'Llamada terminada' : null));
+  }
+  function programaConecta(k) {
+    clearTimeout(k.tConecta);
+    k.tConecta = setTimeout(function () { if (K === k && k.estado !== 'activa') finPorError('No se pudo conectar la llamada. Puede que la red de uno de los dos bloquee las llamadas directas: prueba desde otra red (por ejemplo, con los datos del móvil).'); }, CFG.conectaMs);
+  }
+  function finPorError(texto) {
+    var k = K; if (!k) return;
+    if (k.id) { llama('chat_llamada_responder', { p_id: k.id, p_accion: 'colgar' }); nudge('llamada', k.peer); }
+    cierra(texto, true);
+  }
+
+  /* --- WebRTC --- */
+  function crearPc(k) {
+    var pc = new window.RTCPeerConnection({ iceServers: CFG.ice }); k.pc = pc;
+    k.local.getTracks().forEach(function (t) { pc.addTrack(t, k.local); });
+    pc.onicecandidate = function (e) {
+      if (!e.candidate) return;
+      k.ice.push(e.candidate.toJSON ? e.candidate.toJSON() : { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex });
+      if (!k.tLote) k.tLote = setTimeout(function () { k.tLote = null; var l = k.ice.splice(0); if (l.length && K === k) enviaSenal(k, 'ice', { lista: l }); }, 150);
+    };
+    pc.ontrack = function (e) {
+      if (e.streams && e.streams[0]) k.remote = e.streams[0]; else { if (!k.remote) k.remote = new window.MediaStream(); k.remote.addTrack(e.track); }
+      if (K === k) enganchaMedios();
+    };
+    var cambio = function () { estadoPc(k); };
+    pc.onconnectionstatechange = cambio; pc.oniceconnectionstatechange = cambio;
+  }
+  function estadoPc(k) {
+    if (K !== k || !k.pc) return;
+    var s = k.pc.connectionState || k.pc.iceConnectionState; if (s === 'completed') s = 'connected';
+    if (s === 'connected') {
+      clearTimeout(k.tCaida); clearTimeout(k.tConecta);
+      if (k.estado !== 'activa') {
+        k.estado = 'activa'; k.t0 = Date.now(); paraTono(); pintaLlamada(); anuncia('Llamada conectada con ' + k.nombre);
+        clearInterval(k.tReloj); k.tReloj = setInterval(function () { var e = $('c65-s'); if (K === k && e) e.textContent = durTxt(k); }, 1000);
+        programa(CFG.activaMs);
+      }
+    } else if (s === 'disconnected') {
+      clearTimeout(k.tCaida); k.tCaida = setTimeout(function () { if (K === k && k.pc && (k.pc.connectionState || k.pc.iceConnectionState) !== 'connected') finPorError('Se cortó la conexión de la llamada'); }, 9000);
+    } else if (s === 'failed') {
+      finPorError('No se pudo conectar la llamada. Puede que la red de uno de los dos bloquee las llamadas directas: prueba desde otra red (por ejemplo, con los datos del móvil).');
+    }
+  }
+  async function enviaSenal(k, tipo, datos) {
+    var r = await llama('chat_senal_enviar', { p_llamada: k.id, p_tipo: tipo, p_datos: datos });
+    if (!r.error) nudge('llamada', k.peer);
+    return r;
+  }
+  async function conectaLlamante(k) {
+    k.estado = 'conectando'; paraTono(); pintaLlamada(); programaConecta(k);
+    try {
+      crearPc(k);
+      var of = await k.pc.createOffer(); await k.pc.setLocalDescription(of);
+      if (K !== k) return;
+      await enviaSenal(k, 'oferta', { type: of.type, sdp: of.sdp });
+    } catch (e) { finPorError('No se pudo preparar la llamada en este navegador'); }
+  }
+  function sdpOk(d, tipo) { return d && d.type === tipo && typeof d.sdp === 'string' && d.sdp.length > 0 && d.sdp.length < 28000; }
+  function procesaSenal(s) {
+    var k = K; if (!k || k.id !== s.llamada_id) return;
+    if (!k.pc) { k.cola.push(s); return; }
+    k.cadena = k.cadena.then(async function () {
+      if (K !== k || !k.pc) return;
+      var pc = k.pc, d = s.datos || {};
+      if (s.tipo === 'oferta' && k.rol === 'recibe' && sdpOk(d, 'offer')) {
+        await pc.setRemoteDescription({ type: 'offer', sdp: d.sdp }); drena(k);
+        var an = await pc.createAnswer(); await pc.setLocalDescription(an);
+        if (K === k) await enviaSenal(k, 'respuesta', { type: an.type, sdp: an.sdp });
+      } else if (s.tipo === 'respuesta' && k.rol === 'llama' && sdpOk(d, 'answer')) {
+        await pc.setRemoteDescription({ type: 'answer', sdp: d.sdp }); drena(k);
+      } else if (s.tipo === 'ice' && Array.isArray(d.lista)) {
+        d.lista.slice(0, 40).forEach(function (c) {
+          if (!c || typeof c.candidate !== 'string' || c.candidate.length > 500) return;
+          if (pc.remoteDescription && pc.remoteDescription.type) pc.addIceCandidate({ candidate: c.candidate, sdpMid: c.sdpMid, sdpMLineIndex: c.sdpMLineIndex }).catch(function () { });
+          else k.pend.push(c);
+        });
+      }
+    }).catch(function () { });
+  }
+  function drena(k) {
+    var l = k.pend.splice(0);
+    l.forEach(function (c) { try { k.pc.addIceCandidate({ candidate: c.candidate, sdpMid: c.sdpMid, sdpMLineIndex: c.sdpMLineIndex }).catch(function () { }); } catch (e) { } });
+  }
+
+  /* --- consulta periódica (la rápida mientras suena o se conecta; la lenta cuando no pasa nada) --- */
+  function programa(ms) { clearTimeout(SIG.tmr); SIG.tmr = setTimeout(sync, ms); }
+  async function sync() {
+    clearTimeout(SIG.tmr);
+    if (SIG.ocupado) { programa(CFG.rapidoMs); return; }
+    if (!yo() || ST.sinSQL) { programa(CFG.idleMs * 2); return; }
+    SIG.ocupado = true;
+    try {
+      var r = await llama('chat_llamada_sync', { p_desde: SIG.ult });
+      if (r.error) { if (falta(r.error)) ST.sinSQL = true; }
+      else await aplicaSync(r.data || {});
+    } catch (e) { } finally { SIG.ocupado = false; }
+    programa(K ? (K.estado === 'activa' ? CFG.activaMs : CFG.rapidoMs) : CFG.idleMs);
+  }
+  async function aplicaSync(d) {
+    var L = Array.isArray(d.llamadas) ? d.llamadas : [], S = Array.isArray(d.senales) ? d.senales : [], me = yo();
+    if (K && K.id) {
+      var m = L.filter(function (x) { return x.id === K.id; })[0], k = K;
+      if (!m) { if (k.estado !== 'preparando') cierra(k.estado === 'activa' ? 'Llamada terminada' : null); }
+      else if (m.estado === 'CONTESTADA' && k.rol === 'llama' && k.estado === 'sonando') { clearTimeout(k.tTimeout); await conectaLlamante(k); }
+      else if (m.estado === 'RECHAZADA' && k.rol === 'llama') {
+        cierra(m.motivo === 'sin_micro' ? (k.nombre + ' no tiene micrófono disponible') : (k.nombre + ' rechazó la llamada'), false);
+      } else if ((m.estado === 'CANCELADA' || m.estado === 'PERDIDA') && k.rol === 'recibe' && k.estado === 'timbrando') cierra('Llamada perdida de ' + k.nombre, false);
+      else if (m.estado === 'PERDIDA' && k.rol === 'llama' && k.estado === 'sonando') cierra(k.nombre + ' no contesta', false);
+      else if (m.estado === 'TERMINADA' || m.estado === 'RECHAZADA' || m.estado === 'CANCELADA' || m.estado === 'PERDIDA') {
+        if (k.estado === 'activa' || k.estado === 'conectando') cierra(k.nombre + ' colgó', false); else cierra(null);
+      }
+    }
+    var ent = L.filter(function (x) { return x.para === me && x.estado === 'SONANDO' && !ST.vistas[x.id]; });
+    ent.forEach(function (x) {
+      ST.vistas[x.id] = 1;
+      if (K) llama('chat_llamada_responder', { p_id: x.id, p_accion: 'rechazar', p_motivo: 'ocupado' });
+      else recibe(x);
+    });
+    S.forEach(function (s) { if (s.id > SIG.ult) SIG.ult = s.id; procesaSenal(s); });
+  }
+
+  /* --- llamadas perdidas mientras no estabas --- */
+  async function avisaPerdidas() {
+    if (ST.perdidasOk || ST.sinSQL || !yo()) return; ST.perdidasOk = true;
+    var r = await llama('chat_llamadas_perdidas'); if (r.error || !Array.isArray(r.data) || !r.data.length) return;
+    var l = r.data, hh = function (t) { var f = new Date(t); return ('0' + f.getHours()).slice(-2) + ':' + ('0' + f.getMinutes()).slice(-2); }, w = $('c65-perd'); if (w) w.remove();
+    w = document.createElement('div'); w.id = 'c65-perd'; w.setAttribute('role', 'status');
+    w.innerHTML = '<b>' + (l.length === 1 ? 'Tienes 1 llamada perdida' : 'Tienes ' + l.length + ' llamadas perdidas') + '</b><ul>' +
+      l.slice(0, 5).map(function (x) { return '<li><button type="button" class="c65-lk" data-a65="perd-abre" data-id="' + esc(x.de) + '">' + esc(bonito(x.de_nombre)) + '</button> · ' + hh(x.creada_at) + (x.video ? ' · vídeo' : '') + '</li>'; }).join('') + '</ul>' +
+      '<button type="button" class="c65-ok" data-a65="perd-ok">Entendido</button>';
+    document.body.appendChild(w);
+  }
+
+  /* --- pulsaciones --- */
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('[data-a65]') : null; if (!b) return;
+    var a = b.getAttribute('data-a65');
+    if (a === 'fondo' || a === 'fondo-todos' || a === 'fondo-quita') acFondo(a, b);
+    else if (a === 'foto-sube') { var fi = $('f65-file'); if (fi) { fi.value = ''; fi.click(); } }
+    else if (a === 'foto-quita') quitaFoto();
+    else if (a === 'llamar') iniciar(b.getAttribute('data-id'), b.getAttribute('data-v') === '1');
+    else if (a === 'coger') coger();
+    else if (a === 'rechazar') rechaza();
+    else if (a === 'colgar') cuelga();
+    else if (a === 'mudo' && K) { K.mudo = !K.mudo; if (K.local) K.local.getAudioTracks().forEach(function (t) { t.enabled = !K.mudo; }); pintaLlamada(); }
+    else if (a === 'cam' && K) { K.sinCam = !K.sinCam; if (K.local) K.local.getVideoTracks().forEach(function (t) { t.enabled = !K.sinCam; }); pintaLlamada(); }
+    else if (a === 'perd-abre') { var id = b.getAttribute('data-id'); try { if (window.mz57 && window.mz57.abrirCon) window.mz57.abrirCon(id); } catch (x) { } }
+    else if (a === 'perd-ok') { var w = $('c65-perd'); if (w) w.remove(); llama('chat_llamadas_perdidas_ver'); }
+  });
+  document.addEventListener('change', function (e) {
+    var t = e.target; if (!t || !t.getAttribute) return;
+    if (t.getAttribute('data-a65') === 'dib') acFondo('dib', t);
+    else if (t.id === 'f65-file' && t.files && t.files[0]) subeFoto(t.files[0]);
+  });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { paraTitulo(); if (yo()) programa(100); } });
+
+  /* --- puesta en marcha: cada pocos segundos mira si hay una sesión nueva y mantiene al día fondos y fotos --- */
+  function reinicia() {
+    if (K) cierra(null);
+    ST.fotos = {}; ST.fotosT = null; ST.fotosN = 0; ST.vistas = {}; ST.perdidasOk = false; SIG.ult = 0; ST.sinSQL = false; ST.iniciado = false;
+    if (ST.canal) { try { sb.removeChannel(ST.canal); } catch (e) { } ST.canal = null; }
+    var w = $('c65-perd'); if (w) w.remove();
+  }
+  function tick() {
+    var u = yo();
+    if (u !== ST.uid) { reinicia(); ST.uid = u; }
+    if (!u) return;
+    if (!ST.iniciado && window.mz57 && $('mz')) {
+      ST.iniciado = true; ST.fotosEn = Date.now(); abreCanal(); cargaFotos(true); programa(300); setTimeout(avisaPerdidas, 2500);
+    }
+    var k = peerAct(); if (k !== ST.peerPrev) { ST.peerPrev = k; aplicaFondo(); }
+    if (ST.iniciado && !ST.sinSQL && Date.now() - (ST.fotosEn || 0) > CFG.fotosMs) { ST.fotosEn = Date.now(); if (ST.fotosN) cargaFotos(ST.fotosN % 6 === 0); }
+  }
+  setInterval(tick, 700);
+  var oL = window.loginView;
+  if (typeof oL === 'function') window.loginView = function () { try { reinicia(); ST.uid = null; } catch (e) { } return oL.apply(this, arguments); };
+
+  var css = document.createElement('style'); css.id = 'css65';
+  css.textContent = [
+    '#mz-main.f65 .mz-lienzo{background-color:var(--f65-bg);background-image:var(--f65-img,none);background-size:230px 230px}',
+    'html[data-tema="oscuro"] #mz-main.f65 .mz-lienzo{background-color:var(--f65-bgo);background-image:var(--f65-imgo,none)}',
+    '@media(prefers-color-scheme:dark){html:not([data-tema="claro"]) #mz-main.f65 .mz-lienzo{background-color:var(--f65-bgo);background-image:var(--f65-imgo,none)}}',
+    '.mz-av .mz-avf{position:absolute;left:0;top:0;width:100%;height:100%;border-radius:50%;object-fit:cover}',
+    '#mz .f65-sw{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin:4px 0 10px}',
+    '#mz .f65-s{width:100%;min-width:0;aspect-ratio:1;border-radius:10px;background:var(--b);border:2px solid color-mix(in srgb,var(--t) 40%,transparent);cursor:pointer;padding:0}',
+    '#mz .f65-s[aria-checked=true]{border-color:var(--acc);box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--acc)}',
+    '#mz .f65-s:focus-visible{outline:2px solid var(--acc);outline-offset:2px}',
+    '#mz .f65-ck{display:flex;align-items:center;gap:8px;margin:2px 0 8px;font-size:13.5px;color:var(--ink)}',
+    '#mz .f65-ck input{accent-color:var(--acc);width:16px;height:16px}',
+    '#mz .f65-fr{display:flex;align-items:center;gap:12px;flex-wrap:wrap}',
+    '#mz .f65-pv{flex:none;width:64px;height:64px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:var(--line);color:var(--ink);font-size:12px}',
+    '#mz .f65-pv img{width:100%;height:100%;object-fit:cover}',
+    '#mz .f65-bs{display:flex;gap:8px;flex-wrap:wrap}',
+    '#mz .f65-msg{min-height:18px;font-size:12.5px;color:var(--ink)}#mz .f65-msg.err{color:var(--bad);font-weight:600}',
+    '#c65{position:fixed;left:16px;bottom:16px;z-index:99990;width:min(340px,calc(100vw - 32px));border-radius:20px;overflow:hidden;background:var(--card);color:var(--ink);border:1px solid var(--line2);box-shadow:0 24px 60px rgba(6,18,26,.35),0 2px 8px rgba(6,18,26,.18);font:14px/1.4 Inter,"Segoe UI",system-ui,sans-serif}',
+    '#c65.vid.activa,#c65.vid.conectando{width:min(460px,calc(100vw - 32px))}',
+    '#c65 .c65-stage{display:none;position:relative;aspect-ratio:4/3;background:#10161c}',
+    '#c65.vid.activa .c65-stage,#c65.vid.conectando .c65-stage{display:block}',
+    '#c65 .c65-stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#10161c}',
+    '#c65 #c65-lv{inset:auto 10px 10px auto;width:28%;height:auto;aspect-ratio:3/4;border-radius:12px;border:2px solid #fff;transform:scaleX(-1);box-shadow:0 4px 14px rgba(0,0,0,.4)}',
+    '#c65 .c65-id{display:flex;align-items:center;gap:12px;padding:14px 16px 6px}',
+    '#c65 .c65-av{position:relative;flex:none;width:52px;height:52px;border-radius:50%;display:grid;place-items:center;overflow:hidden;color:#fff;font-weight:800;font-size:18px;background:linear-gradient(135deg,hsl(var(--h) 50% 30%),hsl(calc(var(--h) + 24) 54% 24%))}',
+    '#c65 .c65-av img{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover}',
+    '#c65.timbrando .c65-av,#c65.sonando .c65-av{animation:c65-late 1.4s ease-in-out infinite}',
+    '@keyframes c65-late{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--acc) 50%,transparent)}50%{box-shadow:0 0 0 12px transparent}}',
+    '@media (prefers-reduced-motion:reduce){#c65 .c65-av{animation:none!important}}',
+    '#c65 .c65-tx{display:grid;min-width:0}#c65 .c65-tx b{font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '#c65 .c65-tx span{font-size:13px;color:color-mix(in srgb,var(--ink) 72%,var(--card));font-variant-numeric:tabular-nums}',
+    '#c65 .c65-bt{display:flex;justify-content:center;gap:10px;padding:10px 14px 16px;flex-wrap:wrap}',
+    '#c65 .c65-b{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:72px;min-height:56px;padding:8px 12px;border-radius:16px;background:var(--line);color:var(--ink);font-size:12px;font-weight:700;cursor:pointer;border:0}',
+    '#c65 .c65-b:hover{filter:brightness(.96)}',
+    '#c65 .c65-b[aria-pressed=true]{background:var(--ink);color:var(--card)}',
+    '#c65 .c65-b.rojo{background:#c62828;color:#fff}#c65 .c65-b.verde{background:#1b7f3b;color:#fff}',
+    '#c65 .c65-b:focus-visible{outline:3px solid var(--acc);outline-offset:2px}',
+    '#c65 .c65-sr,.c65-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
+    '#c65-perd{position:fixed;left:16px;bottom:16px;z-index:99989;width:min(320px,calc(100vw - 32px));padding:14px 16px;border-radius:16px;background:var(--card);color:var(--ink);border:1px solid var(--line2);box-shadow:0 18px 44px rgba(6,18,26,.3);font:14px/1.4 Inter,"Segoe UI",system-ui,sans-serif}',
+    '#c65-perd ul{margin:6px 0 10px;padding-left:18px}#c65-perd .c65-lk{background:none;border:0;padding:0;color:var(--acc);font-weight:700;text-decoration:underline;cursor:pointer;font-size:14px}',
+    '#c65-perd .c65-ok{height:34px;padding:0 14px;border-radius:10px;border:1px solid var(--line2);background:var(--card);color:var(--ink);font-weight:700;cursor:pointer}',
+    'body.c65-on #mz [data-a65=llamar]{opacity:.4;pointer-events:none}'
+  ].join('\n');
+  document.head.appendChild(css);
+
+  window.mz65 = { cargaFotos: cargaFotos, avisaPerdidas: avisaPerdidas, img: img, botones: botones, fondoHtml: fondoHtml, fotoHtml: fotoHtml, aplicaFondo: aplicaFondo, estado: function () { return { K: K, ST: ST, SIG: SIG }; }, cfg: CFG, sync: sync, tick: tick };
 })();
  </script>
 </body>
