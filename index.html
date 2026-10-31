@@ -8984,7 +8984,7 @@ function ofcCalcular(cat, sel) {
 
   var CFG = null, CAT = null, CATt = 0, CATX = null, CATXt = 0, S = nuevo();
   function nuevo() {
-    return { host: null, vista: 'nueva', f: { cliente: '', email: '', operador: '', imp: null, actual: '', items: [], q: '', abiertos: {} }, busyCat: false, errCat: null, ultimo: null,
+    return { host: null, vista: 'nueva', f: { cliente: '', email: '', comercial: lsGet('o56_com') || '', operador: '', imp: null, actual: '', items: [], q: '', abiertos: {} }, busyCat: false, errCat: null, ultimo: null,
       h: { vista: 'MIAS', q: '', items: [], total: 0, cont: null, busy: false, err: null, tq: null }, r: { dias: 30, d: null, busy: false, err: null },
       aj: { busy: false, estado: null, probando: false }, env: null };
   }
@@ -9114,6 +9114,7 @@ function ofcCalcular(cat, sel) {
   function faltas(calc) {
     var out = [];
     out.push([S.f.cliente.trim().length >= 2, 'Nombre del cliente']);
+    out.push([S.f.comercial.trim().length >= 2, 'Nombre del comercial']);
     out.push([correoOk(S.f.email.trim().toLowerCase()), 'Correo del cliente válido']);
     out.push([!!S.f.operador, 'Elegir operador']);
     out.push([!!(calc && calc.ok), 'Elegir al menos un producto']);
@@ -9156,7 +9157,7 @@ function ofcCalcular(cat, sel) {
     b.innerHTML = (ult ? '<div class="o56-ok" id="o56-ult"><span>✅ <b>Oferta enviada</b> a ' + esc(ult.email) + (ult.restante !== null && ult.restante !== undefined && ult.restante <= 10 ? ' · ⚠️ a la cuenta de Google le quedan ' + ult.restante + ' envíos hoy' : '') + '</span><button type="button" class="sec" data-a="tab" data-v="hist">Ver en Enviadas</button></div>' : '') +
       '<div class="o56-g"><div>' +
       '<section class="o56-sec"><h3>1 · Cliente</h3><div class="o56-fila"><div><label for="o56-nom">Nombre del cliente</label><input id="o56-nom" maxlength="80" autocomplete="off" placeholder="Ej.: María López" value="' + esc(f.cliente) + '"></div>' +
-      '<div><label for="o56-mail">Correo del cliente (Gmail, Outlook, Yahoo, otro)</label><input id="o56-mail" type="email" inputmode="email" maxlength="254" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="cliente@gmail.com" value="' + esc(f.email) + '"><div class="o56-hint" id="o56-mh"></div></div></div></section>' +
+      '<div><label for="o56-com">Nombre del comercial (así lo verá el cliente en el correo)</label><input id="o56-com" data-minus maxlength="60" autocomplete="off" placeholder="Ej.: Carlos Pérez" value="' + esc(f.comercial) + '"></div><div><label for="o56-mail">Correo del cliente (Gmail, Outlook, Yahoo, otro)</label><input id="o56-mail" type="email" inputmode="email" maxlength="254" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="cliente@gmail.com" value="' + esc(f.email) + '"><div class="o56-hint" id="o56-mh"></div></div></div></section>' +
       '<section class="o56-sec"><h3>2 · Operador</h3><div class="o56-ops" id="o56-ops"></div></section>' +
       '<section class="o56-sec" id="o56-sp"><h3>3 · Productos</h3><div id="o56-prod"></div></section>' +
       '<section class="o56-sec"><h3>4 · Impuestos y comparación</h3><div class="o56-fila"><div><label for="o56-imp">Impuesto del cliente</label><select id="o56-imp">' + CAT.impuestos.map(function (x, i) { return '<option value="' + i + '"' + (i === f.imp ? ' selected' : '') + '>' + esc(x.tipo) + ' · ' + x.porcentaje + '%</option>'; }).join('') + '</select></div>' +
@@ -9254,7 +9255,7 @@ function ofcCalcular(cat, sel) {
     S.env = { busy: false, listo: false, forzar: false };
     var ov = document.createElement('div'); ov.className = 'k-ov o56m'; ov.id = 'o56m'; ov.style.zIndex = 9100;
     ov.innerHTML = '<div class="k-bus" role="dialog" aria-label="Revisar y enviar la oferta"><h3>Revisa el correo antes de enviarlo</h3><div class="meta">Así lo recibirá el cliente. El precio lo ha recalculado el servidor.</div>' +
-      '<div class="o56-ml"><span>Para</span><b id="o56-mp">' + esc(email) + '</b><span>Asunto</span><b id="o56-ma">…</b><span>De</span><b>' + esc(CFG.empresa) + ' · ' + esc(CFG.nombre || '') + (CFG.reply_to ? ' (las respuestas llegan a ' + esc(CFG.reply_to) + ')' : '') + '</b></div>' +
+      '<div class="o56-ml"><span>Para</span><b id="o56-mp">' + esc(email) + '</b><span>Asunto</span><b id="o56-ma">…</b><span>De</span><b>' + esc(S.f.comercial.trim() || CFG.nombre || '') + (CFG.reply_to ? ' (las respuestas llegan a ' + esc(CFG.reply_to) + ')' : '') + '</b></div>' +
       '<div class="o56-ms"><button type="button" class="sec" data-a="vw" data-w="pc">💻 Ordenador</button><button type="button" class="sec" data-a="vw" data-w="mv">📱 Móvil</button></div>' +
       '<div id="o56-fw"><div class="o56-vacio">Preparando la vista previa…</div></div>' +
       (CFG.email ? '<label class="o56-cc"><input type="checkbox" id="o56-cc"' + (lsGet('o56_cc') === '0' ? '' : ' checked') + '><span>Enviarme una copia oculta a <b>' + esc(CFG.email) + '</b> <span class="meta">(gasta un envío más de la cuota de Google)</span></span></label>' : '') +
@@ -9282,7 +9283,7 @@ function ofcCalcular(cat, sel) {
   }
   function datosOferta(forzar) {
     var cc = $('o56-cc');
-    return { cliente: S.f.cliente.trim().replace(/\s+/g, ' '), email: S.f.email.trim().toLowerCase(), operador: S.f.operador, impuesto: impSel() ? impSel().porcentaje : 21, importeActual: num(S.f.actual),
+    return { cliente: S.f.cliente.trim().replace(/\s+/g, ' '), comercial: S.f.comercial.trim().replace(/\s+/g, ' '), email: S.f.email.trim().toLowerCase(), operador: S.f.operador, impuesto: impSel() ? impSel().porcentaje : 21, importeActual: num(S.f.actual),
       items: S.f.items.map(function (x) { return { id: x.id, c: x.c }; }), copia: !!(cc && cc.checked), forzar: !!forzar };
   }
   function mostrarError(r) {
@@ -9459,6 +9460,7 @@ function ofcCalcular(cat, sel) {
     host.addEventListener('input', function (e) {
       var t = e.target, f = S.f;
       if (t.id === 'o56-nom') { f.cliente = t.value; pintaResumen(); }
+      else if (t.id === 'o56-com') { f.comercial = t.value; lsSet('o56_com', t.value); pintaResumen(); }
       else if (t.id === 'o56-mail') { f.email = t.value; pintaHintMail(); pintaResumen(); }
       else if (t.id === 'o56-act') { f.actual = t.value; pintaResumen(); }
       else if (t.id === 'o56-bq') { f.q = t.value; pintaProductos(); }
