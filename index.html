@@ -16377,6 +16377,58 @@ function ofcCalcular(cat, sel) {
     info: function () { return { mes: mesSel(), cargando: CARG, conocidos: Object.keys(FE).length }; }
   };
 })();
+      /* 64 · Colores de estado en la ficha del lead («Ventas de este lead»)
+   Bloque NUEVO. Se pega al final de index.html, justo antes de la línea que cierra el script (la última antes de body).
+   Pinta cada estado de la ficha con el MISMO color que tiene definido en Seguimiento (Permisos del back → estados y colores).
+   Lee los colores con la función estados_colores() (64_colores_estado.sql); si aún no la has creado, lee la tabla back_estados. */
+(function () {
+  var ALIAS = { OK: 'ACTIVO', CERRADO: 'FRAUDE', PENDIENTE: 'PENDIENTE TV' };   // los mismos alias que usa Seguimiento
+  var COL = null, T = 0, CARG = null;
+
+  function norm(e) { return String(e == null ? '' : e).toUpperCase().replace(/\s+/g, ' ').trim(); }
+  function color(e) { e = norm(e); var c = COL && (COL[e] || COL[ALIAS[e]]); return /^#[0-9a-fA-F]{3,8}$/.test(String(c || '')) ? c : ''; }
+
+  function carga() {
+    if (COL && Date.now() - T < 300000) return Promise.resolve();
+    if (CARG) return CARG;
+    CARG = (async function () {
+      var m = null;
+      try {
+        var r = await sb.rpc('estados_colores');
+        if (!r.error && r.data && typeof r.data === 'object' && !Array.isArray(r.data)) m = r.data;
+      } catch (e) { }
+      if (!m) {
+        try {
+          var t = await sb.from('back_estados').select('estado,color');
+          if (!t.error && Array.isArray(t.data)) { m = {}; t.data.forEach(function (x) { if (x && x.estado && x.color) m[norm(x.estado)] = x.color; }); }
+        } catch (e) { }
+      }
+      if (m) { var o = {}; Object.keys(m).forEach(function (k) { o[norm(k)] = m[k]; }); COL = o; T = Date.now(); }
+      CARG = null;
+    })();
+    return CARG;
+  }
+
+  function pinta(raiz) {
+    if (!COL || !raiz) return;
+    raiz.querySelectorAll('.badge').forEach(function (b) {
+      var c = color(b.textContent); if (!c) return;
+      b.style.background = c; b.style.color = '#111'; b.style.borderColor = 'transparent';
+    });
+  }
+
+  // cada vez que se abre una ficha: se esperan los colores y se vigila la lista de ventas (llega unos instantes después)
+  document.addEventListener('crm:ficha', function (ev) {
+    var ov = ev && ev.detail && ev.detail.ov; if (!ov) return;
+    carga().then(function () {
+      var lista = ov.querySelector('.k-vts'); if (!lista) return;
+      pinta(lista);
+      new MutationObserver(function () { pinta(lista); }).observe(lista, { childList: true, subtree: true });
+    });
+  });
+
+  window.col64 = { color: color, carga: carga };
+})();
  </script>
 </body>
 </html>
