@@ -6937,7 +6937,7 @@ function ventaForm(l) {
     leads:       { concertador: ['lis'], cerrador: ['tab'], back: ['col'], admin: ['ven'], supervisor: ['s:cli'] },
     ventas:      { concertador: ['ven'], cerrador: ['ven'], back: ['pa', 'SEG'], admin: ['ven'], supervisor: ['s:seg'] },
     seguimiento: { concertador: ['ven'], cerrador: ['ven'], back: ['pa', 'SEG'], admin: ['pa', 'SEG'], supervisor: ['s:seg'] },
-    contra: { cerrador: ['ven'], back: ['pa', 'CONTRA'], admin: ['pa', 'CONTRA'], supervisor: ['s:seg'] },
+    contra: { cerrador: ['cof'], back: ['pa', 'CONTRA'], admin: ['pa', 'CONTRA'], supervisor: ['s:seg'] },
     tareas:      { back: ['ta'], admin: ['tz'], supervisor: ['s:tar'] },
     comision:    { concertador: ['mp'], cerrador: ['liq'], back: ['mp'], admin: ['liq'] },
     salud:       { admin: ['sa'] },
@@ -7342,7 +7342,7 @@ function ventaForm(l) {
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e2) { }
   }
   function ir(it) {
-    if (!it) return; if (!it.leida) marcar([it.id]); cerrar(); quitarPops(); navegar(it.destino);
+    if (!it) return; if (!it.leida) marcar([it.id]); cerrar(); quitarPops(); navegar(it.destino); try { if (window.f66) window.f66.alAbrirAviso(it); } catch (e) { }
     if (it.destino === 'incidencias' && it.ref && window.inc54) setTimeout(function () { window.inc54.abrir(it.ref); }, 150);   // abre la incidencia concreta
     if (it.destino === 'chat' && it.ref && window.mz57 && window.mz57.abrirCon) {   // «te pidió revisar…», «pide ayuda»: abre directamente el chat con esa persona
       var mu = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.exec(String(it.ref));
@@ -17039,6 +17039,416 @@ function ofcCalcular(cat, sel) {
   document.head.appendChild(css);
 
   window.mz65 = { cargaFotos: cargaFotos, avisaPerdidas: avisaPerdidas, img: img, botones: botones, fondoHtml: fondoHtml, fotoHtml: fotoHtml, aplicaFondo: aplicaFondo, estado: function () { return { K: K, ST: ST, SIG: SIG }; }, cfg: CFG, sync: sync, tick: tick };
+})();
+  /* 66 · RESUMEN POR ORIGEN, GRÁFICOS INTERACTIVOS, FILTRO POR MES Y AVISOS QUE ABREN LA CONVERSACIÓN
+   Requiere el SQL 66_automatizacion_y_filtros.sql. Si todavía no lo ejecutaste, el CRM sigue funcionando igual:
+   el selector «Concertadores / Cerradores» y el filtro de mes simplemente no aparecen.
+   PEGAR al final del script de index.html, DESPUÉS de los demás bloques y antes del cierre del script.
+   Además hay 2 cambios pequeños dentro del bloque de notificaciones (están en INSTRUCCIONES_tanda3.txt).
+
+   · Panel de KPIs (supervisor y «KPIs del grupo» del admin): elige «Todas», «Concertadores» (clientes que captó un concertador)
+     o «Cerradores» (ventas que subió el cerrador por su cuenta). Cifras, tablas y gráficos cambian con la elección.
+   · Gráfico «Servicios por día» interactivo: pasa el ratón, toca o usa las flechas para ver cada día; haz clic para fijarlo;
+     la leyenda oculta o muestra Activados / En trámite / Caídos.
+   · Seguimiento y Contraoferta (back, admin y supervisor): además de Estados, ahora se filtra por MES de la venta.
+   · Al tocar el aviso de un comentario del back (contraoferta o nota de seguimiento) el comercial llega directo a esa conversación.
+   OJO: el CRM pone en MAYÚSCULAS todos los campos de texto; este bloque solo tiene botones y selectores. */
+(function () {
+  if (window.f66) return;
+  var F = { mes: '', meses: null, sinMes: false, origen: 'TODOS', origenDe: null, sinOrigen: false, ult: null, off: {}, pin: -1, foco: -1 };
+  var SERIES = [['act', 'Activados', 'activados', 'var(--c-act)'], ['tra', 'En trámite', 'tramite', 'var(--c-tra)'], ['cai', 'Caídos', 'caidos', 'var(--c-cai)']];
+  var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  var DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  var ORIGENES = [['TODOS', 'Todas', ''], ['CONCERTADOR', '📞 Concertadores', 'CONC'], ['CERRADOR', '🤝 Cerradores', 'CERR']];
+  var TXT_ORIGEN = {
+    TODOS: 'Se ven todas las ventas del periodo.',
+    CONCERTADOR: 'Solo clientes que captó un concertador y luego vendió un cerrador.',
+    CERRADOR: 'Solo ventas que el cerrador subió por su cuenta, sin pasar por un concertador.'
+  };
+
+  function $(i) { return document.getElementById(i); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function yo() { try { return (typeof perfil !== 'undefined' && perfil && perfil.id) ? perfil.id : null; } catch (e) { return null; } }
+  function rolYo() { try { return (typeof perfil !== 'undefined' && perfil) ? perfil.rol : null; } catch (e) { return null; } }
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { } }
+  function falta(e) { var t = String(e && ((e.code || '') + ' ' + (e.message || ''))); return /PGRST202|PGRST205|42883|42P01/.test(t); }
+  function copia(o) { var r = {}; for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) r[k] = o[k]; return r; }
+  function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+  function n0(v) { return (Number(v) || 0).toLocaleString('es-PE'); }
+  function mesTxt(m) { var p = String(m).split('-'); return cap(MESES[(+p[1]) - 1] || '') + ' ' + p[0]; }
+  function diaLargo(iso) {
+    var p = String(iso).slice(0, 10).split('-'), d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return DIAS[d.getDay()] + ', ' + d.getDate() + ' de ' + MESES[d.getMonth()];
+  }
+  function diaCorto(iso) { var p = String(iso).slice(0, 10).split('-'); return (+p[2]) + '/' + (+p[1]); }
+
+  /* ============================== 0 · LO QUE SE RECUERDA ============================== */
+  function claveOrigen() { return 'crm_f66_origen_' + (yo() || ''); }
+  function cargaOrigen() { var v = lsGet(claveOrigen()); if (v === 'CONCERTADOR' || v === 'CERRADOR' || v === 'TODOS') F.origen = v; }
+
+  /* ============================== 1 · LLAMADAS AL SERVIDOR ============================== */
+  function instala() {
+    if (typeof sb === 'undefined' || !sb || sb.__f66 || typeof sb.rpc !== 'function') return;
+    sb.__f66 = 1;
+    var orig = sb.rpc;
+    sb.rpc = function (n, a, o) {
+      var self = this;
+      function pide(nombre, args) { return orig.call(self, nombre, args, o); }
+      try {
+        // Seguimiento / Contraoferta: la lista grande (no las búsquedas puntuales de un cliente) lleva el mes elegido
+        if (n === 'back_seguimiento' && a && (a.p_limit || 0) >= 20) {
+          var usa = !!F.mes && !F.sinMes, args = a;
+          if (usa) { args = copia(a); args.p_mes = F.mes; }
+          return Promise.resolve(pide(usa ? 'back_seguimiento_mes' : n, args)).then(function (r) {
+            if (usa && r && r.error && falta(r.error)) { F.sinMes = true; F.mes = ''; quitaMes(); return pide(n, a); }
+            if (r && r.data && r.data.meses) { F.meses = r.data.meses; refrescaMeses(); }
+            return r;
+          });
+        }
+        // Panel de KPIs: lleva el origen elegido (el objetivo del mes del admin, que llama con p_dias 0 y sin servicios, no se toca)
+        if (n === 'sup_resumen' && a && !F.sinOrigen && ('p_clases' in a || a.p_dias !== 0)) {
+          if (F.origenDe !== yo()) { F.origenDe = yo(); cargaOrigen(); }   // la elección de cada usuario se recuerda en este navegador
+          var b = copia(a); b.p_origen = F.origen;
+          return Promise.resolve(pide('sup_resumen_origen', b)).then(function (r) {
+            if (r && r.error && falta(r.error)) { F.sinOrigen = true; F.origen = 'TODOS'; quitaOrigen(); return pide(n, a); }
+            if (r && r.data && !r.error) { F.ult = r.data; F.pin = -1; F.foco = -1; }
+            return r;
+          });
+        }
+      } catch (e) { }
+      return orig.call(self, n, a, o);
+    };
+  }
+
+  /* ============================== 2 · FILTRO POR MES ============================== */
+  function ultimosMeses(n) {
+    var out = [], d = new Date(); d.setDate(1);
+    for (var i = 0; i < n; i++) { out.push(d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2)); d.setMonth(d.getMonth() - 1); }
+    return out;
+  }
+  function opcionesMes() {
+    var l = (F.meses && F.meses.length) ? F.meses.slice() : ultimosMeses(12);
+    if (F.mes && l.indexOf(F.mes) < 0) l.unshift(F.mes);
+    return '<option value="">Todos los meses</option>' + l.map(function (m) { return '<option value="' + m + '"' + (m === F.mes ? ' selected' : '') + '>' + esc(mesTxt(m)) + '</option>'; }).join('');
+  }
+  function selMes(id) {
+    return '<select id="' + id + '" class="f66-mes' + (F.mes ? ' f66-on' : '') + '" aria-label="Mes de la venta" title="Mes de la venta">' + opcionesMes() + '</select>';
+  }
+  function pintaMes() {
+    if (F.sinMes) return;
+    var a = $('p37-ag'); if (a && !$('f66-mes')) a.insertAdjacentHTML('afterend', selMes('f66-mes'));        // Seguimiento / Contraoferta del back y del admin
+    var s = $('s46-ag'); if (s && !$('f66-mes-s')) s.insertAdjacentHTML('afterend', selMes('f66-mes-s'));      // Seguimiento del supervisor
+  }
+  function refrescaMeses() {
+    ['f66-mes', 'f66-mes-s'].forEach(function (id) {
+      var e = $(id); if (!e) return;
+      var h = opcionesMes(); if (e.getAttribute('data-h') !== h) { e.innerHTML = h; e.setAttribute('data-h', h); }
+      e.value = F.mes; e.classList.toggle('f66-on', !!F.mes);
+    });
+  }
+  function quitaMes() { ['f66-mes', 'f66-mes-s'].forEach(function (id) { var e = $(id); if (e) e.remove(); }); }
+  function alCambiarMes(e) {
+    var t = e.target; if (!t || (t.id !== 'f66-mes' && t.id !== 'f66-mes-s')) return;
+    F.mes = t.value; refrescaMeses();
+    var ag = $(t.id === 'f66-mes' ? 'p37-ag' : 's46-ag');
+    if (ag) ag.dispatchEvent(new Event('change', { bubbles: true }));      // el propio panel vuelve a pedir la lista (página 1)
+  }
+
+  /* ============================== 3 · ORIGEN: CONCERTADORES / CERRADORES ============================== */
+  function quitaOrigen() { var e = $('f66-org'); if (e) e.remove(); ajustaSecciones(); }
+  function pintaOrigen() {
+    if (F.sinOrigen || !F.ult) return;
+    var bar = document.querySelector('.s46-bar'); if (!bar) return;
+    var sec = bar.closest('.s46-sec'); if (!sec) return;
+    var po = F.ult.por_origen; if (!po) return;
+    var cuenta = { CONC: (po.CONC && po.CONC.servicios) || 0, CERR: (po.CERR && po.CERR.servicios) || 0 };
+    var sig = F.origen + '|' + cuenta.CONC + '|' + cuenta.CERR;
+    var ya = $('f66-org');
+    if (ya && ya.getAttribute('data-sig') === sig && ya.parentNode === sec) return;
+    if (ya) ya.remove();
+    var h = '<div class="f66-org" id="f66-org" data-sig="' + sig + '"><span class="f66-lbl" id="f66-lbl">Ver ventas de</span>' +
+      '<div class="f66-seg" role="radiogroup" aria-labelledby="f66-lbl">' + ORIGENES.map(function (o) {
+        var n = o[2] ? cuenta[o[2]] : cuenta.CONC + cuenta.CERR, on = o[0] === F.origen;
+        return '<button type="button" role="radio" aria-checked="' + on + '" class="f66-o' + (on ? ' on' : '') + '" data-o="' + o[0] + '">' + o[1] + ' <b>' + n0(n) + '</b></button>';
+      }).join('') + '</div><span class="f66-hint">' + esc(TXT_ORIGEN[F.origen]) + (F.origen !== 'TODOS' ? ' El objetivo del mes no cambia.' : '') + '</span></div>';
+    var sv = sec.querySelector('.svc49-fila');
+    if (sv) sv.insertAdjacentHTML('afterend', h); else sec.insertAdjacentHTML('beforeend', h);
+  }
+  function alElegirOrigen(e) {
+    var b = e.target.closest ? e.target.closest('.f66-o') : null; if (!b) return;
+    var o = b.getAttribute('data-o'); if (o === F.origen) return;
+    F.origen = o; lsSet(claveOrigen(), o);
+    var ref = document.querySelector('.s46-bar [data-k="ref"]'); if (ref) ref.click();   // el panel vuelve a pedir sus cifras con el origen nuevo
+  }
+  function ajustaSecciones() {
+    Array.prototype.forEach.call(document.querySelectorAll('.s46-sec'), function (s) {
+      var h3 = s.querySelector('.s46-sh h3'); if (!h3) return;
+      var t = h3.textContent.trim(), oculta = false;
+      if (t === '¿De dónde vienen las ventas?') oculta = !F.sinOrigen && F.origen !== 'TODOS';   // ya lo cuenta el selector de arriba
+      else if (t === 'Concertadores') oculta = !F.sinOrigen && F.origen === 'CERRADOR';
+      if (s.hidden !== oculta) s.hidden = oculta;
+    });
+  }
+
+  /* ============================== 4 · GRÁFICO «SERVICIOS POR DÍA» INTERACTIVO ============================== */
+  var TIP = null;
+  function tip() {
+    if (TIP && TIP.parentNode) return TIP;
+    TIP = document.createElement('div'); TIP.id = 'f66-tip'; TIP.className = 'f66-tip'; TIP.hidden = true; TIP.setAttribute('role', 'tooltip'); document.body.appendChild(TIP);
+    return TIP;
+  }
+  function paso(max) {
+    var raw = Math.max(1, max) / 4, p = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10)), c = [1, 2, 2.5, 5, 10];
+    for (var i = 0; i < c.length; i++) if (c[i] * p >= raw) return Math.max(1, Math.ceil(c[i] * p));
+    return Math.ceil(10 * p);
+  }
+  function visibles() { return SERIES.filter(function (s) { return !F.off[s[0]]; }); }
+  function totalDia(x) { return (x.act || 0) + (x.tra || 0) + (x.cai || 0); }
+  function filasTip(x) {
+    return SERIES.map(function (s) {
+      return '<div class="f66-tr' + (F.off[s[0]] ? ' off' : '') + '"><span><i style="background:' + s[3] + '"></i>' + s[1] + '</span><b>' + n0(x[s[0]]) + '</b></div>';
+    }).join('') + '<div class="f66-tr tot"><span>Total del día</span><b>' + n0(totalDia(x)) + '</b></div>';
+  }
+  function leyenda(d) {
+    var t = d.totales || {};
+    return '<div class="f66-leg" role="group" aria-label="Series del gráfico">' + SERIES.map(function (s) {
+      var on = !F.off[s[0]];
+      return '<button type="button" class="f66-lg' + (on ? '' : ' off') + '" data-s="' + s[0] + '" aria-pressed="' + on + '" title="' + (on ? 'Ocultar ' : 'Mostrar ') + s[1].toLowerCase() + '"><i style="background:' + s[3] + '"></i>' + s[1] + ' <b>' + n0(t[s[2]]) + '</b></button>';
+    }).join('') + '</div>';
+  }
+  function svgGraf(dias, W) {
+    var H = 250, m = { l: 36, r: 6, t: 10, b: 28 }, n = dias.length, iw = W - m.l - m.r, ih = H - m.t - m.b, vis = visibles();
+    var mx = 0; dias.forEach(function (x) { var s = 0; vis.forEach(function (v) { s += x[v[0]] || 0; }); mx = Math.max(mx, s); });
+    var st = paso(mx), top = st * 4, band = iw / n, bw = Math.max(3, Math.min(30, band - 4));
+    function y(v) { return m.t + ih - v / top * ih; }
+    var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="group" tabindex="0" aria-label="Servicios por día, apilados por estado. Usa las flechas izquierda y derecha para recorrer los días y Enter para fijar uno.">';
+    for (var k = 0; k <= 4; k++) {
+      var v = st * k;
+      s += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)" stroke-width="1"' + (k ? ' stroke-dasharray="3 4"' : '') + '/>' +
+        '<text x="' + (m.l - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + v + '</text>';
+    }
+    var cada = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(iw / 52))));
+    s += '<rect id="f66-hl" x="0" y="' + m.t + '" width="0" height="' + ih + '" fill="var(--ink)" opacity=".07" pointer-events="none"/>' +
+      '<rect id="f66-pin" x="0" y="' + m.t + '" width="0" height="' + ih + '" fill="none" stroke="var(--acc)" stroke-width="2" rx="4" pointer-events="none"/>';
+    dias.forEach(function (x, i) {
+      var cx = m.l + band * i + band / 2, cur = 0;
+      vis.forEach(function (sr) {
+        var val = x[sr[0]]; if (!val) return;
+        var yt = y(cur + val), yb = y(cur) - (cur > 0 ? 2 : 0);
+        s += '<rect x="' + (cx - bw / 2) + '" y="' + yt + '" width="' + bw + '" height="' + Math.max(1, yb - yt) + '" rx="3" fill="' + sr[3] + '" pointer-events="none"/>';
+        cur += val;
+      });
+      if (i % cada === 0 || (i === n - 1 && n <= 12)) s += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle">' + diaCorto(x.d) + '</text>';
+      s += '<rect class="f66-hit" data-i="' + i + '" x="' + (m.l + band * i) + '" y="' + m.t + '" width="' + band + '" height="' + ih + '" fill="transparent" style="cursor:pointer"/>';
+    });
+    return s + '</svg>';
+  }
+  function dibuja() {
+    var ch = $('f66-ch'), d = F.ult; if (!ch || !d || !d.dias) return;
+    var W = Math.max(300, ch.clientWidth || 640);
+    ch.innerHTML = svgGraf(d.dias, W);
+    marca();
+  }
+  function marca() {   // resaltado del día bajo el cursor / foco y del día fijado
+    var d = F.ult, svg = document.querySelector('#f66-ch svg'); if (!d || !svg) return;
+    function pon(id, i) {
+      var r = svg.querySelector('#' + id), h = i >= 0 ? svg.querySelector('.f66-hit[data-i="' + i + '"]') : null; if (!r) return;
+      if (h) { r.setAttribute('x', h.getAttribute('x')); r.setAttribute('width', h.getAttribute('width')); } else r.setAttribute('width', 0);
+    }
+    pon('f66-hl', F.foco); pon('f66-pin', F.pin);
+    var det = $('f66-det'); if (!det) return;
+    var clave = F.pin + '|' + (F.pin >= 0 ? JSON.stringify(F.off) : '');
+    if (det.firstChild && det.getAttribute('data-k') === clave) return;      // no se vuelve a pintar si no cambió: así el botón «Quitar» no se reemplaza bajo el ratón
+    det.setAttribute('data-k', clave);
+    if (F.pin >= 0 && d.dias[F.pin]) {
+      var x = d.dias[F.pin], tot = 0; d.dias.forEach(function (z) { tot += totalDia(z); });
+      det.innerHTML = '<div class="f66-pinbox"><div><b>📌 ' + esc(cap(diaLargo(x.d))) + '</b>' + SERIES.map(function (s) {
+        return '<span class="f66-pv' + (F.off[s[0]] ? ' off' : '') + '"><i style="background:' + s[3] + '"></i>' + s[1] + ' <b>' + n0(x[s[0]]) + '</b></span>';
+      }).join('') + '<span class="f66-pv"><b>Total ' + n0(totalDia(x)) + '</b>' + (tot ? ' · ' + Math.round(totalDia(x) * 100 / tot) + ' % del periodo' : '') + '</span></div>' +
+        '<button type="button" class="sec f66-q" data-q="1">Quitar</button></div>';
+    } else det.innerHTML = '<p class="meta f66-ayuda">Toca o haz clic en un día para fijar sus cifras. Pulsa un nombre de la leyenda para ocultar o mostrar esa serie.</p>';
+  }
+  function muestraTip(i, ev, el) {
+    var d = F.ult; if (!d || !d.dias[i]) return;
+    var t = tip(), x = d.dias[i];
+    t.innerHTML = '<b>' + esc(cap(diaLargo(x.d))) + '</b>' + filasTip(x); t.hidden = false;
+    var w = t.offsetWidth, h = t.offsetHeight, px, py;
+    if (ev && ev.clientX != null && !ev.fromKey) { px = ev.clientX + 14; py = ev.clientY + 14; }
+    else { var r = el.getBoundingClientRect(); px = r.left + r.width / 2 + 10; py = r.top + 10; }
+    if (px + w > window.innerWidth - 8) px = px - w - 28;
+    if (py + h > window.innerHeight - 8) py = window.innerHeight - h - 8;
+    t.style.left = Math.max(4, px) + 'px'; t.style.top = Math.max(4, py) + 'px';
+  }
+  function ocultaTip() { if (TIP) TIP.hidden = true; }
+  function hit(e) { return e.target && e.target.closest ? e.target.closest('.f66-hit') : null; }
+  function anuncia(i) {
+    var d = F.ult, x = d && d.dias[i]; if (!x) return;
+    var a = $('f66-live'); if (a) a.textContent = cap(diaLargo(x.d)) + ': ' + SERIES.map(function (s) { return n0(x[s[0]]) + ' ' + s[1].toLowerCase(); }).join(', ') + '. Total ' + n0(totalDia(x)) + '.';
+  }
+  function ganchosGraf(g) {
+    g.addEventListener('pointermove', function (e) {
+      var h = hit(e); if (!h) { if (F.foco !== -1) { F.foco = -1; marca(); } ocultaTip(); return; }
+      F.foco = +h.getAttribute('data-i'); marca(); muestraTip(F.foco, e, h);
+    });
+    g.addEventListener('pointerleave', function () { F.foco = -1; marca(); ocultaTip(); });
+    g.addEventListener('click', function (e) {
+      var h = hit(e);
+      if (h) { var i = +h.getAttribute('data-i'); F.pin = F.pin === i ? -1 : i; F.foco = i; marca(); muestraTip(i, e, h); anuncia(i); return; }
+      var lg = e.target.closest ? e.target.closest('.f66-lg') : null;
+      if (lg) {
+        var k = lg.getAttribute('data-s');
+        if (!F.off[k] && visibles().length === 1) return;          // siempre queda alguna serie a la vista
+        F.off[k] = !F.off[k]; var d = F.ult;
+        var l = g.querySelector('.f66-leg'); if (l && d) l.outerHTML = leyenda(d);
+        dibuja(); ocultaTip(); return;
+      }
+      if (e.target.closest && e.target.closest('[data-q]')) { F.pin = -1; marca(); }
+    });
+    g.addEventListener('keydown', function (e) {
+      var svg = e.target.closest ? e.target.closest('svg') : null; if (!svg || !F.ult) return;
+      var n = F.ult.dias.length, i = F.foco;
+      if (e.key === 'ArrowRight') i = i < 0 ? 0 : Math.min(n - 1, i + 1);
+      else if (e.key === 'ArrowLeft') i = i < 0 ? n - 1 : Math.max(0, i - 1);
+      else if (e.key === 'Home') i = 0; else if (e.key === 'End') i = n - 1;
+      else if (e.key === 'Enter' || e.key === ' ') { if (i >= 0) { e.preventDefault(); F.pin = F.pin === i ? -1 : i; marca(); anuncia(i); } return; }
+      else if (e.key === 'Escape') { F.pin = -1; F.foco = -1; marca(); ocultaTip(); return; }
+      else return;
+      e.preventDefault(); F.foco = i; marca();
+      var h = svg.querySelector('.f66-hit[data-i="' + i + '"]'); if (h) { var ev = { fromKey: true }; muestraTip(i, ev, h); } anuncia(i);
+    });
+    g.addEventListener('focusout', function (e) { if (e.target.tagName === 'svg') { F.foco = -1; marca(); ocultaTip(); } });
+  }
+  function graf() {
+    var host = $('s46-dias'); if (!host || !F.ult || !F.ult.dias || !F.ult.dias.length) return;
+    if ($('f66-g') && host.contains($('f66-g'))) return;
+    if (!host.querySelector('#s46-cd')) return;                    // vista «Tabla»: se deja la tabla de siempre
+    host.innerHTML = '<div class="f66-g" id="f66-g">' + leyenda(F.ult) + '<div class="f66-ch" id="f66-ch"></div><div id="f66-det"></div><div class="f66-sr" id="f66-live" aria-live="polite"></div></div>';
+    ganchosGraf($('f66-g'));
+    dibuja();
+  }
+
+  /* ============================== 5 · «PANEL DE GESTIÓN» DEL ADMIN: cifras al pasar o tocar ============================== */
+  function ganchosAdmin() {
+    document.addEventListener('pointerover', function (e) {
+      var el = e.target.closest ? e.target.closest('#admCharts .k-dia, #admCharts .k-br') : null;
+      if (!el) { if (!e.target.closest || !e.target.closest('#f66-tip')) ocultaTip(); return; }
+      var t = tip(), txt;
+      if (el.classList.contains('k-dia')) { var sp = el.querySelectorAll('span'); txt = '<b>' + esc(sp.length > 1 ? sp[sp.length - 1].textContent : '') + '</b><div class="f66-tr"><span>' + esc(el.getAttribute('title') || el.getAttribute('data-t') || '') + '</span></div>'; }
+      else { var l = el.querySelector('.k-bl'), v = el.querySelector('.k-bv'); txt = '<b>' + esc(l ? l.textContent : '') + '</b><div class="f66-tr"><span>' + esc(v ? v.textContent : '') + '</span></div>'; }
+      if (el.hasAttribute('title')) { el.setAttribute('data-t', el.getAttribute('title')); el.removeAttribute('title'); }
+      t.innerHTML = txt; t.hidden = false;
+      var r = el.getBoundingClientRect(), w = t.offsetWidth, px = r.left + r.width / 2 - w / 2, py = r.top - t.offsetHeight - 8;
+      if (py < 4) py = r.bottom + 8;
+      t.style.left = Math.max(4, Math.min(px, window.innerWidth - w - 4)) + 'px'; t.style.top = py + 'px';
+    });
+    document.addEventListener('click', function (e) {
+      var el = e.target.closest ? e.target.closest('#admCharts .k-dia, #admCharts .k-br') : null; if (!el) return;
+      var sel = el.classList.contains('f66-sel');
+      Array.prototype.forEach.call(document.querySelectorAll('#admCharts .f66-sel'), function (x) { x.classList.remove('f66-sel'); });
+      if (!sel) el.classList.add('f66-sel');
+    });
+  }
+
+  /* ============================== 6 · AVISOS QUE ABREN LA CONVERSACIÓN ============================== */
+  function q(ref) { return String(ref).replace(/["\\]/g, '\\$&'); }
+  function espera(sel, ms, cb) {
+    var t0 = Date.now();
+    (function tic() { var e = document.querySelector(sel); if (e) return cb(e); if (Date.now() - t0 > ms) return cb(null); setTimeout(tic, 150); })();
+  }
+  function alAbrirAviso(it) {
+    var rol = rolYo(), ref = it && it.ref; if (!ref) return;
+    var contra = it.destino === 'contra', nota = it.evento === 'NOTA_SEGUIMIENTO';
+    if (rol === 'cerrador' && (contra || nota)) {
+      var css = '#p15-cof [data-c="abrir"][data-id="' + q(ref) + '"]';
+      var bt = document.querySelector('#tabs15 .t15[data-k="cof"]');
+      if (bt && !bt.classList.contains('on')) bt.click();            // las notas del back sobre una venta también llevan a «💬 Contraofertas», donde está la conversación
+      setTimeout(function () {
+        espera(css, 2200, function (e) {
+          if (e) { e.click(); return; }
+          var todas = document.querySelector('#p15-cof [data-c="modo"][data-m="TODAS"]');      // la venta puede no tener contraoferta: está en «Todas mis ventas»
+          if (!todas) return;
+          todas.click(); espera(css, 3000, function (e2) { if (e2) e2.click(); });
+        });
+      }, 250);
+    } else if ((rol === 'back' || rol === 'admin') && contra) {
+      setTimeout(function () {
+        espera('#p37-q', 2500, function (inp) {
+          if (!inp) return;
+          inp.value = ref; inp.dispatchEvent(new Event('input', { bubbles: true }));            // deja la lista solo con ese cliente
+          setTimeout(function () { espera('#p15-pa tr[data-a="abrir"][data-id="' + q(ref) + '"]', 3500, function (r) { if (r) r.click(); }); }, 500);
+        });
+      }, 250);
+    } else if (rol === 'supervisor' && (contra || nota)) {
+      setTimeout(function () {
+        espera('#s46-q', 2500, function (inp) {
+          if (!inp) return;
+          inp.value = ref; inp.dispatchEvent(new Event('input', { bubbles: true }));
+          setTimeout(function () { espera('#s46-seg [data-k="abre"][data-id="' + q(ref) + '"]', 3500, function (r) { if (r && r.getAttribute('aria-expanded') !== 'true') r.click(); }); }, 700);
+        });
+      }, 250);
+    }
+  }
+
+  /* ============================== 7 · ESTILOS ============================== */
+  function estilos() {
+    if ($('f66-css')) return;
+    var s = document.createElement('style'); s.id = 'f66-css';
+    s.textContent = [
+      '.f66-mes{flex:1 1 150px;min-width:0;margin:0}.f66-mes.f66-on{border-color:var(--acc);box-shadow:0 0 0 2px color-mix(in srgb,var(--acc) 22%,transparent)}',
+      '.s46-tb .f66-mes{width:auto;min-width:160px;flex:none}',
+      '.f66-org{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:12px 0 0}',
+      '.f66-lbl{font-size:.8em;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}',
+      '.f66-seg{display:inline-flex;flex-wrap:wrap;gap:4px;padding:3px;border-radius:99px;background:var(--bg);border:1px solid var(--line)}',
+      '.f66-o{width:auto;margin:0;padding:7px 14px;border-radius:99px;background:transparent;color:var(--ink);border:0;box-shadow:none;font-weight:600;font-size:.9em;cursor:pointer;line-height:1.2}',
+      '.f66-o b{margin-left:4px;font-weight:800}',
+      '.f66-o:hover{background:var(--acc2)}.f66-o.on{background:var(--acc);color:var(--on-acc)}.f66-o:focus-visible,.f66-lg:focus-visible,.f66-ch svg:focus-visible{outline:2px solid var(--acc);outline-offset:2px}',
+      '.f66-hint{font-size:.82em;color:var(--mut);flex:1 1 220px}.s46-sec[hidden]{display:none!important}',
+      '.f66-g{min-width:0}',
+      '.f66-leg{display:flex;flex-wrap:wrap;gap:6px 10px;margin:0 0 8px}',
+      '.f66-lg{width:auto;margin:0;display:inline-flex;gap:6px;align-items:center;padding:5px 12px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:.86em;font-weight:600;box-shadow:none;cursor:pointer}',
+      '.f66-lg i,.f66-tr i,.f66-pv i{width:10px;height:10px;border-radius:3px;display:inline-block;flex:none}',
+      '.f66-lg:hover{border-color:var(--acc)}.f66-lg.off{opacity:.5;text-decoration:line-through}.f66-lg.off i{filter:grayscale(1)}',
+      '.f66-ch{width:100%;min-width:0}.f66-ch svg{width:100%;height:auto;display:block;touch-action:manipulation;border-radius:8px}',
+      '.f66-ch text{fill:var(--mut);font-size:11px}',
+      '.f66-ayuda{margin:6px 0 0}',
+      '.f66-pinbox{display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:8px;padding:10px 12px;border:1px solid var(--acc);border-radius:12px;background:var(--acc2)}',
+      '.f66-pinbox>div{display:flex;gap:8px 14px;flex-wrap:wrap;align-items:center;min-width:0}',
+      '.f66-pv{display:inline-flex;gap:5px;align-items:center;font-size:.9em}.f66-pv.off{opacity:.45}',
+      '.f66-q{width:auto;margin:0;padding:5px 12px;font-size:.82em}',
+      '.f66-tip{position:fixed;z-index:10050;pointer-events:none;background:var(--card);color:var(--ink);border:1px solid var(--line2,var(--line));border-radius:10px;padding:8px 10px;box-shadow:var(--sh-lg,0 8px 24px rgba(0,0,0,.18));font-size:.85em;min-width:150px;max-width:260px}',
+      '.f66-tip b{display:block;margin-bottom:4px}',
+      '.f66-tr{display:flex;justify-content:space-between;gap:14px;align-items:center}.f66-tr span{display:inline-flex;gap:6px;align-items:center}.f66-tr b{margin:0;display:inline}',
+      '.f66-tr.off{opacity:.45}.f66-tr.tot{border-top:1px solid var(--line);margin-top:3px;padding-top:3px}',
+      '.f66-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
+      '#admCharts .k-dia,#admCharts .k-br{cursor:pointer;border-radius:6px}#admCharts .k-br:hover,#admCharts .k-dia:hover{background:var(--acc2)}',
+      '#admCharts .f66-sel{outline:2px solid var(--acc);outline-offset:1px;background:var(--acc2)}',
+      '@media(max-width:560px){.f66-seg{width:100%}.f66-o{flex:1 1 auto;padding:8px 10px}.s46-tb .f66-mes{width:100%;min-width:0}}'
+    ].join('');
+    document.head.appendChild(s);
+  }
+
+  /* ============================== 8 · ARRANQUE ============================== */
+  var tmr = null;
+  function repara() {
+    tmr = null;
+    try { pintaMes(); pintaOrigen(); ajustaSecciones(); graf(); } catch (e) { if (window.console) console.error(e); }
+  }
+  function programa() { if (tmr) return; tmr = setTimeout(repara, 60); }
+  function arranca() {
+    instala(); estilos(); ganchosAdmin();
+    document.addEventListener('change', alCambiarMes);
+    document.addEventListener('click', alElegirOrigen);
+    document.addEventListener('pointerdown', function (e) { if (TIP && !TIP.hidden && !(e.target.closest && e.target.closest('#f66-g'))) ocultaTip(); });
+    var mo = new MutationObserver(programa); mo.observe(document.body, { childList: true, subtree: true });
+    var rz = null; window.addEventListener('resize', function () { clearTimeout(rz); rz = setTimeout(function () { if ($('f66-ch')) dibuja(); }, 200); });
+    programa();
+  }
+  window.f66 = { alAbrirAviso: alAbrirAviso, estado: function () { return F; } };
+  if (document.body) arranca(); else document.addEventListener('DOMContentLoaded', arranca);
+  // al cambiar de usuario (salir y entrar) se vuelve a leer la elección de ese usuario
+  var origLogin = window.loginView;
+  if (typeof origLogin === 'function') window.loginView = function () { F.mes = ''; F.ult = null; F.pin = -1; F.foco = -1; F.origen = 'TODOS'; F.origenDe = null; return origLogin.apply(this, arguments); };
 })();
  </script>
 </body>
