@@ -1948,7 +1948,8 @@ function ventaForm(l) {
     e = N(e);
     if (/ACTIV|INSTAL|COMPLET/.test(e)) return 'ACT';
     if (/CANCEL|DESCONE|ANUL|BAJA/.test(e)) return 'CAI';
-    if (/INCID|CONTRAOF|SCORING/.test(e)) return 'INC';
+    if (window.f68 ? window.f68.sco(e) : /SCORING/.test(e)) return 'CAI';
+    if (/INCID|CONTRAOF/.test(e)) return 'INC';
     return 'TRA';
   }
   var MAC = {
@@ -2176,7 +2177,7 @@ function ventaForm(l) {
     return '<div class="d15-vc' + (lead ? ' click' : '') + '"' + (lead ? ' data-a="vficha" data-id="' + esc(lead.id) + '"' : '') + '>' +
       '<div class="d15-vh"><div class="d15-av">' + esc(ini(v.nombre || v.campana || 'V')) + '</div><div class="d15-vt"><b>' + esc(v.nombre || 'Venta ' + v.id) + '</b>' +
       '<small>' + esc(v.campana || '') + ' · ' + esc(v.id) + (quien && v.agente ? ' · ' + esc(v.agente) : '') + '</small></div><span class="badge b-' + m.c + '">' + m.t + '</span></div>' +
-      '<div class="d15-prog"><i style="width:' + pct + '%"></i></div>' +
+      (window.f68 ? window.f68.fila(v) : '') + '<div class="d15-prog"><i style="width:' + pct + '%"></i></div>' +
       '<div class="d15-pm">' + v.act + ' de ' + n + ' servicios activos' + (v.f ? ' · último movimiento ' + hace(v.f) : '') + '</div>' +
       '<div class="d15-chips">' + v.items.map(function (i) { return chip(i, v.sel.indexOf(i) < 0); }).join('') + '</div>' +
       (v.pend.length ? '<div class="d15-falta">Falta activar: ' + esc(v.pend.map(function (p) { return tipoL(p.tipo_producto); }).join(', ')) + '</div>' : '') + '</div>';
@@ -2549,7 +2550,8 @@ function ventaForm(l) {
     e = N(e);
     if (/ACTIV|INSTAL|COMPLET/.test(e)) return 'ACT';
     if (/CANCEL|DESCONE|ANUL|BAJA/.test(e)) return 'CAI';
-    if (/INCID|CONTRAOF|SCORING|KAO/.test(e)) return 'INC';
+    if (window.f68 ? window.f68.sco(e) : /SCORING/.test(e)) return 'CAI';
+    if (/INCID|CONTRAOF|KAO/.test(e)) return 'INC';
     return 'TRA';
   }
   function rango(s) {
@@ -2574,7 +2576,7 @@ function ventaForm(l) {
     // Usa fecha_venta cuando ya está completada; si una fila aún no la tiene, la ubica por la fecha de su estado (así nunca queda vacío)
     var filtro = 'and(fecha_venta.gte.' + A + ',fecha_venta.lt.' + B + '),and(fecha_venta.is.null,fecha_estado.gte.' + R[0] + ',fecha_estado.lt.' + R[1] + ')';
     // «Contar por fecha de activación»: las líneas que se activaron o cayeron en el periodo, aunque la venta sea de un mes anterior (si falta la fecha del estado, vale la de la venta)
-    var ESTF = 'or(estado.ilike.*activ*,estado.ilike.*instal*,estado.ilike.*complet*,estado.ilike.*cancel*,estado.ilike.*descone*,estado.ilike.*anul*,estado.ilike.*baja*)';
+    var ESTF = 'or(estado.ilike.*activ*,estado.ilike.*instal*,estado.ilike.*complet*,estado.ilike.*cancel*,estado.ilike.*descone*,estado.ilike.*anul*,estado.ilike.*baja*,estado.ilike.*scoring*)';
     if (s.b === 'act') filtro = 'and(fecha_estado.gte.' + R[0] + ',fecha_estado.lt.' + R[1] + ',' + ESTF + '),and(fecha_estado.is.null,fecha_venta.gte.' + A + ',fecha_venta.lt.' + B + ',' + ESTF + ')';
     var rows = await todo(function () {
       return sb.from('ventas_sync').select('*').or(filtro)
@@ -2610,6 +2612,7 @@ function ventaForm(l) {
             x.n = x.items.length;
       var cid = x.lead && x.lead.concertador_id;
       x.origen = !x.lead ? 'MX' : (cid && (!pr[cid] || pr[cid] === 'concertador')) ? 'CONC' : 'DIR';
+      if (window.f68) window.f68.marca(x);
       x.act = x.items.filter(function (i) { return mac(i.estado) === 'ACT'; }).length;
       var pend = x.items.filter(function (i) { var m = mac(i.estado); return m === 'TRA' || m === 'INC'; });
       x.est = pend.length ? (pend.some(function (i) { return mac(i.estado) === 'INC'; }) ? 'INC' : 'TRA') : (x.act ? 'ACT' : 'CAI');
@@ -2619,6 +2622,7 @@ function ventaForm(l) {
     });
     return o;
     }
+    if (window.f68) { try { await window.f68.carga(); } catch (e) { } }
     var o = arma(rows);
     var D = { rows: rows, raw: raw, arma: arma, o: o, lm: lm, pn: pn, ventas: null, leadsN: null };
     if (extra) {
@@ -2680,7 +2684,7 @@ function ventaForm(l) {
       '<small>DNI ' + esc(x.dni || '—') + (x.tel ? ' · ' + esc(x.tel) : '') + '</small></div><span class="badge b-' + m[1] + '">' + m[0] + '</span></div>' +
       '<div class="meta" style="margin-top:8px">Vendido a <b>' + esc(x.campana || '—') + '</b>' + (x.donante ? (N(x.donante) === 'ALTA NUEVA' ? ' · alta nueva' : ' · viene de ' + esc(x.donante)) : '') + '</div>' +
       '<div class="meta">' + (zona ? esc(zona) + ' · ' : '') + (x.agente ? 'Agente ' + esc(x.agente) + ' · ' : '') + esc(x.id) + (window.f67 && ROL !== 'concertador' ? window.f67.chipO(x.origen, x.lead && x.lead.concertador_id && EST.ven.data ? EST.ven.data.pn[x.lead.concertador_id] : '') : '') + '</div>' +
-      '<div class="d15-prog"><i style="width:' + pct + '%"></i></div><div class="d15-pm">' + x.act + ' de ' + x.n + ' servicios activos · último estado ' + fd(x.f) + '</div>' +
+      (window.f68 ? window.f68.fila(x) : '') + '<div class="d15-prog"><i style="width:' + pct + '%"></i></div><div class="d15-pm">' + x.act + ' de ' + x.n + ' servicios activos · último estado ' + fd(x.f) + '</div>' +
       x.items.map(function (i) {
         var mm = MAC[mac(i.estado)];
         return '<div class="meta" style="display:flex;justify-content:space-between;gap:8px;margin-top:6px"><span>' + esc(tipoL(i.tipo_producto)) + (i.producto ? ' · ' + esc(i.producto) : '') +
@@ -3540,7 +3544,8 @@ function ventaForm(l) {
     e = N(e);
     if (/ACTIV|INSTAL|COMPLET/.test(e) && !/DESACTIV|INACTIV|NO ACTIV/.test(e)) return 'b-ok';
     if (/CANCEL|DESCONE|ANUL|BAJA|CAIDA|CAÍDA/.test(e)) return 'b-bad';
-    if (/INCID|CONTRAOF|SCORING|KAO/.test(e)) return 'b-warn';
+    if (window.f68 ? window.f68.sco(e) : /SCORING/.test(e)) return 'b-bad';
+    if (/INCID|CONTRAOF|KAO/.test(e)) return 'b-warn';
     return 'b-info';
   }
 
@@ -6443,11 +6448,11 @@ function ventaForm(l) {
   /* --- Concertadores: clientes que suben y ventas que consiguen --- */
   function tablaConc(rows) {
     if (!rows.length) return '<div class="s46-vacio">No hay concertadores activos.</div>';
-    return '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Concertador</th><th class="n">Clientes subidos</th><th class="n">Vendidos</th><th class="n rep">Conversión</th><th class="n" title="Servicios vendidos en el periodo">Servicios</th><th class="n" title="Por fecha de activación">Activ.</th><th class="n rep">Trámite</th><th class="n rep">Caídos</th></tr></thead><tbody>' +
+    return '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Concertador</th><th class="n">Clientes subidos</th><th class="n">Vendidos</th><th class="n rep">Conversión</th><th class="n" title="Servicios vendidos en el periodo">Servicios</th><th class="n" title="Por fecha de activación">Activ.</th><th class="n rep">Trámite</th><th class="n rep">Caídos</th>' + (window.f68 ? window.f68.thConc(rows) : '') + '</tr></thead><tbody>' +
       rows.map(function (r) {
         var nom = KP.esAdmin ? '<b>' + esc(r.nombre) + '</b>' : '<button type="button" class="svc49-lnk" data-k="verc" data-id="' + esc(r.id) + '" title="Ver sus clientes y el historial"><b>' + esc(r.nombre) + '</b></button>';
         return '<tr><td>' + nom + '</td><td class="n">' + n0(r.leads) + '</td><td class="n">' + n0(r.vendidos) + '</td><td class="n rep">' + (r.leads ? pcn(r.vendidos, r.leads) + ' %' : '—') + '</td>' +
-          '<td class="n"><b>' + n0(r.servicios) + '</b></td><td class="n">' + n0(r.activados) + '</td><td class="n rep">' + n0(r.tramite) + '</td><td class="n rep">' + n0(r.caidos) + '</td></tr>';
+          '<td class="n"><b>' + n0(r.servicios) + '</b></td><td class="n">' + n0(r.activados) + '</td><td class="n rep">' + n0(r.tramite) + '</td><td class="n rep">' + n0(r.caidos) + '</td>' + (window.f68 ? window.f68.tdConc(r, rows) : '') + '</tr>';
       }).join('') + '</tbody></table></div><p class="meta" style="margin-top:8px">«Clientes subidos» = los que registró en el periodo. Los servicios son los de sus clientes con venta en el periodo, del servicio que estás viendo (Internet o Móvil, nunca los dos juntos).</p>';
   }
 
@@ -6473,7 +6478,8 @@ function ventaForm(l) {
       kpi('', n0(t.servicios), esc(nv52 && sv ? sv.etiquetaVta(kSel) : etq), n0(t.ventas) + ' ventas · por fecha de venta') +
       kpi('act', n0(t.activados), 'Activados', nv52 ? 'Por fecha de activación' + (t.activados_antes ? ' · ' + n0(t.activados_antes) + ' de ventas anteriores' : '') : pc(t.activados, t.servicios) + ' de los registrados') +
       kpi('tra', n0(t.tramite), 'En trámite', nv52 ? 'De las ventas del periodo' + (t.tramite_antes ? ' · +' + n0(t.tramite_antes) + ' de ventas anteriores' : '') : pc(t.tramite, t.servicios) + ' de los registrados') +
-      kpi('cai', n0(t.caidos), 'Caídos', nv52 ? 'Por fecha en que cayeron' : pc(t.caidos, t.servicios) + ' de los registrados') +
+      kpi('cai', n0(t.caidos), 'Caídos', (nv52 ? 'Por fecha en que cayeron' : pc(t.caidos, t.servicios) + ' de los registrados') + (t.scoring ? ' · ' + n0(t.scoring) + ' por scoring' : '')) +
+      (t.recuperadas != null ? kpi(t.recuperadas ? 'act' : '', n0(t.recuperadas), '♻️ Recuperadas tras scoring', (t.scoring_rec ? n0(t.scoring_rec) + ' de ' + n0(t.scoring) + ' caídas por scoring se recuperaron' : 'Ventas que cayeron en scoring y se volvieron a vender') + (t.rec_activados ? ' · ' + n0(t.rec_activados) + ' ya activas' : '')) : '') +
       kpi('cai', res ? pcn(t.caidos, res) + ' %' : '—', 'Tasa de caída', res ? 'Caídos ' + t.caidos + ' de ' + res + ' ya resueltos (activados + caídos)' : 'Aún no hay servicios resueltos') +
       (xAp && sv ? kpi('ap', n0(xAp.activados), sv.icono(kAp) + ' ' + esc(sv.etiquetaAct(kAp)), 'Aparte: no se suman · ' + n0(xAp.tramite) + ' en trámite') : '') +
       kpi(tk.vencidas ? 'bad' : '', n0(tk.vencidas), 'Tareas vencidas', n0(tk.sin_asignar) + ' sin asignar · ' + n0(tk.pendientes) + ' pendientes') + '</div>';
@@ -17364,17 +17370,17 @@ function ofcCalcular(cat, sel) {
     Array.prototype.forEach.call(document.querySelectorAll('.s46-sec'), function (s) {
       var h3 = s.querySelector('.s46-sh h3'); if (!h3 || clean(h3.textContent) !== '¿De dónde vienen las ventas?') return;
       var po = F.ult.por_origen, z = { servicios: 0, ventas: 0, activados: 0, tramite: 0, caidos: 0 }, c = po.CONC || z, r = po.CERR || z;
-      var sig = [c.servicios, c.activados, c.tramite, c.caidos, r.servicios, r.activados, r.tramite, r.caidos].join('|');
+      var sig = [c.servicios, c.activados, c.tramite, c.caidos, rvar sig = [c.servicios, c.activados, c.tramite, c.caidos, r.servicios, r.activados, r.tramite, r.caidos, c.recuperadas, r.recuperadas].join('|');
       if (s.getAttribute('data-f67k') === sig) return;
       var sv = window.svc49, et = sv && F.ult.clases && F.ult.clases[0] ? sv.etiquetaAct(F.ult.clases[0]) : 'Activos', tot = c.activados + r.activados;
       function dc(nom, x, otro) {
         return window.f67.attr(nom, [['Vendidos en el periodo', n0(x.servicios)], [et, n0(x.activados), 'var(--c-act)'], ['En trámite', n0(x.tramite), 'var(--c-tra)'], ['Caídos', n0(x.caidos), 'var(--c-cai)'],
-          ['Parte del total de activos', pcTxt(x.activados, tot)]], 'Activados y caídos por fecha en que ocurrieron; vendidos por fecha de venta.');
+          ['Parte del total de activos', pcTxt(x.activados, tot)]].concat(x.scoring ? [['Caídos por scoring', n0(x.scoring)]] : [], x.recuperadas ? [['♻️ Ventas recuperadas', n0(x.recuperadas)]] : []), 'Activados y caídos por fecha en que ocurrieron; vendidos por fecha de venta.');
       }
       s.innerHTML = '<div class="s46-sh"><h3>¿De dónde vienen las ventas?</h3><span class="meta">' + esc(et) + ' del periodo, según quién captó al cliente</span></div>' +
         '<div class="s46-kpis">' +
-        kpiC('act', n0(c.activados), '📞 Activos de lo que captaron los concertadores', n0(c.servicios) + ' vendidos · ' + n0(c.tramite) + ' en trámite · ' + n0(c.caidos) + ' caídos') +
-        kpiC('act', n0(r.activados), '🤝 Activos de cerradores', n0(r.servicios) + ' vendidos · ' + n0(r.tramite) + ' en trámite · ' + n0(r.caidos) + ' caídos · directas o solo MATRIZ') +
+        kpiC('act', n0(c.activados), '📞 Activos de lo que captaron los concertadores', n0(c.servicios) + ' vendidos · ' + n0(c.tramite) + ' en trámite · ' + n0(c.caidos) + ' caídos' + (c.recuperadas ? ' · ♻️ ' + n0(c.recuperadas) + ' recuperadas' : '')) +
+        kpiC('act', n0(r.activados), '🤝 Activos de cerradores', n0(r.servicios) + ' vendidos · ' + n0(r.tramite) + ' en trámite · ' + n0(r.caidos) + ' caídos' + (r.recuperadas ? ' · ♻️ ' + n0(r.recuperadas) + ' recuperadas' : '') + ' · directas o solo MATRIZ') +
         kpiC('', tot ? pcTxt(c.activados, tot) : '—', 'Parte de concertadores', 'del total de ' + n0(tot) + ' activos') + '</div>' +
         (tot ? '<div class="f67-split" role="group" aria-label="Reparto de los activos entre concertadores y cerradores">' +
           (c.activados ? '<div class="f67-sg c" style="flex:' + c.activados + '"' + dc('📞 Concertadores', c) + '><span>📞 ' + n0(c.activados) + '</span></div>' : '') +
@@ -17465,6 +17471,7 @@ function ofcCalcular(cat, sel) {
   function mesesDe(d) { return (d.meses || []).slice().reverse(); }
   function fMes(m, conc) {
     var f = [['Ingresadas', n0(m.ing)], ['Activas hoy', n0(m.act), 'var(--c-act)'], ['En trámite', n0(m.tra), 'var(--c-tra)'], ['Canceladas', n0(m.can), 'var(--c-cai)'], ['% activas', pcTxt(m.act, m.ing)], ['% canceladas', pcTxt(m.can, m.ing)], ['Activadas en el mes', n0(m.actm)]];
+    if (window.f68) f = f.concat(window.f68.filasMes(m));
     if (conc) { f.push(['📞 De concertadores', n0(conc.ing) + ' ventas · ' + n0(conc.act) + ' activas']); f.push(['🤝 De cerradores directos', n0(Math.max(0, m.ing - conc.ing)) + ' ventas · ' + n0(Math.max(0, m.act - conc.act)) + ' activas']); }
     return f;
   }
@@ -18034,6 +18041,410 @@ function ofcCalcular(cat, sel) {
     ROLES = {}; NOM = {}; LEADSALL = null; LEADIDX = {}; CT = {}; PINS = {}; document.body.classList.remove('f67-aconc');
     return origLogin.apply(this, arguments);
   };
+})();
+  /* 68 · «SCORING» = VENTA CAÍDA · VENTAS RECUPERADAS · VENTA PROPIA DEL CONCERTADOR
+   PEGAR al final del script de index.html, DESPUÉS del bloque 67 y antes del cierre del script.
+   Antes ejecuta 68_scoring_recuperadas_y_venta_propia.sql en Supabase. Sin el SQL el CRM sigue funcionando: solo se ocultan estas funciones.
+
+   · Venta recuperada = un cliente que cayó en scoring y se le vuelve a vender con OTRO TITULAR y/o OTRO OPERADOR.
+     La venta nueva se marca «♻️ Recuperada» y hereda el origen: si el cliente lo captó un concertador, sigue siendo SU venta captada.
+     Se detecta sola (mismo lead, teléfono o dirección) y el administrador, el supervisor o el back pueden vincular o descartar a mano.
+   · El concertador tiene el botón «➕ Mi venta propia» (misma ficha de venta del cerrador).
+   · Administrador y supervisor: en la pestaña de KPIs, la sección «♻️ Ventas recuperadas».
+   OJO: el CRM pone en MAYÚSCULAS los campos de texto; los buscadores de este bloque llevan data-minus para que no lo hagan. */
+(function () {
+  if (window.f68) return;
+  var M = { rec: {}, rec_de: {}, t: 0, p: null, falta: false };     // mapa de recuperadas de quien está conectado
+  var L = { d: null, t: 0, busy: false, err: null, falta: false };    // lista de revisión (admin / supervisor)
+  var MI = { d: null, t: 0, busy: false, falta: false };              // lo mío (concertador / cerrador)
+  var SES = 0, REINTENTO = 30000;                                      // SES cambia al salir/entrar: las respuestas que llegan tarde se ignoran
+
+  function $(i) { return document.getElementById(i); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function rolYo() { try { return (typeof perfil !== 'undefined' && perfil) ? perfil.rol : null; } catch (e) { return null; } }
+  function n0(v) { return (Number(v) || 0).toLocaleString('es-PE'); }
+  function falta(e) { var t = String(e && ((e.code || '') + ' ' + (e.message || ''))); return /PGRST202|PGRST205|42883|42P01/.test(t); }
+  function copia(o) { var r = {}; for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) r[k] = o[k]; return r; }
+  function aviso(m, err) { try { if (typeof toast === 'function') toast(m, !!err); } catch (e) { } }
+  function fecha(d) { if (!d) return '—'; var x = new Date(d); return isNaN(x) ? '—' : x.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' }); }
+  function N(s) { return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase(); }
+  /* «scoring» = caída, salvo «scoring ok / aprobado / positivo / superado» (igual que en el SQL) */
+  function sco(e) { e = N(e); return /SCORING/.test(e) && !/SCORING[^A-Z]*(OK|APROB|POSITIV|SUPERAD)|(OK|APROB|POSITIV|SUPERAD)[^A-Z]*SCORING/.test(e); }
+  var MOTIVO = { TITULAR: 'otro titular', OPERADOR: 'otro operador', AMBOS: 'otro titular y otro operador', OTRO: 'vinculada a mano' };
+
+  /* ============================== 1 · EL MAPA DE RECUPERADAS ============================== */
+  function carga(fuerza) {
+    if (M.falta || !rolYo()) return Promise.resolve(M);
+    if (!fuerza && M.p) return M.p;
+    if (!fuerza && M.t && Date.now() - M.t < 60000) return Promise.resolve(M);
+    if (!fuerza && M.et && Date.now() - M.et < REINTENTO) return Promise.resolve(M);     // falló hace poco: no se insiste en cada movimiento de la pantalla
+    var ses = SES;
+    M.p = Promise.resolve(sb.rpc('rec_mapa')).then(function (r) {
+      M.p = null;
+      if (ses !== SES) return M;
+      if (r.error) { if (falta(r.error)) M.falta = true; else M.et = Date.now(); return M; }
+      var d = r.data || {}, cambio = JSON.stringify(Object.keys(d.rec || {}).sort()) !== JSON.stringify(Object.keys(M.rec).sort());
+      M.rec = d.rec || {}; M.rec_de = d.rec_de || {}; M.t = Date.now(); M.et = 0; M.cambio = cambio;
+      return M;
+    }, function () { M.p = null; M.et = Date.now(); return M; });
+    return M.p;
+  }
+  /* una venta (con .id y .items) o una línea: ¿qué etiquetas lleva? */
+  function marca(x) {
+    try {
+      if (!x || !x.id) return x;
+      var r = M.rec[x.id];
+      if (r) {
+        x.rec = r;                                                   // hereda el origen de la venta que cayó: si la captó un concertador, sigue siendo suya
+        if (r.org === 'CONC') x.origen = 'CONC';
+        else if (x.origen === 'MX' && r.lead) x.origen = 'DIR';     // la original sí pasó por el CRM, y la registró un cerrador
+      }
+      if (M.rec_de[x.id]) x.recDe = M.rec_de[x.id];
+    } catch (e) { }
+    return x;
+  }
+  /* «caída por scoring» solo si hay una línea en scoring y ninguna activa (si el Internet está activo, la venta no se perdió) */
+  function esScoring(x) {
+    return !!(x && x.items && x.items.some(function (i) { return sco(i.estado); }) && !x.items.some(function (i) { return /ACTIV|INSTAL|COMPLET/.test(N(i.estado)) && !/DESACTIV|INACTIV|NO ACTIV/.test(N(i.estado)); }));
+  }
+  function chip(x) {
+    try {
+      if (!x) return '';
+      var id = x.id, r = M.rec[id], h = '';
+      if (r) h += ' <span class="f68-tag r" title="Venta recuperada: ' + esc(MOTIVO[r.m] || '') + '. Sustituye a la venta ' + esc(r.de) + ' que cayó en scoring' + (r.org === 'CONC' ? '. Cuenta como venta captada por el concertador' : '') + (r.v === 'MANUAL' ? '. Vinculada a mano' : '') + '">♻️ Recuperada · ' + esc(MOTIVO[r.m] || '') + '</span>';
+      else if (M.rec_de[id]) h += ' <span class="f68-tag s" title="Cayó en scoring y se recuperó con la venta ' + esc(M.rec_de[id]) + '">⛔ Scoring · ya recuperada</span>';
+      else if (esScoring(x)) h += ' <span class="f68-tag s" title="Cayó en scoring: se da por perdida salvo que se recupere con otro titular u otro operador">⛔ Caída por scoring</span>';
+      return h;
+    } catch (e) { return ''; }
+  }
+
+  function fila(x) { var h = chip(x).trim(); return h ? '<div class="meta f68-fila">' + h + '</div>' : ''; }
+  /* columnas extra de la tabla «Concertadores» del panel de KPIs (solo si el SQL 68 está puesto) */
+  function hayCols(rows) { return !!(rows && rows.some(function (r) { return r && r.recuperadas != null; })); }
+  function thConc(rows) {
+    return hayCols(rows) ? '<th class="n rep" title="Servicios que cayeron en scoring (ya cuentan como caídos)">Scoring</th><th class="n rep" title="Ventas recuperadas tras scoring (otro titular u otro operador): siguen siendo del concertador que captó al cliente">♻️ Recup.</th><th class="n rep" title="Ventas que cerró el propio concertador">Propias</th>' : '';
+  }
+  function tdConc(r, rows) {
+    return hayCols(rows) ? '<td class="n rep">' + n0(r.scoring) + '</td><td class="n rep">' + n0(r.recuperadas) + '</td><td class="n rep">' + n0(r.propias) + '</td>' : '';
+  }
+  /* filas extra del recuadro que sale al tocar una celda de los informes por mes */
+  function filasMes(m) {
+    var f = [];
+    if (m && m.sco > 0) f.push(['Cayeron en scoring', n0(m.sco), 'var(--c-cai)']);
+    if (m && m.rec > 0) f.push(['♻️ Recuperadas', n0(m.rec)]);
+    return f;
+  }
+
+  /* ============================== 2 · PANEL DE GESTIÓN: la recuperada hereda al concertador ============================== */
+  /* El Panel de gestión reparte las ventas por «quién captó al cliente» mirando el lead de cada venta.
+     Una venta recuperada se mira con el lead de la venta ORIGINAL (la que cayó en scoring): así sigue siendo del concertador que captó al cliente. */
+  function enlazaPanel(lista) {
+    try {
+      var r = M.rec, n = 0;
+      (lista || []).forEach(function (v) { var q = r[v.id]; if (q && q.lead && v.lead !== q.lead && (q.org === 'CONC' || !v.lead)) { v.lead = q.lead; n++; } });
+      return n;
+    } catch (e) { return 0; }
+  }
+  function ganchoPanel() {
+    var f = window.f67; if (!f || f.__f68) return;
+    var orig = f.datos;
+    f.datos = function (D) {
+      var base = D && D.ventasG, primera = !M.t && !M.falta;    // la lista completa, antes de que el bloque 67 la filtre por origen
+      enlazaPanel(base);
+      var res = orig.apply(this, arguments);
+      if (primera) carga().then(function () {                    // el mapa llega después de los datos: se completa y se repinta UNA vez
+        if (enlazaPanel(base) && typeof window.repintaAdmin === 'function' && $('admCharts')) { try { window.repintaAdmin(); } catch (e) { } }
+      });
+      else carga();                                              // (se refresca solo cada minuto; sirve para la próxima vez)
+      return res;
+    };
+    f.__f68 = 1;
+  }
+
+  /* ============================== 3 · ADMIN / SUPERVISOR: sección «Ventas recuperadas» ============================== */
+  function cargaLista(fuerza) {
+    if (L.falta || L.busy) return;
+    if (!fuerza && L.d && Date.now() - L.t < 60000) return;
+    if (!fuerza && !L.d && L.et && Date.now() - L.et < REINTENTO) return;
+    var ses = SES;
+    L.busy = true; L.err = null;
+    Promise.resolve(sb.rpc('rec_listar', { p_dias: 90 })).then(function (r) {
+      L.busy = false;
+      if (ses !== SES) return;
+      if (r.error) { if (falta(r.error)) L.falta = true; else { L.err = r.error.message || 'Error'; L.et = Date.now(); } }
+      else { L.d = r.data; L.t = Date.now(); L.et = 0; }
+      pintaLista();
+    }, function (e) { L.busy = false; if (ses !== SES) return; L.err = String(e && e.message || e); L.et = Date.now(); pintaLista(); });
+  }
+  function filaPar(p) {
+    var org = p.org === 'CONC' ? '<span class="f68-tag c" title="Cuenta como venta captada por este concertador">📞 ' + esc(String(p.conc || 'Concertador').split(' ')[0]) + '</span>' : '<span class="f68-tag d">🤝 Cerrador</span>';
+    var quita = p.vinculo === 'MANUAL'
+      ? '<button type="button" class="sec f68-b" data-f68="auto" data-id="' + esc(p.nueva) + '" title="Deja lo que detecta el sistema">Volver a automático</button>'
+      : '<button type="button" class="sec f68-b" data-f68="desc" data-id="' + esc(p.nueva) + '" title="No es una recuperación: se deja de contar como tal">Quitar</button>';
+    return '<tr><td><b>' + esc(p.cli_s || p.scoring) + '</b><div class="meta">' + esc(p.scoring) + ' · ' + esc(p.camp_s || '—') + ' · ' + esc(p.est_s || '') + ' · ' + fecha(p.f_s) + '</div></td>' +
+      '<td><b>' + esc(p.cli_n || p.nueva) + '</b><div class="meta">' + esc(p.nueva) + ' · ' + esc(p.camp_n || '—') + ' · ' + esc(p.est_n || '') + ' · ' + fecha(p.f_n) + '</div></td>' +
+      '<td>' + esc(MOTIVO[p.motivo] || p.motivo) + '<div class="meta">' + (p.vinculo === 'MANUAL' ? 'a mano' : 'automático') + ' · a los ' + n0(p.dias) + ' d</div></td>' +
+      '<td>' + esc(p.ag_n || '—') + '</td><td>' + org + '</td><td class="n">' + quita + '</td></tr>';
+  }
+  function cuerpoLista() {
+    if (L.falta) return '<div class="svc49-nota">⚠️ Falta ejecutar <b>68_scoring_recuperadas_y_venta_propia.sql</b> en Supabase.</div>';
+    if (L.err) return '<div class="s46-vacio">No se pudo cargar: ' + esc(L.err) + '</div>';
+    if (!L.d) return '<div class="s46-vacio">Cargando…</div>';
+    var d = L.d, P = d.pares || [], A = d.abiertas || [], nConc = P.filter(function (p) { return p.org === 'CONC'; }).length;
+    var h = '<div class="f68-ks"><div class="f68-k"><b>' + n0(P.length + A.length) + '</b><span>cayeron en scoring (90 días)</span></div>' +
+      '<div class="f68-k ok"><b>' + n0(P.length) + '</b><span>ya recuperadas' + (nConc ? ' · ' + n0(nConc) + ' de concertadores' : '') + '</span></div>' +
+      '<div class="f68-k bad"><b>' + n0(A.length) + '</b><span>siguen perdidas</span></div></div>';
+    h += '<div class="s46-h4">Recuperadas (' + n0(P.length) + ')</div>';
+    h += P.length ? '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Cayó en scoring</th><th>La recupera</th><th>Cambio</th><th>Cerrador</th><th>Cuenta como</th><th></th></tr></thead><tbody>' + P.map(filaPar).join('') + '</tbody></table></div>' :
+      '<div class="s46-vacio">Todavía no hay ventas recuperadas en estos 90 días.</div>';
+    h += '<div class="s46-h4">Cayeron en scoring y nadie las ha recuperado (' + n0(A.length) + ')</div>';
+    h += A.length ? '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Cliente</th><th>Venta</th><th>Cerrador</th><th>Captó</th><th></th></tr></thead><tbody>' + A.map(function (a) {
+      return '<tr><td><b>' + esc(a.cli || a.scoring) + '</b><div class="meta">' + esc(a.camp || '—') + ' · ' + esc(a.est || '') + ' · ' + fecha(a.f) + '</div></td><td>' + esc(a.scoring) + '</td><td>' + esc(a.ag || '—') + '</td>' +
+        '<td>' + (a.conc ? '<span class="f68-tag c">📞 ' + esc(String(a.conc).split(' ')[0]) + '</span>' : '<span class="meta">—</span>') + '</td>' +
+        '<td class="n"><button type="button" class="sec f68-b" data-f68="vinc" data-id="' + esc(a.scoring) + '" data-n="' + esc(a.cli || a.scoring) + '" title="Si ya se la recuperó y el sistema no lo vio, elige la venta nueva">Vincular…</button></td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="s46-vacio">No hay ventas perdidas por recuperar. 🎉</div>';
+    h += '<p class="meta" style="margin-top:8px">El sistema marca una venta como recuperada cuando sigue a una caída por scoring del mismo cliente o la misma casa (mismo lead, teléfono o dirección), ' +
+      'dentro de ' + n0(d.dias_max || 45) + ' días, y cambia el titular (otro DNI) o el operador (otra campaña). Si se equivoca, «Quitar»; si no la vio, «Vincular…». ' +
+      'La recuperada cuenta como venta captada por el mismo concertador que captó la original.</p>';
+    return h;
+  }
+  function pintaLista() {
+    var s = $('f68-rec'); if (!s) return;
+    var cuerpo = s.querySelector('.f68-cuerpo'); if (cuerpo) cuerpo.innerHTML = cuerpoLista();
+  }
+  function aseguraLista() {
+    var r = rolYo(); if (r !== 'admin' && r !== 'supervisor') return;
+    var bar = document.querySelector('.s46-bar'); if (!bar) return;
+    var primera = bar.closest('.s46-sec'), host = primera && primera.parentElement; if (!host) return;
+    if (!host.querySelector('#f68-rec')) {
+      var s = document.createElement('div'); s.className = 's46-sec f68-sec'; s.id = 'f68-rec';
+      s.innerHTML = '<div class="s46-sh"><h3>♻️ Ventas recuperadas</h3><span class="s46-pills"><button type="button" class="sec f68-b" data-f68="ref">↻ Actualizar</button></span></div>' +
+        '<p class="meta" style="margin:0 0 10px">Un cliente que cae en <b>scoring</b> se da por perdido (cuenta como caído, ya no como «en trámite»). Si se le vuelve a vender con otro titular u otro operador es una venta <b>recuperada</b>.</p>' +
+        '<div class="f68-cuerpo"></div>';
+      var antes = null;                                           // va justo antes de «Por campaña» (si no está, al final)
+      Array.prototype.forEach.call(host.querySelectorAll('.s46-sec'), function (z) { var h = z.querySelector('.s46-sh h3'); if (h && /^Por campa/.test(h.textContent.trim())) antes = z; });
+      if (antes) host.insertBefore(s, antes); else host.appendChild(s);
+      pintaLista();
+    }
+    if (bar.offsetParent !== null && !L.busy && !L.falta) cargaLista(false);      // (cargaLista ya decide si toca pedir: primera vez, al minuto, o tras un error pasados 30 s)
+  }
+
+  /* --- acciones: quitar / volver a automático / vincular a mano --- */
+  function llama(fn, args, ok) {
+    Promise.resolve(sb.rpc(fn, args)).then(function (r) {
+      if (r.error) return aviso(falta(r.error) ? 'Falta ejecutar 68_scoring_recuperadas_y_venta_propia.sql' : String(r.error.message || 'Error').replace(/^.*?:\s*/, ''), true);
+      aviso(ok); M.t = 0; carga(true).then(function () { cargaLista(true); try { var ref = document.querySelector('.s46-bar [data-k="ref"]'); if (ref) ref.click(); } catch (e) { } });
+    });
+  }
+  function dialogoVincular(idS, nombre) {
+    if ($('f68-ov')) return;
+    var ov = document.createElement('div'); ov.className = 'k-ov'; ov.id = 'f68-ov'; ov.style.zIndex = 9200;
+    ov.innerHTML = '<div class="k-bus" role="dialog" aria-label="Vincular una venta recuperada"><h3 style="margin:0 0 4px">Vincular una venta recuperada</h3>' +
+      '<div class="meta" style="margin:0 0 8px">Cayó en scoring: <b>' + esc(nombre) + '</b> · ' + esc(idS) + '. Elige la venta nueva que la recupera.</div>' +
+      '<label for="f68-q">Buscar la venta nueva</label><input id="f68-q" data-minus autocomplete="off" placeholder="Cliente, DNI, teléfono o código de venta">' +
+      '<div id="f68-res" class="f68-res" role="list"><div class="s46-vacio">Buscando…</div></div>' +
+      '<div class="row" style="margin-top:12px"><button class="sec" id="f68-x" type="button">Cancelar</button></div></div>';
+    document.body.appendChild(ov);
+    var q = ov.querySelector('#f68-q'), out = ov.querySelector('#f68-res'), tm = null, tok = 0;
+    ov.querySelector('#f68-x').onclick = function () { ov.remove(); };
+    ov.addEventListener('click', function (e) { if (e.target === ov) ov.remove(); });
+    function busca() {
+      var mi = ++tok;
+      Promise.resolve(sb.rpc('rec_candidatas', { p_scoring: idS, p_texto: q.value.trim() })).then(function (r) {
+        if (mi !== tok) return;
+        if (r.error) { out.innerHTML = '<div class="s46-vacio">' + esc(String(r.error.message || 'Error').replace(/^.*?:\s*/, '')) + '</div>'; return; }
+        var c = r.data || [];
+        out.innerHTML = c.length ? c.map(function (x) {
+          return '<button type="button" class="f68-c" role="listitem" data-n="' + esc(x.id) + '"><b>' + esc(x.cli || x.id) + '</b> <span class="meta">' + esc(x.id) + ' · ' + esc(x.camp || '—') + ' · ' + esc(x.ag || '—') + ' · ' + esc(x.est || '') + ' · ' + fecha(x.f) + '</span>' +
+            (x.senal ? ' <span class="f68-tag r" title="Comparte lead, teléfono o dirección con la venta que cayó">mismo cliente o casa</span>' : '') + '</button>';
+        }).join('') : '<div class="s46-vacio">No hay ventas posteriores que coincidan. Prueba con otro nombre o con el código.</div>';
+      });
+    }
+    q.addEventListener('input', function () { clearTimeout(tm); tm = setTimeout(busca, 250); });
+    out.addEventListener('click', function (e) {
+      var b = e.target.closest('.f68-c'); if (!b) return;
+      if (!confirm('¿Vincular ' + b.getAttribute('data-n') + ' como la venta que recupera a ' + idS + '?')) return;
+      ov.remove(); llama('rec_vincular', { p_scoring: idS, p_nueva: b.getAttribute('data-n'), p_nota: null }, 'Vinculada: ahora cuenta como venta recuperada');
+    });
+    q.focus(); busca();
+  }
+  function alClic(e) {
+    var b = e.target.closest ? e.target.closest('[data-f68]') : null; if (!b) return;
+    var k = b.getAttribute('data-f68'), id = b.getAttribute('data-id');
+    if (k === 'ref') { L.t = 0; cargaLista(true); }
+    else if (k === 'desc') { if (confirm('¿Quitar esta recuperación? La venta nueva dejará de contarse como recuperada.')) llama('rec_descartar', { p_nueva: id, p_nota: null }, 'Listo: ya no cuenta como recuperada'); }
+    else if (k === 'auto') llama('rec_automatico', { p_nueva: id }, 'Listo: vuelve a lo que detecta el sistema');
+    else if (k === 'vinc') dialogoVincular(id, b.getAttribute('data-n') || id);
+  }
+
+  /* ============================== 4 · CONCERTADOR Y CERRADOR: «lo mío» ============================== */
+  function cargaMias(fuerza) {
+    var r = rolYo(); if (r !== 'concertador' && r !== 'cerrador') return;
+    if (MI.falta || MI.busy) return;
+    if (!fuerza && MI.d && Date.now() - MI.t < 60000) return;
+    if (!fuerza && !MI.d && MI.et && Date.now() - MI.et < REINTENTO) return;
+    var ses = SES;
+    MI.busy = true;
+    Promise.resolve(sb.rpc('rec_mias', { p_dias: 90 })).then(function (x) {
+      MI.busy = false;
+      if (ses !== SES) return;
+      if (x.error) { if (falta(x.error)) MI.falta = true; else MI.et = Date.now(); } else { MI.d = x.data; MI.t = Date.now(); MI.et = 0; }
+      pintaMias();
+    }, function () { MI.busy = false; if (ses === SES) MI.et = Date.now(); });
+  }
+  function htmlMias() {
+    var P = (MI.d && MI.d.pares) || [], r = rolYo();
+    if (!P.length) return '';
+    return '<div class="d15-sec f68-mias" id="f68-mias"><div class="d15-sh"><h3>♻️ Ventas recuperadas</h3><span class="meta">' + (r === 'concertador' ? 'Clientes que captaste, cayeron en scoring y se volvieron a vender: siguen siendo tu venta captada' : 'Clientes que cayeron en scoring y recuperaste con otro titular u otro operador') + '</span></div>' +
+      '<div class="s46-sc"><table class="s46-tbl"><thead><tr><th>Cayó en scoring</th><th>La recupera</th><th>Cambio</th></tr></thead><tbody>' + P.map(function (p) {
+        return '<tr><td><b>' + esc(p.cli_s || p.scoring) + '</b><div class="meta">' + esc(p.camp_s || '—') + ' · ' + fecha(p.f_s) + '</div></td>' +
+          '<td><b>' + esc(p.cli_n || p.nueva) + '</b><div class="meta">' + esc(p.camp_n || '—') + ' · ' + esc(p.est_n || '') + ' · ' + fecha(p.f_n) + '</div></td><td>' + esc(MOTIVO[p.motivo] || p.motivo) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+  }
+  function pintaMias() {
+    var host = $('p15-res'); if (!host) return;
+    var h = htmlMias(), ya = $('f68-mias');
+    if (!h) { if (ya) ya.remove(); return; }
+    if (ya) { if (ya.getAttribute('data-sig') === String(h.length) + (MI.t || '')) return; ya.remove(); }
+    host.insertAdjacentHTML('beforeend', h);
+    var n = $('f68-mias'); if (n) n.setAttribute('data-sig', String(h.length) + (MI.t || ''));
+  }
+  function aseguraMias() {
+    var r = rolYo(); if (r !== 'concertador' && r !== 'cerrador') return;
+    if (!$('p15-res')) return;
+    if (!MI.busy && !MI.falta) cargaMias(false);
+    if (MI.d && !$('f68-mias')) pintaMias();
+  }
+
+  /* ============================== 5 · CONCERTADOR: botón «Mi venta propia» ============================== */
+  function instalaRpc() {
+    if (sb.__f68) return;
+    var orig = sb.rpc.bind(sb);
+    sb.rpc = function (fn, args, opts) {
+      if (fn === 'registrar_venta' && args && args.p_lead == null && window.__propia68) {
+        var a = copia(args); delete a.p_lead;
+        return Promise.resolve(orig('registrar_venta_propia', a, opts)).then(function (res) {
+          if (!res.error) {
+            window.__propia68 = null; M.t = 0;
+            try { if (window.refrescar15) window.refrescar15(); } catch (_) { }
+          }
+          return res;
+        });
+      }
+      return orig(fn, args, opts);
+    };
+    sb.__f68 = 1;
+  }
+  function propia() {
+    if ($('vp68')) return;
+    var ov = document.createElement('div'); ov.className = 'k-ov'; ov.id = 'vp68'; ov.style.zIndex = 9100;
+    ov.innerHTML = '<div class="k-bus" role="dialog" aria-label="Mi venta propia"><h3 style="margin:0 0 4px">Mi venta propia</h3>' +
+      '<div class="meta" style="margin:0 0 6px">Para un cliente que cierras tú misma, sin pasarlo a un cerrador. Cuenta como venta captada por ti. No se guarda nada hasta que envíes la venta.</div>' +
+      '<label for="vp-n">Cliente</label><input id="vp-n" autocomplete="off"><div class="row"><div><label for="vp-d">DNI / NIE</label><input id="vp-d" autocomplete="off"></div>' +
+      '<div><label for="vp-t">Teléfono</label><input id="vp-t" inputmode="tel" autocomplete="off"></div></div>' +
+      '<div class="row" style="margin-top:14px"><button class="sec" id="vp-x" type="button">Cancelar</button><button id="vp-ok" type="button">Continuar</button></div></div>';
+    document.body.appendChild(ov);
+    var q = function (s) { return ov.querySelector(s); };
+    q('#vp-x').onclick = function () { ov.remove(); };
+    q('#vp-n').focus();
+    q('#vp-ok').onclick = function () {
+      var n = q('#vp-n').value.trim(), d = q('#vp-d').value.trim(), t = q('#vp-t').value.trim();
+      if (!n || !d) return aviso('Escribe el nombre y el DNI del cliente', true);
+      instalaRpc();
+      window.__propia68 = { cliente: n, dni: d, telefono: t };
+      ov.remove();
+      if (typeof window.ventaForm === 'function') window.ventaForm({ id: null, cliente: n, dni: d, telefono: t });
+      else aviso('No se encontró la ficha de venta', true);
+    };
+  }
+  function aseguraBoton() {
+    if (rolYo() !== 'concertador') return;
+    var acc = $('g45a'), bar = $('tabs15'), b = $('btnPropia68');       // la barra de grupos (bloque 45) esconde la barra vieja: allí van los botones de acción
+    if (b) { if (acc && b.parentNode !== acc) { b.style.cssText = 'flex:none;padding:8px 15px'; acc.appendChild(b); } return; }
+    var dest = acc || bar; if (!dest) return;
+    b = document.createElement('button'); b.id = 'btnPropia68'; b.type = 'button'; b.textContent = '➕ Mi venta propia';
+    b.style.cssText = acc ? 'flex:none;padding:8px 15px' : 'flex:none;margin-left:auto;padding:8px 15px'; b.onclick = propia; dest.appendChild(b);
+  }
+
+  /* ============================== 6 · ESTILOS Y VIGILANCIA ============================== */
+  function estilos() {
+    if ($('f68-css')) return;
+    var s = document.createElement('style'); s.id = 'f68-css';
+    s.textContent = [
+      '.f68-tag{display:inline-flex;align-items:center;gap:4px;padding:1px 9px;border-radius:99px;font-size:.78em;font-weight:700;border:1px solid transparent;margin-left:6px;white-space:nowrap;vertical-align:middle}',
+      '.f68-tag.r{background:var(--ok-bg);color:color-mix(in srgb,var(--ok) 62%,var(--ink));border-color:color-mix(in srgb,var(--ok) 35%,transparent)}',
+      '.f68-tag.s{background:var(--bad-bg);color:color-mix(in srgb,var(--bad) 62%,var(--ink));border-color:color-mix(in srgb,var(--bad) 35%,transparent)}',
+      '.f68-tag.c{background:var(--info-bg);color:color-mix(in srgb,var(--acc) 62%,var(--ink));border-color:color-mix(in srgb,var(--acc) 30%,transparent)}',
+      '.f68-tag.d{background:var(--bg);color:var(--mut);border-color:var(--line)}',
+      '.f68-ks{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 4px}',
+      '.f68-k{flex:1 1 150px;display:flex;flex-direction:column;gap:2px;padding:10px 14px;border-radius:14px;background:var(--bg);border:1px solid var(--line)}',
+      '.f68-k b{font-size:1.6em;line-height:1;letter-spacing:-.02em}.f68-k span{font-size:.8em;color:color-mix(in srgb,var(--mut) 45%,var(--ink))}',
+      '.f68-k.ok{background:var(--ok-bg)}.f68-k.bad{background:var(--bad-bg)}',
+      '.f68-b{width:auto;margin:0;padding:5px 12px;font-size:.82em}',
+      '.f68-res{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto;margin-top:8px}',
+      '.f68-c{width:100%;text-align:left;margin:0;padding:9px 12px;border-radius:12px;background:var(--bg);color:var(--ink);border:1px solid var(--line);box-shadow:none;font-weight:400}',
+      '.f68-c:hover{border-color:var(--acc);background:var(--acc2)}.f68-c:focus-visible{outline:2px solid var(--acc);outline-offset:2px}',
+      '.f68-sec .s46-sc,.f68-mias .s46-sc{overflow-x:auto}',
+      '.f68-fila{margin-top:4px}.f68-fila .f68-tag:first-child{margin-left:0}',
+      '.f68-sec td .meta{margin-top:2px}'
+    ].join('');
+    document.head.appendChild(s);
+  }
+  var tm = null;
+  function repara() {
+    tm = null;
+    try { aseguraBoton(); aseguraLista(); aseguraMias(); } catch (e) { if (window.console) console.error(e); }
+  }
+  function programa() { if (!tm) tm = setTimeout(repara, 120); }
+
+  /* ============================== 7 · REVISIÓN DE LA INSTALACIÓN ============================== */
+  // Se pide a mano desde la consola del navegador (F12 → Consola): f68.revisa()
+  // Mira el propio index.html y dice qué cambios de la tanda 4 están colocados y cuáles faltan. No toca nada.
+  function revisa() {
+    var src = ''; Array.prototype.forEach.call(document.scripts, function (s) { if (!s.src) src += s.textContent + '\n'; });
+    var W = 'window.' + 'f68', cuenta = function (t) { var c = 0, i = -1; while ((i = src.indexOf(t, i + 1)) >= 0) c++; return c; };
+    var puntos = [
+      ['Cambios 1-3 · «scoring» cuenta como caída en los 3 sitios que clasifican estados', W + '.sco(e)', 3],
+      ['Cambio 4 · la descarga por fecha de activación trae también el scoring', 'estado.ilike.*' + 'scoring*', 1],
+      ['Cambio 5 · el mapa de recuperadas se lee antes de armar las ventas', 'await ' + W + '.carga()', 1],
+      ['Cambio 6 · cada venta recuperada hereda su origen', W + '.marca(x)', 1],
+      ['Cambio 7 · etiqueta ♻️ en las tarjetas de venta (Ventas y Resumen)', W + '.fila(', 2],
+      ['Cambio 8 · tarjeta «Recuperadas» en los KPIs', 'Recuperadas tras ' + 'scoring', 1],
+      ['Cambio 9 · recuperadas en «¿De dónde vienen las ventas?»', 'x.recuperadas ? [[\'♻️ Ventas ' + 'recuperadas\'', 1],
+      ['Cambio 10 · columnas nuevas en la tabla de concertadores', W + '.thConc(', 1],
+      ['Cambio 10 (filas) · columnas nuevas en la tabla de concertadores', W + '.tdConc(', 1],
+      ['Cambio 11 · informes por mes: scoring y recuperadas', W + '.filasMes(', 1],
+      ['Bloque 68 pegado una sola vez', W + ' = {', 1]
+    ];
+    var faltan = [], lin = puntos.map(function (p) {
+      var c = cuenta(p[1]), bien = c === p[2];
+      if (!bien) faltan.push(p[0]);
+      return (bien ? '✅ ' : '❌ ') + p[0] + (bien ? '' : ' (aparece ' + c + ' vez/veces y debería ser ' + p[2] + ')');
+    });
+    var txt = lin.join('\n') + '\n' + (faltan.length ? '❌ REVISA ' + faltan.length + ' PUNTO(S) de la lista de arriba' : '✅ TODO COLOCADO: los cambios del PASO 2 y el bloque 68');
+    try { console.log(txt); } catch (e) { }
+    return txt;
+  }
+
+  // al salir (y entrar otra persona) no se arrastra nada de la anterior: ni cifras, ni listas, ni botones
+  var origLogin = window.loginView;
+  if (typeof origLogin === 'function') window.loginView = function () {
+    SES++; M.rec = {}; M.rec_de = {}; M.t = 0; M.et = 0; M.p = null; M.falta = false;
+    L.d = null; L.t = 0; L.et = 0; L.busy = false; L.err = null; L.falta = false;
+    MI.d = null; MI.t = 0; MI.et = 0; MI.busy = false; MI.falta = false; window.__propia68 = null;
+    ['f68-rec', 'f68-mias', 'btnPropia68', 'f68-ov', 'vp68'].forEach(function (id) { var e = $(id); if (e) e.remove(); });
+    return origLogin.apply(this, arguments);
+  };
+
+  estilos();
+  ganchoPanel();
+  document.addEventListener('click', alClic);
+  new MutationObserver(programa).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
+  carga();                        // el mapa se pide una vez al abrir (y cada minuto cuando alguna pantalla lo necesita)
+  programa();
+
+  window.f68 = { v: 68, revisa: revisa, carga: carga, marca: marca, chip: chip, fila: fila, thConc: thConc, tdConc: tdConc, filasMes: filasMes, sco: sco, mapa: function () { return M; }, lista: function () { return L; }, mias: function () { return MI; },
+    refresca: function () { M.t = 0; L.t = 0; MI.t = 0; return carga(true).then(function () { cargaLista(true); cargaMias(true); }); } };
 })();
  </script>
 </body>
