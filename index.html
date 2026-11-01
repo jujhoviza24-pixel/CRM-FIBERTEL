@@ -1352,10 +1352,13 @@ function ventaForm(l) {
   }
 
   /* ================= 5) PANEL ADMIN CON GRÁFICOS ================= */
-  function barra(label, val, max, txt) {
+  /* Cada barra y cada columna se puede tocar (lo hace el bloque 67 con los datos que lleva «data-f67»): al pasar el ratón sale la cifra y al hacer clic se fija con el reparto
+     entre concertadores y cerradores. Con el selector «Concertadores / Cerradores» el panel solo cuenta ese origen. */
+  function barra(label, val, max, txt, det) {
     var w = max > 0 ? Math.max(2, Math.round(val * 100 / max)) : 0;
-    return '<div class="k-br"><div class="k-bl" title="' + esc(label) + '">' + esc(label) + '</div><div class="k-bt"><i style="width:' + (val > 0 ? w : 0) + '%"></i></div><div class="k-bv">' + esc(txt) + '</div></div>';
+    return '<div class="k-br"' + (det || '') + '><div class="k-bl" title="' + esc(label) + '">' + esc(label) + '</div><div class="k-bt"><i style="width:' + (val > 0 ? w : 0) + '%"></i></div><div class="k-bv">' + esc(txt) + '</div></div>';
   }
+  function detAdm(t, f, n) { return window.f67 ? window.f67.attr(t, f, n) : ''; }
   async function pintaAdmin() {
     var host = document.getElementById('admCharts'); if (!host) return;
     var Q;
@@ -1363,11 +1366,20 @@ function ventaForm(l) {
       Q = await Promise.all([
         sb.from('leads').select('id,estado,created_at,fecha_cita,cerrador_id,concertador_id').order('created_at', { ascending: false }).limit(1000),
         sb.from('perfiles').select('id,nombre,rol,activo'),
-        sb.from('ventas_sync').select('id_venta,campana,estado,tipo_producto,producto,es_internet,es_movil').not('lead_id', 'is', null).limit(1000)]);
+        sb.from('ventas_sync').select('id_venta,lead_id,campana,estado,tipo_producto,producto,es_internet,es_movil').not('lead_id', 'is', null).limit(1000)]);
     } catch (e) { return; }
     if (Q[0].error || Q[1].error) return;
-    var leads = Q[0].data || [], per = Q[1].data || [], vs = Q[2].data || [];
+    var f67 = window.f67 || null, todos = Q[0].data || [], per = Q[1].data || [], todasV = Q[2].data || [];
+    if (f67) f67.roles(per);
+    var og = f67 ? f67.origen() : 'TODOS', quiere = og === 'CONCERTADOR' ? 'CONC' : (og === 'CERRADOR' ? 'CERR' : null);
+    var orgDe = function (l) { return l && f67 ? f67.org(l) : 'CERR'; };
+    var porId = {}; todos.forEach(function (l) { porId[l.id] = l; });
+    var cuentas = { CONC: 0, CERR: 0, u: 'clientes' }; todos.forEach(function (l) { cuentas[orgDe(l)]++; });
+    var leads = quiere ? todos.filter(function (l) { return orgDe(l) === quiere; }) : todos;
+    var vs = quiere ? todasV.filter(function (r) { var l = porId[r.lead_id]; return !!l && orgDe(l) === quiere; }) : todasV;
     if (window.svc49 && window.svc49.activo()) vs = window.svc49.filtra(vs);   // selector 🌐 Internet / 📱 Móvil
+    var pcT = function (a, b) { return b ? Math.round(a * 100 / b) + ' %' : '—'; };
+    var conc = function (arr) { return arr.filter(function (l) { return orgDe(l) === 'CONC'; }).length; };
     var vend = leads.filter(function (l) { return l.estado === 'VENDIDO'; }).length;
     var gv = {}; vs.forEach(function (r) { (gv[r.id_venta] = gv[r.id_venta] || []).push(r.estado); });
     var ids = Object.keys(gv);
@@ -1381,35 +1393,52 @@ function ventaForm(l) {
       '<div><b>' + act + ' / ' + ids.length + '</b><small>ventas activas</small></div></div>';
 
     var orden = (typeof ORDEN !== 'undefined') ? ORDEN : ['CITA_AGENDADA', 'EN_REVISION', 'VIABLE', 'CONTACTADO', 'NO_CONTESTA', 'RECONTACTAR', 'RECHAZA', 'VENDIDO'];
-    var cuenta = orden.map(function (e) { return [e, leads.filter(function (l) { return l.estado === e; }).length]; });
-    var mx = Math.max.apply(null, cuenta.map(function (c) { return c[1]; }).concat([1]));
-    var embudo = cuenta.map(function (c) { return barra(c[0].replace('_', ' ').toLowerCase(), c[1], mx, String(c[1])); }).join('');
+    var cuenta = orden.map(function (e) { return [e, leads.filter(function (l) { return l.estado === e; })]; });
+    var mx = Math.max.apply(null, cuenta.map(function (c) { return c[1].length; }).concat([1]));
+    var embudo = cuenta.map(function (c) {
+      var n = c[1].length, nm = c[0].replace('_', ' ').toLowerCase(), f = [['Leads', n], ['De los leads', pcT(n, leads.length)]];
+      if (!quiere) { var cc = conc(c[1]); f.push(['📞 Captados por concertador', cc]); f.push(['🤝 Registrados por cerrador', n - cc]); }
+      return barra(nm, n, mx, String(n), detAdm(nm.charAt(0).toUpperCase() + nm.slice(1), f, ''));
+    }).join('');
 
     var dias = [], i;
     for (i = 13; i >= 0; i--) { var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i); dias.push(d); }
-    var porDia = dias.map(function (d) { return leads.filter(function (l) { return new Date(l.created_at).toDateString() === d.toDateString(); }).length; });
+    var delDia = dias.map(function (d) { return leads.filter(function (l) { return new Date(l.created_at).toDateString() === d.toDateString(); }); });
+    var porDia = delDia.map(function (a) { return a.length; });
     var md = Math.max.apply(null, porDia.concat([1]));
+    var DSEM = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
     var grafDias = '<div class="k-dias">' + dias.map(function (d, j) {
-      return '<div class="k-dia" title="' + porDia[j] + ' leads"><span>' + (porDia[j] || '') + '</span><i style="height:' + Math.round(porDia[j] * 80 / md) + '%"></i><span>' + d.getDate() + '/' + (d.getMonth() + 1) + '</span></div>';
+      var f = [['Leads nuevos', porDia[j]]];
+      if (!quiere) { var cc = conc(delDia[j]); f.push(['📞 Captados por concertador', cc]); f.push(['🤝 Registrados por cerrador', porDia[j] - cc]); }
+      return '<div class="k-dia"' + (window.f67 ? detAdm(DSEM[d.getDay()] + ' ' + d.getDate() + '/' + (d.getMonth() + 1), f, '') : ' title="' + porDia[j] + ' leads"') + '><span>' + (porDia[j] || '') + '</span><i style="height:' + Math.round(porDia[j] * 80 / md) + '%"></i><span>' + d.getDate() + '/' + (d.getMonth() + 1) + '</span></div>';
     }).join('') + '</div>';
 
     var cerr = per.filter(function (p) { return p.rol === 'cerrador' && p.activo; }).map(function (p) {
-      var s = leads.filter(function (l) { return l.cerrador_id === p.id; });
-      return { n: p.nombre, v: s.filter(function (l) { return l.estado === 'VENDIDO'; }).length, a: s.filter(abierto).length };
+      var s = leads.filter(function (l) { return l.cerrador_id === p.id; }), vv = s.filter(function (l) { return l.estado === 'VENDIDO'; });
+      return { n: p.nombre, v: vv.length, a: s.filter(abierto).length, t: s.length, vc: conc(vv), tc: conc(s) };
     }).sort(function (a, b) { return b.v - a.v; });
     var mv = Math.max.apply(null, cerr.map(function (c) { return c.v; }).concat([1]));
-    var ranking = cerr.length ? cerr.map(function (c) { return barra(c.n, c.v, mv, c.v + ' · ' + c.a + ' ab.'); }).join('') : '<div class="meta">No hay cerradores activos.</div>';
+    var ranking = cerr.length ? cerr.map(function (c) {
+      var f = [['Vendidos', c.v], ['Abiertos', c.a], ['Leads asignados', c.t]];
+      if (!quiere) { f.push(['📞 Vendidos de concertador', c.vc]); f.push(['🤝 Vendidos propios', c.v - c.vc]); }
+      return barra(c.n, c.v, mv, c.v + ' · ' + c.a + ' ab.', detAdm(c.n, f, ''));
+    }).join('') : '<div class="meta">No hay cerradores activos.</div>';
 
     var camp = {};
-    vs.forEach(function (r) { var c = r.campana || '—'; camp[c] = camp[c] || { t: 0, a: 0 }; camp[c].t++; if (/ACTIV|INSTAL/.test(N(r.estado))) camp[c].a++; });
+    vs.forEach(function (r) {
+      var c = r.campana || '—', l = porId[r.lead_id], esC = l && orgDe(l) === 'CONC', ac = /ACTIV|INSTAL/.test(N(r.estado));
+      camp[c] = camp[c] || { t: 0, a: 0, ct: 0, ca: 0 }; camp[c].t++; if (ac) camp[c].a++; if (esC) { camp[c].ct++; if (ac) camp[c].ca++; }
+    });
     var campHtml = Object.keys(camp).length ? Object.keys(camp).sort(function (a, b) { return camp[b].t - camp[a].t; }).map(function (c) {
-      return barra(c, camp[c].a, camp[c].t, camp[c].a + '/' + camp[c].t + ' act.');
+      var x = camp[c], f = [['Líneas vendidas', x.t], ['Activas', x.a + ' (' + pcT(x.a, x.t) + ')']];
+      if (!quiere) { f.push(['📞 De concertadores', x.ct + ' (' + x.ca + ' activas)']); f.push(['🤝 De cerradores', (x.t - x.ct) + ' (' + (x.a - x.ca) + ' activas)']); }
+      return barra(c, x.a, x.t, x.a + '/' + x.t + ' act.', detAdm(c, f, ''));
     }).join('') : '<div class="meta">Aún no hay ventas del CRM con estado.</div>';
 
-    host.innerHTML = '<h2>Panel de gestión</h2><div data-svc49 class="svc49-fila"></div>' + kpi +
+    host.innerHTML = '<h2>Panel de gestión</h2><div data-svc49 class="svc49-fila"></div>' + (f67 ? f67.selector('adm', cuentas) : '') + kpi +
       '<div class="k-g"><div><h4>Embudo de leads</h4>' + embudo + '</div><div><h4>Leads nuevos · últimos 14 días</h4>' + grafDias + '</div>' +
       '<div><h4>Ranking de cerradores (vendidos · abiertos)</h4>' + ranking + '</div><div><h4>Ventas por campaña (productos activos)</h4>' + campHtml + '</div></div>' +
-      (leads.length >= 1000 ? '<div class="meta" style="margin-top:10px">Mostrando los últimos 1000 leads.</div>' : '');
+      (todos.length >= 1000 ? '<div class="meta" style="margin-top:10px">Mostrando los últimos 1000 leads.</div>' : '');
   }
   function pedirAdmin() { clearTimeout(admTmr); admTmr = setTimeout(pintaAdmin, 700); }
   window.repintaAdmin = pedirAdmin;
@@ -2063,7 +2092,7 @@ function ventaForm(l) {
       }
       var ventasG = agrupa(rows, nom), porLead = {};
       ventasG.forEach(function (v) { if (v.lead) (porLead[v.lead] = porLead[v.lead] || []).push(v); });
-      D = { leads: leads, per: per, pn: pn, rows: rows, ventasG: ventasG, porLead: porLead, comis: comis };
+     D = { leads: leads, per: per, pn: pn, rows: rows, ventasG: ventasG, porLead: porLead, comis: comis }; if (window.f67) window.f67.datos(D);
       avisaCambios(rows);
     } catch (e) { console.error(e); }
     ocupado = false;
@@ -2116,7 +2145,7 @@ function ventaForm(l) {
       e('per', 'Perdidos', '🚫', 'bad', function (l) { return l.estado === 'NO_VIABLE' || l.estado === 'RECHAZA'; })]
   };
   function misLeads() { return ROL === 'back' ? D.leads.filter(function (l) { return l.tipo_cita === 'CALENTAR'; }) : D.leads; }
-  function etapas() { var r = etapas0(); return window.mes63 ? window.mes63.aplica(r) : r; }
+  function etapas() { var r = etapas0(); r = window.mes63 ? window.mes63.aplica(r) : r; return window.f67 ? window.f67.aplica(r) : r; }
   function etapas0() {
     var res = ET[ROL].map(function (d) { return { d: d, items: [] }; });
     misLeads().forEach(function (l) { for (var i = 0; i < res.length; i++) { if (res[i].d.f(l)) { res[i].items.push(l); return; } } });
@@ -2133,7 +2162,7 @@ function ventaForm(l) {
     var cer = D.pn[l.cerrador_id];
     return '<div class="d15-row" data-a="ficha" data-id="' + esc(l.id) + '"><div class="d15-av">' + esc(ini(l.cliente)) + '</div>' +
       '<div class="d15-rt"><b>' + esc(l.cliente) + '</b><small>' + esc(l.telefono || '') + (l.localidad ? ' · ' + esc(l.localidad) : '') + ' · ' + hace(l.updated_at) +
-      (cer && ROL !== 'cerrador' ? ' · ' + esc(cer) : '') + '</small>' +
+      (cer && ROL !== 'cerrador' ? ' · ' + esc(cer) : '') + (window.f67 ? window.f67.chip(l) : '') + '</small>' +
       (fl.length ? '<div class="d15-falta">Falta activar: ' + esc(fl.join(', ')) + '</div>' : '') + '</div>' +
       '<div class="d15-ra"><a class="k-b" href="' + esc(telHref(l.telefono)) + '">📞</a><a class="k-b" target="_blank" rel="noopener" href="https://wa.me/' + esc(waNum(l.telefono)) + '">💬</a></div></div>';
   }
@@ -2179,7 +2208,7 @@ function ventaForm(l) {
 
   function renderA() {
     var h = document.getElementById('res15a'); if (!h || !D) return;
-    var L = D.leads, hoy = new Date().getHours(), sal = hoy < 12 ? 'Buenos días' : (hoy < 19 ? 'Buenas tardes' : 'Buenas noches');
+    var L = window.f67 ? window.f67.leads(D.leads) : D.leads, hoy = new Date().getHours(), sal = hoy < 12 ? 'Buenos días' : (hoy < 19 ? 'Buenas tardes' : 'Buenas noches');
     var fecha = new Date().toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' });
     var citasHoy = L.filter(function (l) { return abiertoL(l) && esHoy(l.fecha_cita); }).length, ab = L.filter(abiertoL).length, ps = pendServ();
     var ven = L.filter(function (l) { return l.estado === 'VENDIDO'; }).length;
@@ -2650,7 +2679,7 @@ function ventaForm(l) {
       '<div class="d15-vh"><div class="d15-av">' + esc(ini(x.nombre || x.campana)) + '</div><div class="d15-vt"><b>' + esc(x.nombre || 'Venta ' + x.id) + '</b>' +
       '<small>DNI ' + esc(x.dni || '—') + (x.tel ? ' · ' + esc(x.tel) : '') + '</small></div><span class="badge b-' + m[1] + '">' + m[0] + '</span></div>' +
       '<div class="meta" style="margin-top:8px">Vendido a <b>' + esc(x.campana || '—') + '</b>' + (x.donante ? (N(x.donante) === 'ALTA NUEVA' ? ' · alta nueva' : ' · viene de ' + esc(x.donante)) : '') + '</div>' +
-      '<div class="meta">' + (zona ? esc(zona) + ' · ' : '') + (x.agente ? 'Agente ' + esc(x.agente) + ' · ' : '') + esc(x.id) + '</div>' +
+      '<div class="meta">' + (zona ? esc(zona) + ' · ' : '') + (x.agente ? 'Agente ' + esc(x.agente) + ' · ' : '') + esc(x.id) + (window.f67 && ROL !== 'concertador' ? window.f67.chipO(x.origen, x.lead && x.lead.concertador_id && EST.ven.data ? EST.ven.data.pn[x.lead.concertador_id] : '') : '') + '</div>' +
       '<div class="d15-prog"><i style="width:' + pct + '%"></i></div><div class="d15-pm">' + x.act + ' de ' + x.n + ' servicios activos · último estado ' + fd(x.f) + '</div>' +
       x.items.map(function (i) {
         var mm = MAC[mac(i.estado)];
@@ -2694,65 +2723,107 @@ function ventaForm(l) {
   }
 
   /* ================= PESTAÑA ANÁLISIS (admin) ================= */
-  function bar(l, v, mx, t) {
-    return '<div class="k-br"><div class="k-bl" title="' + esc(l) + '">' + esc(l) + '</div><div class="k-bt"><i style="width:' + (v > 0 ? Math.max(2, Math.round(v * 100 / mx)) : 0) + '%"></i></div><div class="k-bv">' + esc(t) + '</div></div>';
+  /* Todos los gráficos se pueden tocar (el bloque 67 muestra la cifra al pasar el ratón y la fija con un clic) y cada uno dice cuántas ventas son de concertadores
+     y cuántas de cerradores. Con el selector de arriba el análisis completo cuenta solo ese origen. */
+  function dA(t, f, n) { return window.f67 ? window.f67.attr(t, f, n) : ''; }
+  function bar(l, v, mx, t, d) {
+    return '<div class="k-br"' + (d || '') + '><div class="k-bl" title="' + esc(l) + '">' + esc(l) + '</div><div class="k-bt"><i style="width:' + (v > 0 ? Math.max(2, Math.round(v * 100 / mx)) : 0) + '%"></i></div><div class="k-bv">' + esc(t) + '</div></div>';
   }
-  function cols(l, v) {
+  function cols(l, v, ds) {
     var mx = Math.max.apply(null, v.concat([1]));
     return '<div style="overflow-x:auto"><div class="k-dias" style="min-width:' + (l.length * 24) + 'px">' + l.map(function (t, i) {
-      return '<div class="k-dia" title="' + v[i] + '"><span>' + (v[i] || '') + '</span><i style="height:' + Math.round(v[i] * 80 / mx) + '%"></i><span>' + t + '</span></div>';
+      return '<div class="k-dia"' + (ds && ds[i] ? ds[i] : ' title="' + v[i] + '"') + '><span>' + (v[i] || '') + '</span><i style="height:' + Math.round(v[i] * 80 / mx) + '%"></i><span>' + t + '</span></div>';
     }).join('') + '</div></div>';
   }
   function by(arr, fn, ok) {
     var m = {};
-    arr.forEach(function (x) { var k = fn(x) || 'SIN DATO'; m[k] = m[k] || { n: 0, a: 0 }; m[k].n++; if (ok(x)) m[k].a++; });
+    arr.forEach(function (x) {
+      var k = fn(x) || 'SIN DATO'; m[k] = m[k] || { n: 0, a: 0, c: 0, ca: 0, o: false };
+      var e = m[k], a = ok(x); e.n++; if (a) e.a++;
+      if (x.origen) { e.o = true; if (x.origen === 'CONC') { e.c++; if (a) e.ca++; } }   // solo las ventas (no las líneas sueltas) saben quién las captó
+    });
     return m;
   }
-  function bars(m, lim) {
+  function bars(m, lim, que) {
     var t = Object.keys(m).sort(function (a, b) { return m[b].n - m[a].n; }).slice(0, lim || 10);
     var mx = Math.max.apply(null, t.map(function (k) { return m[k].n; }).concat([1]));
-    return t.length ? t.map(function (k) { return bar(k, m[k].n, mx, m[k].n + ' · ' + Math.round(m[k].a * 100 / m[k].n) + '% act.'); }).join('') : '<div class="meta">Sin datos.</div>';
+    return t.length ? t.map(function (k) {
+      var e = m[k], f = [[que || 'Ventas', e.n], ['Activas', e.a + ' (' + Math.round(e.a * 100 / e.n) + ' %)']];
+      if (e.o) { f.push(['📞 De concertadores', e.c + ' (' + e.ca + ' activas)']); f.push(['🤝 De cerradores', (e.n - e.c) + ' (' + (e.a - e.ca) + ' activas)']); }
+      return bar(k, e.n, mx, e.n + ' · ' + Math.round(e.a * 100 / e.n) + '% act.', dA(k, f, que ? 'Cuenta líneas de servicio, no ventas.' : ''));
+    }).join('') : '<div class="meta">Sin datos.</div>';
   }
   function pintaA() {
     var s = EST.ana, D = s.data, out = document.getElementById('r16-ana'); if (!out || !D) return;
-    var o = D.o, R = D.rows, r = rango(s), nom = D.pn;
+    var f67 = window.f67 || null, og = f67 ? f67.origen() : 'TODOS', oAll = D.o, o = oAll, R = D.rows, raw = D.raw, actP = D.act;
+    var r = rango(s), nom = D.pn;
     var okV = function (x) { return x.est === 'ACT'; }, okS = function (x) { return mac(x.estado) === 'ACT'; };
+    /* quién captó cada venta: SIEMPRE sobre todas las ventas del periodo, para que el selector muestre las dos mitades */
+    var cu = { CONC: { n: 0, a: 0 }, DIR: { n: 0, a: 0 }, MX: { n: 0, a: 0 } };
+    oAll.forEach(function (x) { var c = cu[x.origen] || cu.MX; c.n++; if (okV(x)) c.a++; });
+    var filtrado = og !== 'TODOS';
+    if (filtrado) {
+      var quiereC = og === 'CONCERTADOR', ids = {};
+      o = oAll.filter(function (x) { return (x.origen === 'CONC') === quiereC; });
+      o.forEach(function (x) { ids[x.id] = 1; });
+      var enO = function (z) { return !!ids[z.id_venta]; };
+      R = R.filter(enO); if (raw) raw = raw.filter(enO); actP = null;     // las activadas de ventas de meses anteriores no traen quién las captó
+    }
+    var cerrA = cu.DIR.a + cu.MX.a, cerrN = cu.DIR.n + cu.MX.n;
     var sAct = R.filter(okS).length, sCai = R.filter(function (x) { return mac(x.estado) === 'CAI'; }).length;
     var vInc = o.filter(function (x) { return x.est === 'INC'; }).length, crm = o.filter(function (x) { return x.lead; }).length;
+    var sv = window.svc49;
     var kp = [[o.length, 'ventas'], [R.length, 'servicios'], [R.length ? Math.round(sAct * 100 / R.length) + '%' : '—', 'servicios activos'],
       [R.length ? Math.round(sCai * 100 / R.length) + '%' : '—', 'servicios caídos'], [vInc, 'ventas con incidencia'],
-      [window.svc49 ? window.svc49.activosDe(D.act || D.raw || R, 'INTERNET') : R.filter(function (x) { return x.es_internet && okS(x); }).length, 'internet activados (por fecha de activación)'], [window.svc49 ? window.svc49.activosDe(D.act || D.raw || R, 'MOVIL') : R.filter(function (x) { return x.es_movil && okS(x); }).length, 'móviles activados (aparte)'],
-      [D.leadsN == null ? '—' : D.leadsN, 'leads captados'], [D.leadsN ? Math.round(crm * 100 / D.leadsN) + '%' : '—', 'ventas CRM / leads']];
+      [sv ? sv.activosDe(actP || raw || R, 'INTERNET') : R.filter(function (x) { return x.es_internet && okS(x); }).length, filtrado ? 'internet activos (de las ventas del periodo)' : 'internet activados (por fecha de activación)'],
+      [sv ? sv.activosDe(actP || raw || R, 'MOVIL') : R.filter(function (x) { return x.es_movil && okS(x); }).length, filtrado ? 'móviles activos (aparte)' : 'móviles activados (aparte)']];
+    if (!filtrado) kp.push([D.leadsN == null ? '—' : D.leadsN, 'leads captados'], [D.leadsN ? Math.round(crm * 100 / D.leadsN) + '%' : '—', 'ventas CRM / leads']);
+    kp.push([cu.CONC.a, '📞 activas de concertadores'], [cerrA, '🤝 activas de cerradores']);
     var kHtml = '<div class="stats" style="margin:0 0 6px">' + kp.map(function (k) { return '<div><b>' + k[0] + '</b><small>' + k[1] + '</small></div>'; }).join('') + '</div>';
 
     /* horario, día de semana y evolución: usan la fecha de registro (tabla ventas) si se puede leer */
-    var fechas = o.map(function (x) { return x.fv; }).filter(Boolean), hayF = fechas.length > 0;
-    var hs = [], dw = [0, 0, 0, 0, 0, 0, 0], i;
-    for (i = 0; i < 24; i++) hs.push(0);
-    fechas.forEach(function (f) { var d = new Date(f); if (d.getHours() || d.getMinutes() || d.getSeconds()) hs[d.getHours()]++; dw[d.getDay()]++; });
+    var hayF = false, hs = [], hsC = [], dw = [0, 0, 0, 0, 0, 0, 0], dwC = [0, 0, 0, 0, 0, 0, 0], i;
+    for (i = 0; i < 24; i++) { hs.push(0); hsC.push(0); }
+    var mes = (pd(r[1]) - pd(r[0])) / 864e5 > 62, keys = [], labs = [], cnt = {}, cntC = {}, nF = 0;
+    o.forEach(function (x) {
+      if (!x.fv) return; hayF = true; nF++;
+      var d = new Date(x.fv), c = x.origen === 'CONC' ? 1 : 0;
+      if (d.getHours() || d.getMinutes() || d.getSeconds()) { hs[d.getHours()]++; hsC[d.getHours()] += c; }
+      dw[d.getDay()]++; dwC[d.getDay()] += c;
+      var xx = pd(x.fv), k = mes ? xx.getFullYear() + '-' + p2(xx.getMonth() + 1) : iso(xx); cnt[k] = (cnt[k] || 0) + 1; cntC[k] = (cntC[k] || 0) + c;
+    });
     var pico = hs.indexOf(Math.max.apply(null, hs));
-    var mes = (pd(r[1]) - pd(r[0])) / 864e5 > 62, keys = [], labs = [], cnt = {};
     for (var d = pd(r[0]), fin = pd(r[1]); d < fin; mes ? d.setMonth(d.getMonth() + 1) : d.setDate(d.getDate() + 1)) {
       keys.push(mes ? d.getFullYear() + '-' + p2(d.getMonth() + 1) : iso(d)); labs.push(mes ? MESES[d.getMonth()].slice(0, 3) : String(d.getDate()));
     }
-    fechas.forEach(function (f) { var x = pd(f), k = mes ? x.getFullYear() + '-' + p2(x.getMonth() + 1) : iso(x); cnt[k] = (cnt[k] || 0) + 1; });
     var ev = keys.map(function (k) { return cnt[k] || 0; });
     var sinV = '<div class="meta">Aún no hay fecha y hora de venta sincronizadas desde MATRIZ (falta ejecutar el SQL 17 y resincronizar).</div>';
     var hMax = Math.max.apply(null, hs.concat([1]));
+    function dSplit(t, n, c) { var f = [['Ventas', n]]; if (!filtrado) { f.push(['📞 De concertadores', c]); f.push(['🤝 De cerradores', n - c]); } return dA(t, f, ''); }
+    var dhs = hs.map(function (n, h) { return dSplit('Hora ' + h + ':00', n, hsC[h]); });
+    var dev = keys.map(function (k, j) { return dSplit(mes ? MESES[+k.slice(5, 7) - 1] + ' ' + k.slice(0, 4) : fd(k), ev[j], cntC[k] || 0); });
 
     var porLead = function (f) { return function (x) { return x.lead && f(x.lead); }; };
-    out.innerHTML = (window.svc49 ? window.svc49.nota(D.raw.length - R.length, D.raw) : '') + kHtml + '<div class="k-g">' +
+    var concs = o.filter(function (x) { return x.origen === 'CONC' && x.lead; });
+    var mxO = Math.max(cu.CONC.n, cu.DIR.n, cu.MX.n, 1);
+    function origenBar(et, c, nota) {
+      return bar(et, c.n, mxO, c.n + ' · ' + (c.n ? Math.round(c.a * 100 / c.n) : 0) + '% act.', dA(et, [['Ventas', c.n], ['Activas', c.a + ' (' + (c.n ? Math.round(c.a * 100 / c.n) : 0) + ' %)'], ['Parte de todas las ventas', oAll.length ? Math.round(c.n * 100 / oAll.length) + ' %' : '—']], nota));
+    }
+    out.innerHTML = (f67 ? f67.selector('ana', { CONC: cu.CONC.a, CERR: cerrA, u: 'ventas activas' }) : '') + (sv ? sv.nota(D.raw.length - D.rows.length, D.raw) : '') + kHtml + '<div class="k-g">' +
+      '<div style="grid-column:1/-1"><h4>¿Quién vendió? Ventas por origen del cliente</h4>' +
+      origenBar('📞 Concertador', cu.CONC, 'Las cierra un cerrador, pero el cliente lo captó un concertador.') + origenBar('🤝 Cerrador directo', cu.DIR, 'Leads que registró el propio cerrador.') + origenBar('🧾 Solo MATRIZ', cu.MX, 'No pasaron por el CRM: se cuentan como del cerrador.') +
+      '<div class="meta" style="margin-top:6px">Cerradores en total (directas + solo MATRIZ): ' + cerrN + ' ventas · ' + cerrA + ' activas.</div></div>' +
       '<div><h4>Ventas por provincia (top 10)</h4>' + bars(by(o, function (x) { return S(x.prov); }, okV), 10) + '</div>' +
       '<div><h4>Ventas por campaña (operador vendido)</h4>' + bars(by(o, function (x) { return S(x.campana); }, okV), 10) + '</div>' +
-      '<div><h4>Servicios por tipo (todos)</h4>' + bars(by(D.raw || R, function (x) { return tipoL(x.tipo_producto); }, okS), 8) + '</div>' +
+      '<div><h4>Servicios por tipo (todos)</h4>' + bars(by(raw || R, function (x) { return tipoL(x.tipo_producto); }, okS), 8, 'Servicios') + '</div>' +
       '<div><h4>Operador donante (de dónde vienen)</h4>' + bars(by(o, function (x) { return S(x.donante); }, okV), 10) + '</div>' +
-      '<div><h4>Ventas por hora de registro</h4>' + (hayF ? cols(hs.map(function (_, h) { return h; }), hs) + '<div class="meta" style="margin-top:6px">Hora pico: ' + pico + ':00' + (hs[pico] ? ' (' + hs[pico] + ' ventas, ' + Math.round(hs[pico] * 100 / (fechas.length || 1)) + '%)' : '') + '</div>' : sinV) + '</div>' +
-      '<div><h4>Ventas por día de la semana</h4>' + (hayF ? [1, 2, 3, 4, 5, 6, 0].map(function (j) { return bar(DIAS[j], dw[j], Math.max.apply(null, dw.concat([1])), String(dw[j])); }).join('') : sinV) + '</div>' +
-      '<div style="grid-column:1/-1"><h4>Evolución ' + (mes ? 'mensual' : 'diaria') + ' de ventas' + (hayF ? '' : ' (por fecha de estado)') + '</h4>' + cols(labs, ev) + '</div>' +
+      '<div><h4>Ventas por hora de registro</h4>' + (hayF ? cols(hs.map(function (_, h) { return h; }), hs, dhs) + '<div class="meta" style="margin-top:6px">Hora pico: ' + pico + ':00' + (hs[pico] ? ' (' + hs[pico] + ' ventas, ' + Math.round(hs[pico] * 100 / (nF || 1)) + '%)' : '') + '</div>' : sinV) + '</div>' +
+      '<div><h4>Ventas por día de la semana</h4>' + (hayF ? [1, 2, 3, 4, 5, 6, 0].map(function (j) { return bar(DIAS[j], dw[j], Math.max.apply(null, dw.concat([1])), String(dw[j]), dSplit(DIAS[j], dw[j], dwC[j])); }).join('') : sinV) + '</div>' +
+      '<div style="grid-column:1/-1"><h4>Evolución ' + (mes ? 'mensual' : 'diaria') + ' de ventas' + (hayF ? '' : ' (por fecha de estado)') + '</h4>' + cols(labs, ev, dev) + '</div>' +
       '<div><h4>Ranking de cerradores</h4>' + bars(by(o, function (x) { return x.lead && x.lead.cerrador_id ? nom[x.lead.cerrador_id] : S(x.agente); }, okV), 10) + '</div>' +
-      '<div><h4>Ranking de concertadores</h4>' + bars(by(o, porLead(function (L) { return nom[L.concertador_id]; }), okV), 10) + '</div>' +
-      '<div><h4>Estados de los servicios</h4>' + bars(by(R, function (x) { return N(x.estado); }, okS), 10) + '</div></div>' +
-      '<div class="meta" style="margin-top:10px">«act.» = porcentaje de ventas (o servicios) que quedaron activos. Periodo: ' + fd(r[0]) + ' al ' + fd(iso(new Date(pd(r[1]).getTime() - 864e5))) + '.</div>';
+      '<div><h4>Ranking de concertadores</h4>' + bars(by(concs, function (x) { return nom[x.lead.concertador_id]; }, okV), 10) + '</div>' +
+      '<div><h4>Estados de los servicios</h4>' + bars(by(R, function (x) { return N(x.estado); }, okS), 10, 'Servicios') + '</div></div>' +
+      '<div class="meta" style="margin-top:10px">«act.» = porcentaje de ventas (o servicios) que quedaron activos. Un cliente es de concertador solo si lo registró alguien con rol concertador; si lo creó un cerrador, o la venta solo está en MATRIZ, es del cerrador. Periodo: ' + fd(r[0]) + ' al ' + fd(iso(new Date(pd(r[1]).getTime() - 864e5))) + '.</div>';
   }
 
   /* ================= MONTAJE ================= */
@@ -8287,7 +8358,7 @@ function ventaForm(l) {
   var oS = window.supervisorView;
   if (typeof oS === 'function') window.supervisorView = function () { R = { host: null, mes: null, vista: 'act', d: null, busy: false, err: null, otra: false, hora: null }; return oS.apply(this, arguments); };
 
-  window.rep53 = { monta: monta };
+  window.rep53 = { monta: monta, datos: function () { return R.d; } };
 })();
 
   /* 54 · INCIDENCIAS de ventas (comercial → back)   Requiere el SQL 54_incidencias.sql (ejecutarlo ANTES de usar esta pantalla).
@@ -17040,30 +17111,35 @@ function ofcCalcular(cat, sel) {
 
   window.mz65 = { cargaFotos: cargaFotos, avisaPerdidas: avisaPerdidas, img: img, botones: botones, fondoHtml: fondoHtml, fotoHtml: fotoHtml, aplicaFondo: aplicaFondo, estado: function () { return { K: K, ST: ST, SIG: SIG }; }, cfg: CFG, sync: sync, tick: tick };
 })();
-  /* 66 · RESUMEN POR ORIGEN, GRÁFICOS INTERACTIVOS, FILTRO POR MES Y AVISOS QUE ABREN LA CONVERSACIÓN
-   Requiere el SQL 66_automatizacion_y_filtros.sql. Si todavía no lo ejecutaste, el CRM sigue funcionando igual:
-   el selector «Concertadores / Cerradores» y el filtro de mes simplemente no aparecen.
+  /* 67 · ORIGEN (CONCERTADOR / CERRADOR) EN TODO EL CRM, GRÁFICOS QUE SE PINCHAN, FILTRO POR MES Y AVISOS QUE ABREN LA CONVERSACIÓN
+   REEMPLAZA al bloque 66 (el 66 se borra entero). Requiere el SQL 66 y el SQL 67. Si el 67 no está, el CRM sigue funcionando:
+   el selector de origen se queda como estaba y en «Agentes» no aparece la vista de concertadores.
    PEGAR al final del script de index.html, DESPUÉS de los demás bloques y antes del cierre del script.
-   Además hay 2 cambios pequeños dentro del bloque de notificaciones (están en INSTRUCCIONES_tanda3.txt).
 
-   · Panel de KPIs (supervisor y «KPIs del grupo» del admin): elige «Todas», «Concertadores» (clientes que captó un concertador)
-     o «Cerradores» (ventas que subió el cerrador por su cuenta). Cifras, tablas y gráficos cambian con la elección.
-   · Gráfico «Servicios por día» interactivo: pasa el ratón, toca o usa las flechas para ver cada día; haz clic para fijarlo;
-     la leyenda oculta o muestra Activados / En trámite / Caídos.
-   · Seguimiento y Contraoferta (back, admin y supervisor): además de Estados, ahora se filtra por MES de la venta.
-   · Al tocar el aviso de un comentario del back (contraoferta o nota de seguimiento) el comercial llega directo a esa conversación.
+   · Selector «Todas · Concertadores · Cerradores» (admin y supervisor) en Resumen, Panel de gestión, KPIs y Análisis.
+     Es el MISMO en todas partes: lo que eliges se recuerda y cambia las cifras, tablas y gráficos de la pestaña donde estés.
+     Un lead es de CONCERTADOR solo si lo registró alguien con rol concertador (la misma regla de la pestaña Ventas);
+     si lo creó un cerrador, o la venta solo está en MATRIZ, es del CERRADOR. Las cifras se cuentan por convergentes activos.
+   · Cada cliente y cada venta del administrador lleva una etiqueta: 📞 concertador (con su nombre) o 🤝 cerrador directo.
+   · TODOS los gráficos se pueden tocar: pasa el ratón (o toca) para ver las cifras, haz clic para fijarlas y ver el reparto entre
+     concertadores y cerradores. También con el teclado (Tab para llegar, Enter para fijar, Esc para quitar).
+   · «Agentes»: selector para ver a los cerradores o a los concertadores.
+   · Seguimiento y Contraoferta: filtro por MES de la venta.
+   · Al tocar el aviso de un comentario del back el comercial llega directo a esa conversación.
    OJO: el CRM pone en MAYÚSCULAS todos los campos de texto; este bloque solo tiene botones y selectores. */
 (function () {
-  if (window.f66) return;
-  var F = { mes: '', meses: null, sinMes: false, origen: 'TODOS', origenDe: null, sinOrigen: false, ult: null, off: {}, pin: -1, foco: -1 };
+  if (window.f67) return;
+  var F = { mes: '', meses: null, sinMes: false, origen: 'TODOS', origenDe: null, sinOrigen: false, ult: null, off: {}, pin: -1, foco: -1,
+    agVista: 'CERR', conc: { key: '', d: null, busy: false, err: null }, sinConc: false };
   var SERIES = [['act', 'Activados', 'activados', 'var(--c-act)'], ['tra', 'En trámite', 'tramite', 'var(--c-tra)'], ['cai', 'Caídos', 'caidos', 'var(--c-cai)']];
   var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  var MCORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   var DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   var ORIGENES = [['TODOS', 'Todas', ''], ['CONCERTADOR', '📞 Concertadores', 'CONC'], ['CERRADOR', '🤝 Cerradores', 'CERR']];
   var TXT_ORIGEN = {
-    TODOS: 'Se ven todas las ventas del periodo.',
+    TODOS: 'Se ven todas las ventas.',
     CONCERTADOR: 'Solo clientes que captó un concertador y luego vendió un cerrador.',
-    CERRADOR: 'Solo ventas que el cerrador subió por su cuenta, sin pasar por un concertador.'
+    CERRADOR: 'Solo ventas del cerrador por su cuenta: leads que él creó o ventas que solo están en MATRIZ.'
   };
 
   function $(i) { return document.getElementById(i); }
@@ -17076,7 +17152,11 @@ function ofcCalcular(cat, sel) {
   function copia(o) { var r = {}; for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) r[k] = o[k]; return r; }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
   function n0(v) { return (Number(v) || 0).toLocaleString('es-PE'); }
+  function clean(t) { return String(t == null ? '' : t).replace(/\s+/g, ' ').trim(); }
+  function pc(a, b) { return b ? Math.round(a * 100 / b) : null; }
+  function pcTxt(a, b) { var p = pc(a, b); return p === null ? '—' : p + ' %'; }
   function mesTxt(m) { var p = String(m).split('-'); return cap(MESES[(+p[1]) - 1] || '') + ' ' + p[0]; }
+  function mesCorto(m) { var p = String(m).split('-'); return MCORTO[(+p[1]) - 1] + ' ' + String(p[0]).slice(2); }
   function diaLargo(iso) {
     var p = String(iso).slice(0, 10).split('-'), d = new Date(+p[0], +p[1] - 1, +p[2]);
     return DIAS[d.getDay()] + ', ' + d.getDate() + ' de ' + MESES[d.getMonth()];
@@ -17086,11 +17166,18 @@ function ofcCalcular(cat, sel) {
   /* ============================== 0 · LO QUE SE RECUERDA ============================== */
   function claveOrigen() { return 'crm_f66_origen_' + (yo() || ''); }
   function cargaOrigen() { var v = lsGet(claveOrigen()); if (v === 'CONCERTADOR' || v === 'CERRADOR' || v === 'TODOS') F.origen = v; }
+  function origenAct() {   // el origen elegido, o 'TODOS' si el servidor no lo soporta todavía / el usuario no es admin ni supervisor
+    if (F.sinOrigen) return 'TODOS';
+    var r = rolYo(); if (r !== 'admin' && r !== 'supervisor') return 'TODOS';
+    if (F.origenDe !== yo()) { F.origenDe = yo(); cargaOrigen(); }
+    return F.origen;
+  }
+  function quiere() { var o = origenAct(); return o === 'CONCERTADOR' ? 'CONC' : o === 'CERRADOR' ? 'CERR' : null; }
 
   /* ============================== 1 · LLAMADAS AL SERVIDOR ============================== */
   function instala() {
-    if (typeof sb === 'undefined' || !sb || sb.__f66 || typeof sb.rpc !== 'function') return;
-    sb.__f66 = 1;
+    if (typeof sb === 'undefined' || !sb || sb.__f67 || typeof sb.rpc !== 'function') return;
+    sb.__f67 = 1;
     var orig = sb.rpc;
     sb.rpc = function (n, a, o) {
       var self = this;
@@ -17107,13 +17194,14 @@ function ofcCalcular(cat, sel) {
           });
         }
         // Panel de KPIs: lleva el origen elegido (el objetivo del mes del admin, que llama con p_dias 0 y sin servicios, no se toca)
-        if (n === 'sup_resumen' && a && !F.sinOrigen && ('p_clases' in a || a.p_dias !== 0)) {
-          if (F.origenDe !== yo()) { F.origenDe = yo(); cargaOrigen(); }   // la elección de cada usuario se recuerda en este navegador
-          var b = copia(a); b.p_origen = F.origen;
+        if (n === 'sup_resumen' && a && ('p_clases' in a || a.p_dias !== 0)) {
+          // guardamos siempre el último resultado: los gráficos tocables lo usan también cuando el SQL 67 aún no está puesto
+          var guarda = function (r) { if (r && r.data && !r.error) { F.ult = r.data; F.pin = -1; F.foco = -1; } return r; };
+          if (F.sinOrigen) return Promise.resolve(pide(n, a)).then(guarda);
+          var b = copia(a); b.p_origen = origenAct();
           return Promise.resolve(pide('sup_resumen_origen', b)).then(function (r) {
-            if (r && r.error && falta(r.error)) { F.sinOrigen = true; F.origen = 'TODOS'; quitaOrigen(); return pide(n, a); }
-            if (r && r.data && !r.error) { F.ult = r.data; F.pin = -1; F.foco = -1; }
-            return r;
+            if (r && r.error && falta(r.error)) { F.sinOrigen = true; F.origen = 'TODOS'; quitaOrigen(); return Promise.resolve(pide(n, a)).then(guarda); }
+            return guarda(r);
           });
         }
       } catch (e) { }
@@ -17155,49 +17243,370 @@ function ofcCalcular(cat, sel) {
     if (ag) ag.dispatchEvent(new Event('change', { bubbles: true }));      // el propio panel vuelve a pedir la lista (página 1)
   }
 
-  /* ============================== 3 · ORIGEN: CONCERTADORES / CERRADORES ============================== */
-  function quitaOrigen() { var e = $('f66-org'); if (e) e.remove(); ajustaSecciones(); }
-  function pintaOrigen() {
-    if (F.sinOrigen || !F.ult) return;
-    var bar = document.querySelector('.s46-bar'); if (!bar) return;
-    var sec = bar.closest('.s46-sec'); if (!sec) return;
-    var po = F.ult.por_origen; if (!po) return;
-    var cuenta = { CONC: (po.CONC && po.CONC.servicios) || 0, CERR: (po.CERR && po.CERR.servicios) || 0 };
-    var sig = F.origen + '|' + cuenta.CONC + '|' + cuenta.CERR;
-    var ya = $('f66-org');
-    if (ya && ya.getAttribute('data-sig') === sig && ya.parentNode === sec) return;
+  /* ============================== 3 · ORIGEN: QUIÉN CAPTÓ AL CLIENTE ============================== */
+  var ROLES = {}, NOM = {}, LEADSALL = null, LEADIDX = {}, CT = {}, ROLN = 0;
+  function roles(per) {
+    (per || []).forEach(function (p) { if (ROLES[p.id] !== p.rol) { ROLES[p.id] = p.rol; ROLN++; } NOM[p.id] = p.nombre; });
+  }
+  /* MISMA regla que la pestaña Ventas: de concertador solo si el lead lo registró alguien con rol concertador (o un perfil que ya no se conoce) */
+  function org(l) { var c = l && l.concertador_id; return c && (!ROLES[c] || ROLES[c] === 'concertador') ? 'CONC' : 'CERR'; }
+  function corto(n) { return clean(n).split(' ')[0]; }
+  function etq(o, nombre) {
+    if (o === 'CONC') return '<span class="f67-tag c" title="Cliente que captó un concertador' + (nombre ? ': ' + esc(nombre) : '') + '">📞 ' + (nombre ? esc(corto(nombre)) : 'Concertador') + '</span>';
+    if (o === 'MX') return '<span class="f67-tag d" title="La venta solo está en MATRIZ: no pasó por el CRM">🧾 Solo MATRIZ</span>';
+    return '<span class="f67-tag d" title="El cerrador lo registró por su cuenta">🤝 Cerrador directo</span>';
+  }
+  function chip(l) { if (rolYo() !== 'admin' || !l) return ''; var o = org(l); return ' ' + etq(o, o === 'CONC' ? NOM[l.concertador_id] : ''); }
+  function chipV(v) {
+    if (rolYo() !== 'admin' || !v) return '';
+    if (!v.lead) return ' ' + etq('MX');
+    var l = LEADIDX[v.lead]; if (!l) return '';
+    var o = org(l); return ' ' + etq(o, o === 'CONC' ? NOM[l.concertador_id] : '');
+  }
+  function chipO(o, nombre) { return ' ' + etq(o === 'CONC' ? 'CONC' : o === 'MX' ? 'MX' : 'CERR', o === 'CONC' ? nombre : ''); }
+
+  /* --- Resumen del administrador: lo que cuenta la pantalla se filtra aquí, sin tocar los datos descargados --- */
+  function datos(D) {
+    try {
+      if (rolYo() !== 'admin' || !D) return;
+      LEADSALL = D.leads || []; LEADIDX = {}; LEADSALL.forEach(function (l) { LEADIDX[l.id] = l; }); roles(D.per);
+      var lleno = D.ventasG, memo = { src: null, q: null, n: -1, v: null };
+      Object.defineProperty(D, 'ventasG', {
+        configurable: true, enumerable: true,
+        get: function () {
+          var q = quiere(); if (!q) return lleno;
+          if (memo.src !== lleno || memo.q !== q || memo.n !== ROLN) {
+            memo = { src: lleno, q: q, n: ROLN, v: (lleno || []).filter(function (v) {
+              if (!v.lead) return q === 'CERR';              // solo MATRIZ: es del cerrador
+              var l = LEADIDX[v.lead]; return l ? org(l) === q : false;   // cliente antiguo que ya no se descargó: solo se ve en «Todas»
+            }) };
+          }
+          return memo.v;
+        },
+        set: function (v) { lleno = v; }
+      });
+    } catch (e) { if (window.console) console.error(e); }
+  }
+  function aplica(res) {
+    try { var q = quiere(); if (q && res) res.forEach(function (st) { st.items = st.items.filter(function (l) { return org(l) === q; }); }); } catch (e) { }
+    return res;
+  }
+  function leads(L) { var q = quiere(); return q && L ? L.filter(function (l) { return org(l) === q; }) : L; }
+
+  /* --- el selector (siempre el mismo; «ctx» solo dice dónde está) --- */
+  function cuentasDe(ctx) {
+    if (ctx === 'kpi') {
+      var po = F.ult && F.ult.por_origen; if (!po) return null;
+      return { CONC: (po.CONC && po.CONC.activados) || 0, CERR: (po.CERR && po.CERR.activados) || 0, u: 'activos' };
+    }
+    if (ctx === 'res') {
+      if (!LEADSALL) return null;
+      var c = { CONC: 0, CERR: 0, u: 'clientes' }; LEADSALL.forEach(function (l) { c[org(l)]++; }); return c;
+    }
+    return CT[ctx] || null;
+  }
+  function selHtml(ctx, c) {
+    if (F.sinOrigen || !c) return '';
+    var og = origenAct(), sig = og + '|' + c.CONC + '|' + c.CERR + '|' + c.u;
+    return '<div class="f66-org" data-ctx="' + ctx + '" data-sig="' + esc(sig) + '"><span class="f66-lbl" id="f67-l-' + ctx + '">Ver ventas de</span>' +
+      '<div class="f66-seg" role="radiogroup" aria-labelledby="f67-l-' + ctx + '">' + ORIGENES.map(function (o) {
+        var n = o[2] ? c[o[2]] : c.CONC + c.CERR, on = o[0] === og;
+        return '<button type="button" role="radio" aria-checked="' + on + '" class="f66-o' + (on ? ' on' : '') + '" data-o="' + o[0] + '" title="' + n0(n) + ' ' + c.u + '">' + o[1] + ' <b>' + n0(n) + '</b></button>';
+      }).join('') + '</div><span class="f66-hint">' + esc(TXT_ORIGEN[og]) + (og !== 'TODOS' && ctx === 'kpi' ? ' El objetivo del mes no cambia.' : '') + ' <span class="f67-u">Cifras de cada botón: ' + esc(c.u) + '.</span></span></div>';
+  }
+  function selector(ctx, cuentas) { if (cuentas) CT[ctx] = cuentas; return selHtml(ctx, cuentasDe(ctx)); }
+  function inserta(cont, ctx) {
+    if (!cont) return;
+    var c = cuentasDe(ctx); if (!c) return;
+    var ya = cont.querySelector('.f66-org[data-ctx="' + ctx + '"]'), h = selHtml(ctx, c); if (!h) return;
+    var m = /data-sig="([^"]*)"/.exec(h);
+    if (ya && m && ya.getAttribute('data-sig') === m[1].replace(/&amp;/g, '&') && ya.closest('.s46-sec,#res15a') === cont) return;
     if (ya) ya.remove();
-    var h = '<div class="f66-org" id="f66-org" data-sig="' + sig + '"><span class="f66-lbl" id="f66-lbl">Ver ventas de</span>' +
-      '<div class="f66-seg" role="radiogroup" aria-labelledby="f66-lbl">' + ORIGENES.map(function (o) {
-        var n = o[2] ? cuenta[o[2]] : cuenta.CONC + cuenta.CERR, on = o[0] === F.origen;
-        return '<button type="button" role="radio" aria-checked="' + on + '" class="f66-o' + (on ? ' on' : '') + '" data-o="' + o[0] + '">' + o[1] + ' <b>' + n0(n) + '</b></button>';
-      }).join('') + '</div><span class="f66-hint">' + esc(TXT_ORIGEN[F.origen]) + (F.origen !== 'TODOS' ? ' El objetivo del mes no cambia.' : '') + '</span></div>';
-    var sv = sec.querySelector('.svc49-fila');
-    if (sv) sv.insertAdjacentHTML('afterend', h); else sec.insertAdjacentHTML('beforeend', h);
+    var sv = cont.querySelector('.svc49-fila'); if (sv) sv.insertAdjacentHTML('afterend', h); else cont.insertAdjacentHTML('beforeend', h);
+  }
+  function quitaOrigen() { Array.prototype.forEach.call(document.querySelectorAll('.f66-org'), function (e) { e.remove(); }); ajustaSecciones(); }
+  function pintaOrigen() {
+    if (F.sinOrigen) return;
+    var r = rolYo(); if (r !== 'admin' && r !== 'supervisor') return;
+    var bar = document.querySelector('.s46-bar'), sec = bar ? bar.closest('.s46-sec') : null;
+    if (sec && F.ult) inserta(sec, 'kpi');
+    if (r === 'admin' && $('res15a') && LEADSALL) inserta($('res15a'), 'res');
   }
   function alElegirOrigen(e) {
     var b = e.target.closest ? e.target.closest('.f66-o') : null; if (!b) return;
-    var o = b.getAttribute('data-o'); if (o === F.origen) return;
-    F.origen = o; lsSet(claveOrigen(), o);
-    var ref = document.querySelector('.s46-bar [data-k="ref"]'); if (ref) ref.click();   // el panel vuelve a pedir sus cifras con el origen nuevo
+    var o = b.getAttribute('data-o'); if (o === F.origen && origenAct() === o) return;
+    F.origen = o; F.origenDe = yo(); lsSet(claveOrigen(), o);
+    Array.prototype.forEach.call(document.querySelectorAll('.f66-o'), function (x) {      // todos los selectores de la pantalla cambian a la vez
+      var on = x.getAttribute('data-o') === o; x.classList.toggle('on', on); x.setAttribute('aria-checked', on);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.f66-org .f66-hint'), function (x) {
+      var ctx = x.closest('.f66-org').getAttribute('data-ctx');
+      x.firstChild.nodeValue = TXT_ORIGEN[o] + (o !== 'TODOS' && ctx === 'kpi' ? ' El objetivo del mes no cambia. ' : ' ');
+    });
+    var ref = document.querySelector('.s46-bar [data-k="ref"]'); if (ref) ref.click();          // KPIs: el panel vuelve a pedir sus cifras
+    if (typeof window.regrupa15 === 'function' && $('res15a')) window.regrupa15();                  // Resumen: clientes por estado y ventas
+    if (typeof window.repintaAdmin === 'function' && $('admCharts')) window.repintaAdmin();         // Panel de gestión
+    if (typeof window.recarga16 === 'function' && ($('r16-ana') || $('r16-ven'))) window.recarga16();   // Ventas y Análisis
+    programa();
   }
   function ajustaSecciones() {
     Array.prototype.forEach.call(document.querySelectorAll('.s46-sec'), function (s) {
       var h3 = s.querySelector('.s46-sh h3'); if (!h3) return;
-      var t = h3.textContent.trim(), oculta = false;
-      if (t === '¿De dónde vienen las ventas?') oculta = !F.sinOrigen && F.origen !== 'TODOS';   // ya lo cuenta el selector de arriba
-      else if (t === 'Concertadores') oculta = !F.sinOrigen && F.origen === 'CERRADOR';
+      var oculta = clean(h3.textContent) === 'Concertadores' && !F.sinOrigen && origenAct() === 'CERRADOR';
       if (s.hidden !== oculta) s.hidden = oculta;
     });
   }
 
-  /* ============================== 4 · GRÁFICO «SERVICIOS POR DÍA» INTERACTIVO ============================== */
-  var TIP = null;
+  /* --- KPIs: «¿De dónde vienen las ventas?» ahora cuenta convergentes ACTIVOS y se puede tocar --- */
+  function kpiC(cls, v, l, s) { return '<div class="s46-k ' + cls + '"><div class="s46-kv">' + v + '</div><div class="s46-kl">' + l + '</div>' + (s ? '<div class="s46-ks">' + s + '</div>' : '') + '</div>'; }
+  function tarjetasOrigen() {
+    if (F.sinOrigen || !F.ult || !F.ult.por_origen) return;
+    Array.prototype.forEach.call(document.querySelectorAll('.s46-sec'), function (s) {
+      var h3 = s.querySelector('.s46-sh h3'); if (!h3 || clean(h3.textContent) !== '¿De dónde vienen las ventas?') return;
+      var po = F.ult.por_origen, z = { servicios: 0, ventas: 0, activados: 0, tramite: 0, caidos: 0 }, c = po.CONC || z, r = po.CERR || z;
+      var sig = [c.servicios, c.activados, c.tramite, c.caidos, r.servicios, r.activados, r.tramite, r.caidos].join('|');
+      if (s.getAttribute('data-f67k') === sig) return;
+      var sv = window.svc49, et = sv && F.ult.clases && F.ult.clases[0] ? sv.etiquetaAct(F.ult.clases[0]) : 'Activos', tot = c.activados + r.activados;
+      function dc(nom, x, otro) {
+        return window.f67.attr(nom, [['Vendidos en el periodo', n0(x.servicios)], [et, n0(x.activados), 'var(--c-act)'], ['En trámite', n0(x.tramite), 'var(--c-tra)'], ['Caídos', n0(x.caidos), 'var(--c-cai)'],
+          ['Parte del total de activos', pcTxt(x.activados, tot)]], 'Activados y caídos por fecha en que ocurrieron; vendidos por fecha de venta.');
+      }
+      s.innerHTML = '<div class="s46-sh"><h3>¿De dónde vienen las ventas?</h3><span class="meta">' + esc(et) + ' del periodo, según quién captó al cliente</span></div>' +
+        '<div class="s46-kpis">' +
+        kpiC('act', n0(c.activados), '📞 Activos de lo que captaron los concertadores', n0(c.servicios) + ' vendidos · ' + n0(c.tramite) + ' en trámite · ' + n0(c.caidos) + ' caídos') +
+        kpiC('act', n0(r.activados), '🤝 Activos de cerradores', n0(r.servicios) + ' vendidos · ' + n0(r.tramite) + ' en trámite · ' + n0(r.caidos) + ' caídos · directas o solo MATRIZ') +
+        kpiC('', tot ? pcTxt(c.activados, tot) : '—', 'Parte de concertadores', 'del total de ' + n0(tot) + ' activos') + '</div>' +
+        (tot ? '<div class="f67-split" role="group" aria-label="Reparto de los activos entre concertadores y cerradores">' +
+          (c.activados ? '<div class="f67-sg c" style="flex:' + c.activados + '"' + dc('📞 Concertadores', c) + '><span>📞 ' + n0(c.activados) + '</span></div>' : '') +
+          (r.activados ? '<div class="f67-sg d" style="flex:' + r.activados + '"' + dc('🤝 Cerradores', r) + '><span>🤝 ' + n0(r.activados) + '</span></div>' : '') + '</div>' +
+          '<p class="meta" style="margin:6px 0 0">Toca cada tramo de la barra para ver el detalle. Los móviles nunca se suman a los convergentes.</p>' : '');
+      s.setAttribute('data-f67k', sig);
+    });
+  }
+  /* --- KPIs: junto a cada agente, cuántas de sus ventas vinieron de concertadores --- */
+  function etiquetasAgentes() {
+    if (!F.ult || !F.ult.agentes || F.sinOrigen) return;
+    var m = {}; F.ult.agentes.forEach(function (a) { m[a.agente] = a; });
+    Array.prototype.forEach.call(document.querySelectorAll('.s46-sec'), function (s) {
+      var h3 = s.querySelector('.s46-sh h3'); if (!h3 || clean(h3.textContent) !== 'Calidad por agente') return;
+      Array.prototype.forEach.call(s.querySelectorAll('.s46-tbl tbody tr'), function (tr) {
+        var b = tr.querySelector('td b'); if (!b || tr.querySelector('.f67-tag')) return;
+        var a = m[clean(b.textContent)]; if (!a || !(a.sv_conc > 0)) return;
+        b.insertAdjacentHTML('afterend', ' <span class="f67-tag c" title="' + n0(a.sv_conc) + ' de sus ventas vinieron de clientes que captó un concertador (' + n0(a.act_conc) + ' activos)">📞 ' + n0(a.sv_conc) + '</span>');
+      });
+    });
+  }
+
+  /* ============================== 4 · MOTOR DE GRÁFICOS: pasar el ratón, tocar, fijar ============================== */
+  var TIP = null, PINS = {}, NCAJA = 0;
   function tip() {
     if (TIP && TIP.parentNode) return TIP;
     TIP = document.createElement('div'); TIP.id = 'f66-tip'; TIP.className = 'f66-tip'; TIP.hidden = true; TIP.setAttribute('role', 'tooltip'); document.body.appendChild(TIP);
     return TIP;
   }
+  function ocultaTip() { if (TIP) TIP.hidden = true; }
+  function srLive(t) {
+    var a = $('f67-sr'); if (!a) { a = document.createElement('div'); a.id = 'f67-sr'; a.className = 'f66-sr'; a.setAttribute('aria-live', 'polite'); document.body.appendChild(a); }
+    a.textContent = t;
+  }
+  /* «attr» arma los atributos que hacen interactivo a un elemento: titulo, filas [[etiqueta, valor, color?]], nota. solo=true: sin foco ni rol (celdas de tabla) */
+  function attr(titulo, filas, nota, solo) {
+    var d = { t: String(titulo), f: (filas || []).map(function (x) { return [String(x[0]), String(x[1]), x[2] || '']; }), n: nota || '' };
+    var lab = d.t + ': ' + d.f.map(function (x) { return x[0] + ' ' + x[1]; }).join(', ');
+    return ' data-f67="' + esc(JSON.stringify(d)) + '"' + (solo ? '' : ' role="button" tabindex="0" aria-pressed="false" aria-label="' + esc(lab) + '"');
+  }
+  function parsea(el) { try { return JSON.parse(el.getAttribute('data-f67')); } catch (e) { return null; } }
+  function filasHtml(f) {
+    return (f || []).map(function (x) { return '<span class="f67-pv">' + (x[2] ? '<i style="background:' + x[2] + '"></i>' : '') + esc(x[0]) + ' <b>' + esc(x[1]) + '</b></span>'; }).join('');
+  }
+  var OBJ = '[data-f67],.s46-stack,.s46-hb,.s46-meter,.r53-sc td';
+  function objDe(t) { return t && t.closest ? t.closest(OBJ) : null; }
+
+  /* --- datos de los gráficos que ya existían (se leen de lo que devolvió el servidor) --- */
+  function filaK(r, tasa) {
+    var res = (r.activados || 0) + (r.caidos || 0);
+    var f = [['Vendidos en el periodo', n0(r.servicios)], ['Activados', n0(r.activados), 'var(--c-act)'], ['En trámite', n0(r.tramite), 'var(--c-tra)'], ['Caídos', n0(r.caidos), 'var(--c-cai)']];
+    if (tasa !== false) f.push(['Tasa de caída', res ? pcTxt(r.caidos, res) : '—']);
+    return f;
+  }
+  function kpiStack(el) {
+    var d = F.ult; if (!d) return null;
+    var tr = el.closest('tr'), sec = el.closest('.s46-sec'), h3 = sec && sec.querySelector('.s46-sh h3'), b = tr && tr.querySelector('td b');
+    if (!tr || !h3 || !b) return null;
+    var tit = clean(h3.textContent), nom = clean(b.textContent), lista = tit === 'Calidad por agente' ? d.agentes : tit === 'Por campaña' ? d.campanas : null;
+    if (!lista) return null;
+    var r = null; lista.forEach(function (x) { if (clean(x.agente || x.campana) === nom) r = x; });
+    if (!r) return null;
+    var f = filaK(r), n = '';
+    if (tit === 'Calidad por agente' && !F.sinOrigen) {
+      f.push(['📞 Ventas de concertadores', n0(r.sv_conc || 0) + ' (' + n0(r.act_conc || 0) + ' activas)']);
+      f.push(['🤝 Ventas directas', n0(Math.max(0, (r.servicios || 0) - (r.sv_conc || 0)))]);
+      n = 'Las ventas de clientes que captó un concertador las cierra un cerrador, por eso también cuentan en su fila.';
+    }
+    return { t: nom, f: f, n: n };
+  }
+  function kpiMeter(el) {
+    var d = F.ult; if (!d) return null;
+    var lab = clean(el.getAttribute('aria-label')), act = +el.getAttribute('aria-valuenow') || 0, obj = +el.getAttribute('aria-valuemax') || 0;
+    var nom = lab.replace(/^Avance de /, ''), o = null;
+    if (/^Avance de /.test(lab)) (d.objetivos || []).forEach(function (x) { if (clean(x.nombre) === nom) o = x; });
+    if (o) return { t: nom, f: [['Activados este mes', n0(o.act), 'var(--c-act)'], ['En trámite (60 días)', n0(o.tra), 'var(--c-tra)'], ['Objetivo', n0(o.objetivo)], ['Avance', pcTxt(o.act, o.objetivo)], ['Falta', n0(Math.max(0, (o.objetivo || 0) - (o.act || 0)))]], n: 'Aparte, no se suman al objetivo: ' + n0(o.mov || 0) + ' líneas móviles activas.' };
+    var m = d.mes || {}, rit = m.dia ? act / m.dia : 0;
+    return { t: 'Objetivo del grupo', f: [['Activados', n0(act), 'var(--c-act)'], ['Objetivo', n0(obj)], ['Avance', pcTxt(act, obj)], ['Falta', n0(Math.max(0, obj - act))], ['Ritmo por día', rit.toLocaleString('es-PE', { maximumFractionDigits: 2 })], ['Proyección a fin de mes', n0(Math.round(rit * (m.dias_mes || 0)))]], n: 'Estimación lineal con días del calendario, solo orientativa.' };
+  }
+  function kpiHb(el) {
+    var d = F.ult; if (!d) return null;
+    var l = el.querySelector('.l'), nom = l ? clean(l.textContent) : '', tot = 0, n = 0;
+    (d.estados || []).forEach(function (e) { tot += e.n; if (clean(e.estado) === nom) n = e.n; });
+    return { t: nom, f: [['Servicios en este estado', n0(n)], ['Parte de lo que está en trámite', pcTxt(n, tot)]], n: 'Ventas del periodo que siguen en trámite.' };
+  }
+  /* --- Agentes (bloque 53) --- */
+  function datos53() { try { return window.rep53 && window.rep53.datos ? window.rep53.datos() : null; } catch (e) { return null; } }
+  function mesesDe(d) { return (d.meses || []).slice().reverse(); }
+  function fMes(m, conc) {
+    var f = [['Ingresadas', n0(m.ing)], ['Activas hoy', n0(m.act), 'var(--c-act)'], ['En trámite', n0(m.tra), 'var(--c-tra)'], ['Canceladas', n0(m.can), 'var(--c-cai)'], ['% activas', pcTxt(m.act, m.ing)], ['% canceladas', pcTxt(m.can, m.ing)], ['Activadas en el mes', n0(m.actm)]];
+    if (conc) { f.push(['📞 De concertadores', n0(conc.ing) + ' ventas · ' + n0(conc.act) + ' activas']); f.push(['🤝 De cerradores directos', n0(Math.max(0, m.ing - conc.ing)) + ' ventas · ' + n0(Math.max(0, m.act - conc.act)) + ' activas']); }
+    return f;
+  }
+  function concGrupo(k) {
+    var c = F.conc && F.conc.d; if (!c || F.sinConc) return null;
+    var r = null; (c.grupo || []).forEach(function (g) { if (g.k === k) r = g; });
+    return r || { ing: 0, act: 0 };
+  }
+  var NOTA_CONC = 'Las ventas de los clientes que captó un concertador las cierra un cerrador: cuentan en las dos vistas, no se suman.';
+  function r53Celda(td) {
+    if (td.closest('.f67-conc')) return null;
+    var d = datos53(); if (!d) return null;
+    var tr = td.closest('tr'), tb = td.closest('table'), ths = tb.querySelectorAll('thead th'), h1 = ths[1] ? clean(ths[1].textContent) : '';
+    var ri = tr.rowIndex - 1, ci = td.cellIndex; if (ci < 1 || ri < 0) return null;
+    if (h1 === 'Ingres.') {
+      var ag = d.agentes || [], a = ag[ri]; if (!a) return null;
+      var f = [['Ingresadas', n0(a.ing)], ['Activas', n0(a.act), 'var(--c-act)'], ['En trámite', n0(a.tra), 'var(--c-tra)'], ['Canceladas', n0(a.can), 'var(--c-cai)'], ['% activas', pcTxt(a.act, a.ing)], ['% canceladas', pcTxt(a.can, a.ing)], ['Activadas en el mes', n0(a.actm)]];
+      (d.estados || []).forEach(function (e) { var v = (a.est || {})[e.e] || 0; if (v) f.push([e.e, n0(v), e.c === 'ACT' ? 'var(--c-act)' : e.c === 'CAI' ? 'var(--c-cai)' : 'var(--c-tra)']); });
+      return { t: a.agente, f: f, n: '' };
+    }
+    var ks = mesesDe(d), m = null, nom = '', k = ci <= ks.length ? ks[ci - 1] : null;
+    if (ri === 0) { nom = 'Todo el grupo'; var gm = {}; (d.grupo || []).forEach(function (g) { gm[g.k] = g; }); m = k ? gm[k] : null; if (!k) { m = { ing: 0, act: 0, can: 0, tra: 0, actm: 0 }; ks.forEach(function (kk) { var g = gm[kk]; if (g) { m.ing += g.ing; m.act += g.act; m.can += g.can; m.tra += g.tra; m.actm += g.actm; } }); } }
+    else { var s = (d.seis || [])[ri - 1]; if (!s) return null; nom = s.agente; var por = {}; (s.m || []).forEach(function (x) { por[x.k] = x; }); if (k) m = por[k]; else { m = { ing: 0, act: 0, can: 0, tra: 0, actm: 0 }; ks.forEach(function (kk) { var g = por[kk]; if (g) { m.ing += g.ing; m.act += g.act; m.can += g.can; m.tra += g.tra; m.actm += g.actm; } }); } }
+    m = m || { ing: 0, act: 0, can: 0, tra: 0, actm: 0 };
+    return { t: nom + ' · ' + (k ? mesTxt(k) : 'últimos meses'), f: fMes(m, ri === 0 && k ? concGrupo(k) : null), n: ri === 0 && k && concGrupo(k) ? NOTA_CONC : '' };
+  }
+  function infoDe(el) {
+    if (el.hasAttribute('data-f67')) return parsea(el);
+    if (el.classList.contains('s46-stack')) return kpiStack(el);
+    if (el.classList.contains('s46-meter')) return kpiMeter(el);
+    if (el.classList.contains('s46-hb')) return kpiHb(el);
+    if (el.tagName === 'TD') return r53Celda(el);
+    return null;
+  }
+  function sec(el) { return el.closest('.s46-sec,.r53-sec,.d15-sec,.card,.p15') || document.body; }
+  function lugar(el) {   // dónde se dibuja el detalle fijado: pegado al gráfico, nunca encima
+    var cell = el.closest('.k-g > div'); if (cell) return { ref: cell, modo: 'dentro' };
+    if (el.classList.contains('s46-stack')) { var t = el.closest('.s46-sc'); return { ref: t || el, modo: 'despues' }; }
+    if (el.classList.contains('s46-meter')) { var t2 = el.closest('.s46-sc'); return { ref: t2 || el, modo: 'despues' }; }
+    if (el.classList.contains('s46-hb')) { var p = el.parentNode, u = null; Array.prototype.forEach.call(p.children, function (c) { if (c.classList.contains('s46-hb')) u = c; }); return { ref: u || el, modo: 'despues' }; }
+    if (el.classList.contains('f67-hit')) { var c2 = el.closest('.r53-ch,.f67-ch'); return { ref: c2 || el, modo: 'despues' }; }
+    if (el.classList.contains('f67-sg')) { return { ref: el.closest('.f67-split') || el, modo: 'despues' }; }
+    if (el.tagName === 'TD') { var c3 = el.closest('.r53-sc'); return { ref: c3 || el, modo: 'despues' }; }
+    var c4 = el.closest('.f67-ch,.r53-sc'); return { ref: c4 || el, modo: 'despues' };
+  }
+  function grupoDe(el) {
+    var l = lugar(el), s = sec(el), h = s.querySelector('h3,h4,h2'), cell = el.closest('.k-g > div'), hh = cell ? cell.querySelector('h4') : null;
+    var prev = l.ref.previousElementSibling, pt = prev && /s46-h4/.test(prev.className) ? clean(prev.textContent) : '';
+    var cont = el.closest('#admCharts,#r16-ana,#r16-ven,#res15b,.r53,.s46'); 
+    return (cont ? (cont.id || cont.className.split(' ')[0]) : '') + '|' + clean((hh || h || {}).textContent) + '|' + pt;
+  }
+  function cajaHtml(info, gid) {
+    return '<div class="f67-pinbox" data-g="' + esc(gid) + '" role="group" aria-label="Detalle fijado"><div class="f67-pbt"><b>📌 ' + esc(info.t) + '</b>' + filasHtml(info.f) + '</div>' +
+      '<button type="button" class="sec f66-q" data-q="1">Quitar</button>' + (info.n ? '<div class="meta f67-pn">' + esc(info.n) + '</div>' : '') + '</div>';
+  }
+  function quitaCaja(gid) {
+    Array.prototype.forEach.call(document.querySelectorAll('.f67-pinbox'), function (b) { if (b.getAttribute('data-g') === gid) b.remove(); });
+    Array.prototype.forEach.call(document.querySelectorAll('.f67-sel'), function (e) { if (e.getAttribute('data-gid') === gid) { e.classList.remove('f67-sel'); if (e.hasAttribute('aria-pressed')) e.setAttribute('aria-pressed', 'false'); } });
+    delete PINS[gid];
+  }
+  function fija(el, info, silencio) {
+    var gid = grupoDe(el), l = lugar(el);
+    quitaCaja(gid);
+    var div = document.createElement('div'); div.innerHTML = cajaHtml(info, gid); var caja = div.firstChild;
+    if (l.modo === 'dentro') l.ref.appendChild(caja); else l.ref.insertAdjacentElement('afterend', caja);
+    el.classList.add('f67-sel'); el.setAttribute('data-gid', gid); if (el.hasAttribute('aria-pressed')) el.setAttribute('aria-pressed', 'true');
+    PINS[gid] = clean(info.t);
+    if (!silencio) srLive(info.t + ': ' + info.f.map(function (x) { return x[0] + ' ' + x[1]; }).join(', '));
+  }
+  function alPinchar(el) {
+    var info = infoDe(el); if (!info) return;
+    var gid = grupoDe(el);
+    if (el.classList.contains('f67-sel') && PINS[gid] === clean(info.t)) { quitaCaja(gid); ocultaTip(); return; }
+    fija(el, info, false);
+  }
+  function restauraPins() {
+    var gids = Object.keys(PINS); if (!gids.length) return;
+    var vistos = {};
+    Array.prototype.forEach.call(document.querySelectorAll('.f67-pinbox'), function (b) { vistos[b.getAttribute('data-g')] = 1; });
+    var pend = gids.filter(function (g) { return !vistos[g]; }); if (!pend.length) return;
+    var halladas = {};
+    Array.prototype.forEach.call(document.querySelectorAll(OBJ), function (el) {
+      if (!el.isConnected || el.offsetParent === null) return;
+      var gid; try { gid = grupoDe(el); } catch (e) { return; }
+      if (pend.indexOf(gid) < 0 || halladas[gid]) return;
+      var info = infoDe(el); if (info && clean(info.t) === PINS[gid]) { halladas[gid] = 1; fija(el, info, true); }
+    });
+    pend.forEach(function (g) { if (!halladas[g]) delete PINS[g]; });   // el gráfico cambió y ya no está ese elemento
+  }
+  function muestraTip(el, ev) {
+    var info = infoDe(el); if (!info) { ocultaTip(); return; }
+    var t = tip();
+    t.innerHTML = '<b>' + esc(info.t) + '</b>' + (info.f || []).map(function (x) { return '<div class="f66-tr"><span>' + (x[2] ? '<i style="background:' + x[2] + '"></i>' : '') + esc(x[0]) + '</span><b>' + esc(x[1]) + '</b></div>'; }).join('') + (info.n ? '<div class="f67-tn">' + esc(info.n) + '</div>' : '');
+    t.hidden = false;
+    var w = t.offsetWidth, h = t.offsetHeight, px, py;
+    if (ev && ev.clientX != null && !ev.fromKey) { px = ev.clientX + 14; py = ev.clientY + 14; }
+    else { var r = el.getBoundingClientRect(); px = r.left + r.width / 2 + 10; py = r.top + Math.min(r.height, 40) + 6; }
+    if (px + w > window.innerWidth - 8) px = Math.max(4, (ev && ev.clientX != null && !ev.fromKey ? ev.clientX : px) - w - 28);
+    if (py + h > window.innerHeight - 8) py = window.innerHeight - h - 8;
+    t.style.left = Math.max(4, px) + 'px'; t.style.top = Math.max(4, py) + 'px';
+  }
+  function ganchosMotor() {
+    document.addEventListener('pointerover', function (e) {
+      if (e.pointerType === 'touch') return;
+      var el = objDe(e.target);
+      if (!el) { if (!(e.target.closest && e.target.closest('#f66-tip'))) ocultaTip(); return; }
+      muestraTip(el, e);
+    });
+    document.addEventListener('pointermove', function (e) { if (e.pointerType === 'touch' || !TIP || TIP.hidden) return; var el = objDe(e.target); if (el) muestraTip(el, e); });
+    document.addEventListener('pointerleave', ocultaTip, true);
+    document.addEventListener('click', function (e) {
+      var q = e.target.closest ? e.target.closest('.f66-q[data-q]') : null;
+      if (q && q.closest('.f67-pinbox')) { quitaCaja(q.closest('.f67-pinbox').getAttribute('data-g')); return; }
+      var el = objDe(e.target); if (!el) return;
+      if (el.closest('#f66-g')) return;       // el gráfico «Servicios por día» tiene su propio comportamiento
+      alPinchar(el);
+    });
+    document.addEventListener('keydown', function (e) {
+      var el = e.target && e.target.closest ? e.target.closest('[data-f67][tabindex],.s46-stack[tabindex],.s46-hb[tabindex],.s46-meter[tabindex]') : null; if (!el) return;
+      if (e.key === 'Enter' || e.key === ' ') { if (el.closest('#f66-g')) return; e.preventDefault(); alPinchar(el); }
+      else if (e.key === 'Escape') { var g = grupoDe(el); if (PINS[g]) quitaCaja(g); ocultaTip(); }
+    });
+    document.addEventListener('focusin', function (e) {   // la cifra sale al enfocar con el TECLADO; con ratón o dedo ya sale por el puntero (y no tapa el detalle fijado)
+      var el = objDe(e.target); if (el && el.hasAttribute('tabindex') && e.target === el && !el.closest('#f66-g') && el.matches && el.matches(':focus-visible')) muestraTip(el, { fromKey: true });
+    });
+    document.addEventListener('focusout', function (e) { if (objDe(e.target)) ocultaTip(); });
+    document.addEventListener('pointerdown', function (e) { if (TIP && !TIP.hidden && !objDe(e.target)) ocultaTip(); });
+  }
+  /* los gráficos de otros bloques que no traen sus datos puestos se vuelven tocables aquí */
+  function marcaGraficos() {
+    Array.prototype.forEach.call(document.querySelectorAll('.s46-stack,.s46-hb'), function (e) {
+      if (e.getAttribute('data-f67k')) return; e.setAttribute('data-f67k', '1');
+      var inf = infoDe(e); if (!inf) return;
+      e.setAttribute('role', 'button'); e.setAttribute('tabindex', '0'); e.setAttribute('aria-pressed', 'false');
+      e.setAttribute('aria-label', inf.t + ': ' + inf.f.map(function (x) { return x[0] + ' ' + x[1]; }).join(', '));
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.s46-meter'), function (e) {
+      if (e.getAttribute('data-f67k')) return; e.setAttribute('data-f67k', '1'); e.setAttribute('tabindex', '0');
+    });
+  }
+
+  /* ============================== 5 · GRÁFICO «SERVICIOS POR DÍA» (KPIs) ============================== */
   function paso(max) {
     var raw = Math.max(1, max) / 4, p = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10)), c = [1, 2, 2.5, 5, 10];
     for (var i = 0; i < c.length; i++) if (c[i] * p >= raw) return Math.max(1, Math.ceil(c[i] * p));
@@ -17269,7 +17678,7 @@ function ofcCalcular(cat, sel) {
         '<button type="button" class="sec f66-q" data-q="1">Quitar</button></div>';
     } else det.innerHTML = '<p class="meta f66-ayuda">Toca o haz clic en un día para fijar sus cifras. Pulsa un nombre de la leyenda para ocultar o mostrar esa serie.</p>';
   }
-  function muestraTip(i, ev, el) {
+  function muestraTipDia(i, ev, el) {
     var d = F.ult; if (!d || !d.dias[i]) return;
     var t = tip(), x = d.dias[i];
     t.innerHTML = '<b>' + esc(cap(diaLargo(x.d))) + '</b>' + filasTip(x); t.hidden = false;
@@ -17280,7 +17689,6 @@ function ofcCalcular(cat, sel) {
     if (py + h > window.innerHeight - 8) py = window.innerHeight - h - 8;
     t.style.left = Math.max(4, px) + 'px'; t.style.top = Math.max(4, py) + 'px';
   }
-  function ocultaTip() { if (TIP) TIP.hidden = true; }
   function hit(e) { return e.target && e.target.closest ? e.target.closest('.f66-hit') : null; }
   function anuncia(i) {
     var d = F.ult, x = d && d.dias[i]; if (!x) return;
@@ -17289,12 +17697,12 @@ function ofcCalcular(cat, sel) {
   function ganchosGraf(g) {
     g.addEventListener('pointermove', function (e) {
       var h = hit(e); if (!h) { if (F.foco !== -1) { F.foco = -1; marca(); } ocultaTip(); return; }
-      F.foco = +h.getAttribute('data-i'); marca(); muestraTip(F.foco, e, h);
+      F.foco = +h.getAttribute('data-i'); marca(); muestraTipDia(F.foco, e, h);
     });
     g.addEventListener('pointerleave', function () { F.foco = -1; marca(); ocultaTip(); });
     g.addEventListener('click', function (e) {
       var h = hit(e);
-      if (h) { var i = +h.getAttribute('data-i'); F.pin = F.pin === i ? -1 : i; F.foco = i; marca(); muestraTip(i, e, h); anuncia(i); return; }
+      if (h) { var i = +h.getAttribute('data-i'); F.pin = F.pin === i ? -1 : i; F.foco = i; marca(); muestraTipDia(i, e, h); anuncia(i); return; }
       var lg = e.target.closest ? e.target.closest('.f66-lg') : null;
       if (lg) {
         var k = lg.getAttribute('data-s');
@@ -17315,7 +17723,7 @@ function ofcCalcular(cat, sel) {
       else if (e.key === 'Escape') { F.pin = -1; F.foco = -1; marca(); ocultaTip(); return; }
       else return;
       e.preventDefault(); F.foco = i; marca();
-      var h = svg.querySelector('.f66-hit[data-i="' + i + '"]'); if (h) { var ev = { fromKey: true }; muestraTip(i, ev, h); } anuncia(i);
+      var h = svg.querySelector('.f66-hit[data-i="' + i + '"]'); if (h) { var ev = { fromKey: true }; muestraTipDia(i, ev, h); } anuncia(i);
     });
     g.addEventListener('focusout', function (e) { if (e.target.tagName === 'svg') { F.foco = -1; marca(); ocultaTip(); } });
   }
@@ -17328,26 +17736,152 @@ function ofcCalcular(cat, sel) {
     dibuja();
   }
 
-  /* ============================== 5 · «PANEL DE GESTIÓN» DEL ADMIN: cifras al pasar o tocar ============================== */
-  function ganchosAdmin() {
-    document.addEventListener('pointerover', function (e) {
-      var el = e.target.closest ? e.target.closest('#admCharts .k-dia, #admCharts .k-br') : null;
-      if (!el) { if (!e.target.closest || !e.target.closest('#f66-tip')) ocultaTip(); return; }
-      var t = tip(), txt;
-      if (el.classList.contains('k-dia')) { var sp = el.querySelectorAll('span'); txt = '<b>' + esc(sp.length > 1 ? sp[sp.length - 1].textContent : '') + '</b><div class="f66-tr"><span>' + esc(el.getAttribute('title') || el.getAttribute('data-t') || '') + '</span></div>'; }
-      else { var l = el.querySelector('.k-bl'), v = el.querySelector('.k-bv'); txt = '<b>' + esc(l ? l.textContent : '') + '</b><div class="f66-tr"><span>' + esc(v ? v.textContent : '') + '</span></div>'; }
-      if (el.hasAttribute('title')) { el.setAttribute('data-t', el.getAttribute('title')); el.removeAttribute('title'); }
-      t.innerHTML = txt; t.hidden = false;
-      var r = el.getBoundingClientRect(), w = t.offsetWidth, px = r.left + r.width / 2 - w / 2, py = r.top - t.offsetHeight - 8;
-      if (py < 4) py = r.bottom + 8;
-      t.style.left = Math.max(4, Math.min(px, window.innerWidth - w - 4)) + 'px'; t.style.top = py + 'px';
+  /* ============================== 7 · «AGENTES»: VER TAMBIÉN A LOS CONCERTADORES ============================== */
+  var VISTAS_AG = [['act', '% activas'], ['can', '% canceladas'], ['ing', 'Ingresadas'], ['actm', 'Activadas en el mes']];
+  function mesAg() { var s = $('r53-m'); return s && s.value ? s.value : null; }
+  function clasesAg() { var sv = window.svc49; try { return sv && sv.sel && sv.ok() !== false ? sv.sel() : null; } catch (e) { return null; } }
+  function claveConc() { return (mesAg() || '') + '|' + (clasesAg() || []).join(','); }
+  function cargaConc(forzar) {
+    var root = document.querySelector('.r53'); if (!root || root.offsetParent === null || F.sinConc) return;
+    var k = claveConc(), C = F.conc;
+    if (C.busy || (!forzar && C.key === k && C.d)) return;
+    if (typeof sb === 'undefined' || !sb) return;
+    C.busy = true;
+    var a = { p_mes: mesAg() ? mesAg() + '-01' : null, p_clases: clasesAg() };
+    Promise.resolve(sb.rpc('sup_reporte_concertadores', a)).then(function (r) {
+      C.busy = false;
+      if (r && r.error) { if (falta(r.error)) F.sinConc = true; C.err = r.error; C.d = null; C.key = ''; }
+      else { C.err = null; C.d = r ? r.data : null; C.key = k; }
+      programa();
+      if (claveConc() !== k && !F.sinConc) cargaConc();
+    }, function () { C.busy = false; });
+  }
+  function pctC(a, b) { return b ? Math.round(a * 100 / b) : null; }
+  function claseP(v, vista) { if (v === null) return 'z'; if (vista === 'can') return v <= 10 ? 'g' : v <= 20 ? 'a' : 'r'; return v >= 70 ? 'g' : v >= 50 ? 'a' : 'r'; }
+  function sumaM(ms) { var t = { ing: 0, act: 0, can: 0, tra: 0, actm: 0 }; ms.forEach(function (m) { t.ing += m.ing; t.act += m.act; t.can += m.can; t.tra += m.tra; t.actm += m.actm; }); return t; }
+  function celdaC(m, vista, nom, k) {
+    var da = attr(nom + ' · ' + (k ? mesTxt(k) : 'últimos meses'), fMes(m, null), 'Ventas de los clientes que captó este concertador (las cierra un cerrador).', true);
+    if (!m || !m.ing) return vista === 'actm' && m && m.actm ? '<td' + da + '>' + n0(m.actm) + '</td>' : '<td class="z"' + da + '>—</td>';
+    if (vista === 'ing') return '<td' + da + '>' + n0(m.ing) + '</td>';
+    if (vista === 'actm') return '<td' + da + '>' + (m.actm ? n0(m.actm) : '<span class="cero">0</span>') + '</td>';
+    var a = vista === 'act' ? m.act : m.can, p = pctC(a, m.ing);
+    return '<td class="' + claseP(p, vista) + '"' + da + '>' + p + ' %<small>' + a + ' de ' + m.ing + '</small></td>';
+  }
+  function graficoC(cron) {
+    var W = 480, H = 210, pl = 6, pr = 6, pt0 = 40, pb = 30, n = cron.length, paso = (W - pl - pr) / n, bw = Math.min(58, paso * 0.62);
+    var mx = 0; cron.forEach(function (m) { mx = Math.max(mx, m.ing); });
+    if (!mx) return '<div class="r53-vacio">Todavía no hay ventas de clientes de concertadores en estos meses.</div>';
+    var ay = H - pb - pt0, s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="group" aria-label="Ventas de clientes de concertadores por mes: activas, en trámite y canceladas">';
+    s += '<line x1="0" x2="' + W + '" y1="' + (H - pb) + '" y2="' + (H - pb) + '" stroke="var(--line2)"/>';
+    cron.forEach(function (m, i) {
+      var x = pl + paso * i + (paso - bw) / 2, y = H - pb;
+      [[m.act, 'var(--c-act)'], [m.tra, 'var(--c-tra)'], [m.can, 'var(--c-cai)']].forEach(function (p) {
+        var h = p[0] / mx * ay; if (!p[0]) return; y -= h;
+        s += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(1, h).toFixed(1) + '" rx="3" fill="' + p[1] + '" pointer-events="none"/>';
+      });
+      s += '<text class="v" x="' + (x + bw / 2).toFixed(1) + '" y="' + (y - 19).toFixed(1) + '" text-anchor="middle">' + n0(m.ing) + '</text>';
+      s += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (y - 5).toFixed(1) + '" text-anchor="middle">' + (m.ing ? pctC(m.act, m.ing) + ' % act.' : '') + '</text>';
+      s += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - 12) + '" text-anchor="middle">' + mesCorto(m.k) + '</text>';
+      s += '<rect class="f67-hit"' + attr('Concertadores · ' + mesTxt(m.k), fMes(m, null), 'Ventas de los clientes que captaron los concertadores (las cierra un cerrador).') + ' x="' + (pl + paso * i).toFixed(1) + '" y="0" width="' + paso.toFixed(1) + '" height="' + H + '" fill="transparent" style="cursor:pointer"/>';
     });
-    document.addEventListener('click', function (e) {
-      var el = e.target.closest ? e.target.closest('#admCharts .k-dia, #admCharts .k-br') : null; if (!el) return;
-      var sel = el.classList.contains('f66-sel');
-      Array.prototype.forEach.call(document.querySelectorAll('#admCharts .f66-sel'), function (x) { x.classList.remove('f66-sel'); });
-      if (!sel) el.classList.add('f66-sel');
+    return s + '</svg>';
+  }
+  function seccionesConc(d) {
+    var ks = (d.meses || []).slice().reverse(), gmap = {}; (d.grupo || []).forEach(function (g) { gmap[g.k] = g; });
+    var cron = ks.map(function (k) { return gmap[k] || { k: k, ing: 0, act: 0, can: 0, tra: 0, actm: 0 }; });
+    var vista = F.agVista2 || 'act', act = mesAg() || String(d.mes || '').slice(0, 7);
+    var sv = window.svc49, nombre = sv && d.clases && d.clases[0] ? sv.nombre(d.clases[0]) : 'servicios';
+    var th = '<tr><th>Concertador</th>' + ks.map(function (k) { return '<th>' + esc(mesCorto(k)) + '</th>'; }).join('') + '<th>6 meses</th></tr>';
+    function tot(t, nom) {
+      var da = attr(nom + ' · últimos meses', fMes(t, null), '', true);
+      if (vista === 'ing') return '<td' + da + '><b>' + n0(t.ing) + '</b></td>';
+      if (vista === 'actm') return '<td' + da + '><b>' + n0(t.actm) + '</b></td>';
+      var a = vista === 'act' ? t.act : t.can, p = pctC(a, t.ing);
+      return t.ing ? '<td class="' + claseP(p, vista) + '"' + da + '>' + p + ' %<small>' + a + ' de ' + t.ing + '</small></td>' : '<td class="z">—</td>';
+    }
+    var filaG = '<tr class="gr"><td>👥 Todos los concertadores</td>' + cron.map(function (m) { return celdaC(m, vista, 'Todos los concertadores', m.k); }).join('') + tot(sumaM(cron), 'Todos los concertadores') + '</tr>';
+    var filas = (d.seis || []).map(function (a) {
+      var por = {}; (a.m || []).forEach(function (m) { por[m.k] = m; });
+      var ms = ks.map(function (k) { return por[k] || { k: k, ing: 0, act: 0, can: 0, tra: 0, actm: 0 }; });
+      return '<tr><td><b>' + esc(a.agente) + '</b></td>' + ms.map(function (m, i) { return celdaC(m, vista, a.agente, ks[i]); }).join('') + tot(sumaM(ms), a.agente) + '</tr>';
+    }).join('');
+    var ag = d.agentes || [], es = d.estados || [];
+    var tE = { ing: 0, act: 0, tra: 0, can: 0, actm: 0 }; ag.forEach(function (a) { tE.ing += a.ing; tE.act += a.act; tE.tra += a.tra; tE.can += a.can; tE.actm += a.actm; });
+    function filaE(a, cls) {
+      var pa = pctC(a.act, a.ing), pcn = pctC(a.can, a.ing), nom = cls ? 'Total' : a.agente;
+      var f = fMes(a, null); es.forEach(function (e) { var v = (a.est || {})[e.e] || 0; if (v) f.push([e.e, n0(v), e.c === 'ACT' ? 'var(--c-act)' : e.c === 'CAI' ? 'var(--c-cai)' : 'var(--c-tra)']); });
+      return '<tr' + (cls ? ' class="' + cls + '"' : '') + attr(nom, f, '', true) + '><td>' + (cls ? '<b>Total</b>' : '<b>' + esc(a.agente) + '</b>') + '</td><td>' + n0(a.ing) + '</td><td>' + n0(a.act) + '</td><td>' + n0(a.tra) + '</td><td>' + n0(a.can) + '</td>' +
+        (a.ing ? '<td class="' + claseP(pa, 'act') + '">' + pa + ' %</td><td class="' + claseP(pcn, 'can') + '">' + pcn + ' %</td>' : '<td class="z">—</td><td class="z">—</td>') + '<td>' + n0(a.actm) + '</td>' +
+        es.map(function (e) { var v = (a.est || {})[e.e] || 0; return '<td' + (v ? '' : ' class="cero"') + '>' + (v ? n0(v) : '·') + '</td>'; }).join('') + '</tr>';
+    }
+    var tablaE = ag.length ? '<div class="r53-sc" tabindex="0" role="region" aria-label="Estado de las ventas de cada concertador"><table><thead><tr><th>Concertador</th><th>Ingres.</th><th class="c-act">Activas</th><th class="c-tra">Trámite</th><th class="c-cai">Cancel.</th><th>% activas</th><th>% cancel.</th><th title="Por fecha de activación, aunque la venta sea de otro mes">Activadas en el mes</th>' +
+      es.map(function (e) { return '<th class="c-' + (e.c === 'ACT' ? 'act' : e.c === 'CAI' ? 'cai' : 'tra') + '" title="' + esc(e.e) + '">' + esc(e.e) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      ag.map(function (a) { return filaE(a); }).join('') + filaE(tE, 'tot') + '</tbody></table></div>' : '<div class="r53-vacio">No hay concertadores para mostrar.</div>';
+    return '<div class="r53-sec f67-conc"><div class="r53-sh"><h3>📞 Cómo van los concertadores · últimos 6 meses</h3><span class="r53-pills">' +
+      VISTAS_AG.map(function (v) { return '<button type="button" class="r53-pill' + (vista === v[0] ? ' on' : '') + '" data-f67v="' + v[0] + '">' + v[1] + '</button>'; }).join('') + '</span></div>' +
+      '<div class="f67-ch r53-ch">' + graficoC(cron) + '</div>' +
+      '<div class="r53-lg"><span><i style="background:var(--c-act)"></i>Activas hoy</span><span><i style="background:var(--c-tra)"></i>En trámite</span><span><i style="background:var(--c-cai)"></i>Canceladas</span><span>Toca una barra o una celda para ver el detalle</span></div>' +
+      '<p class="meta" style="margin:8px 0 0">Son las ventas de los clientes que captó cada concertador: las cierra un cerrador, así que <b>también cuentan en la vista de cerradores</b>. Los dos no se suman.</p></div>' +
+      '<div class="r53-sec f67-conc"><div class="r53-sh"><h3>' + (vista === 'act' ? '% de ventas activas por concertador' : vista === 'can' ? '% de ventas canceladas por concertador' : vista === 'ing' ? 'Ventas ingresadas por concertador' : 'Activadas en el mes por concertador') + '</h3><span class="meta">' + esc(nombre) + ' · cada columna es un mes</span></div>' +
+      '<div class="r53-sc" tabindex="0" role="region" aria-label="Ventas por mes de cada concertador"><table><thead>' + th + '</thead><tbody>' + filaG + ((d.seis || []).length ? filas : '') + '</tbody></table></div>' + ((d.seis || []).length ? '' : '<div class="r53-vacio">No hay concertadores activos.</div>') + '</div>' +
+      '<div class="r53-sec f67-conc"><div class="r53-sh"><h3>Ventas de cada concertador por estado · ' + esc(mesTxt(act)) + '</h3><span class="meta">Estado actual de las líneas vendidas ese mes</span></div>' + tablaE + '</div>';
+  }
+  function selAg() {
+    var si = F.sinConc ? '<span class="f66-hint">Falta ejecutar el SQL 67 en Supabase para ver a los concertadores aquí.</span>' : '';
+    return '<div class="f66-org f67-agv" data-sig="' + F.agVista + '|' + (F.sinConc ? 1 : 0) + '"><span class="f66-lbl" id="f67-l-ag">Ver</span><div class="f66-seg" role="radiogroup" aria-labelledby="f67-l-ag">' +
+      [['CERR', '🤝 Cerradores'], ['CONC', '📞 Concertadores']].map(function (o) { var on = F.agVista === o[0]; return '<button type="button" role="radio" aria-checked="' + on + '" class="f66-o f67-av' + (on ? ' on' : '') + '" data-av="' + o[0] + '"' + (F.sinConc && o[0] === 'CONC' ? ' disabled' : '') + '>' + o[1] + '</button>'; }).join('') + '</div>' + si + '</div>';
+  }
+  function overlay53(root) {
+    var d = datos53(); if (!d) return;
+    var svg = root.querySelector('.r53-ch svg'); if (!svg || svg.closest('.f67-conc')) return;
+    var ck = (F.conc.key || '') + '|' + (F.conc.d ? '1' : '0') + '|' + (d.mes || '');
+    var ya = svg.querySelector('g.f67-hits'); if (ya && ya.getAttribute('data-ck') === ck) return; if (ya) ya.remove();
+    var vb = (svg.getAttribute('viewBox') || '').split(' '), W = +vb[2], H = +vb[3], ts = svg.querySelectorAll('text.v'), ks = mesesDe(d);
+    if (!W || !H || !ts.length || ts.length !== ks.length) return;
+    var gm = {}; (d.grupo || []).forEach(function (g) { gm[g.k] = g; });
+    var paso = (W - 12) / ts.length, NS = 'http://www.w3.org/2000/svg', g = document.createElementNS(NS, 'g'); g.setAttribute('class', 'f67-hits'); g.setAttribute('data-ck', ck);
+    ks.forEach(function (k, i) {
+      var m = gm[k] || { ing: 0, act: 0, can: 0, tra: 0, actm: 0 }, cx = +ts[i].getAttribute('x'), r = document.createElementNS(NS, 'rect'), conc = concGrupo(k);
+      var tmp = document.createElement('div'); tmp.innerHTML = '<i' + attr('Todo el grupo · ' + mesTxt(k), fMes(m, conc), conc ? NOTA_CONC : '') + '></i>';
+      Array.prototype.forEach.call(tmp.firstChild.attributes, function (a) { r.setAttribute(a.name, a.value); });
+      r.setAttribute('class', 'f67-hit'); r.setAttribute('x', (cx - paso / 2).toFixed(1)); r.setAttribute('y', 0); r.setAttribute('width', paso.toFixed(1)); r.setAttribute('height', H);
+      r.setAttribute('fill', 'transparent'); r.setAttribute('style', 'cursor:pointer'); g.appendChild(r);
     });
+    svg.appendChild(g);
+    if (svg.getAttribute('role') === 'img') svg.setAttribute('role', 'group');          // una imagen no puede llevar zonas enfocables dentro
+  }
+  function pintaAgentes() {
+    var root = document.querySelector('.r53');
+    if (!root) { document.body.classList.remove('f67-aconc'); return; }
+    var first = root.querySelector('.r53-sec'); if (!first) return;
+    var vis = root.offsetParent !== null;
+    if (vis) cargaConc();
+    var sig = F.agVista + '|' + (F.sinConc ? 1 : 0), ya = first.querySelector('.f67-agv');
+    if (!ya || ya.getAttribute('data-sig') !== sig) {
+      if (ya) ya.remove();
+      var sv = first.querySelector('.svc49-fila'); if (sv) sv.insertAdjacentHTML('afterend', selAg()); else first.insertAdjacentHTML('beforeend', selAg());
+    }
+    var conc = F.agVista === 'CONC' && !F.sinConc;
+    document.body.classList.toggle('f67-aconc', conc);
+    var mine = root.querySelectorAll('.f67-conc');
+    if (!conc) { Array.prototype.forEach.call(mine, function (e) { e.remove(); }); overlay53(root); return; }
+    var C = F.conc, k = claveConc();
+    var sigC = C.key + '|' + (F.agVista2 || 'act') + '|' + (C.d ? '1' : '0') + '|' + (C.busy ? 1 : 0) + '|' + (C.err ? 1 : 0);
+    if (mine.length && root.getAttribute('data-f67c') === sigC) return;
+    Array.prototype.forEach.call(mine, function (e) { e.remove(); });
+    var h;
+    if (C.err && !C.d) h = '<div class="r53-sec f67-conc"><div class="r53-vacio">No se pudo cargar a los concertadores: ' + esc(typeof limpio === 'function' ? limpio(C.err.message || '') : (C.err.message || '')) + '</div></div>';
+    else if (!C.d || C.key !== k) h = '<div class="r53-sec f67-conc"><div class="r53-vacio">Calculando…</div></div>';
+    else h = seccionesConc(C.d);
+    root.insertAdjacentHTML('beforeend', h); root.setAttribute('data-f67c', sigC);
+  }
+  function alClicAgentes(e) {
+    var b = e.target.closest ? e.target.closest('.f67-av') : null;
+    if (b) { var v = b.getAttribute('data-av'); if (v === F.agVista) return; F.agVista = v; pintaAgentes(); programa(); return; }
+    var p = e.target.closest ? e.target.closest('.r53-pill[data-f67v]') : null;
+    if (p) { F.agVista2 = p.getAttribute('data-f67v'); pintaAgentes(); return; }
+    var r = e.target.closest ? e.target.closest('.r53 [data-r="ref"]') : null;
+    if (r) { F.conc.key = ''; }                                                    // «Actualizar»: también se vuelven a pedir los concertadores
   }
 
   /* ============================== 6 · AVISOS QUE ABREN LA CONVERSACIÓN ============================== */
@@ -17390,7 +17924,7 @@ function ofcCalcular(cat, sel) {
     }
   }
 
-  /* ============================== 7 · ESTILOS ============================== */
+  /* ============================== 8 · ESTILOS ============================== */
   function estilos() {
     if ($('f66-css')) return;
     var s = document.createElement('style'); s.id = 'f66-css';
@@ -17398,12 +17932,12 @@ function ofcCalcular(cat, sel) {
       '.f66-mes{flex:1 1 150px;min-width:0;margin:0}.f66-mes.f66-on{border-color:var(--acc);box-shadow:0 0 0 2px color-mix(in srgb,var(--acc) 22%,transparent)}',
       '.s46-tb .f66-mes{width:auto;min-width:160px;flex:none}',
       '.f66-org{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:12px 0 0}',
-      '.f66-lbl{font-size:.8em;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}',
+      '.f66-lbl{font-size:.8em;font-weight:700;color:color-mix(in srgb,var(--mut) 70%,var(--ink));text-transform:uppercase;letter-spacing:.05em}',
       '.f66-seg{display:inline-flex;flex-wrap:wrap;gap:4px;padding:3px;border-radius:99px;background:var(--bg);border:1px solid var(--line)}',
       '.f66-o{width:auto;margin:0;padding:7px 14px;border-radius:99px;background:transparent;color:var(--ink);border:0;box-shadow:none;font-weight:600;font-size:.9em;cursor:pointer;line-height:1.2}',
       '.f66-o b{margin-left:4px;font-weight:800}',
       '.f66-o:hover{background:var(--acc2)}.f66-o.on{background:var(--acc);color:var(--on-acc)}.f66-o:focus-visible,.f66-lg:focus-visible,.f66-ch svg:focus-visible{outline:2px solid var(--acc);outline-offset:2px}',
-      '.f66-hint{font-size:.82em;color:var(--mut);flex:1 1 220px}.s46-sec[hidden]{display:none!important}',
+      '.f66-hint{font-size:.82em;color:color-mix(in srgb,var(--mut) 70%,var(--ink));flex:1 1 220px}.s46-sec[hidden]{display:none!important}',
       '.f66-g{min-width:0}',
       '.f66-leg{display:flex;flex-wrap:wrap;gap:6px 10px;margin:0 0 8px}',
       '.f66-lg{width:auto;margin:0;display:inline-flex;gap:6px;align-items:center;padding:5px 12px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:.86em;font-weight:600;box-shadow:none;cursor:pointer}',
@@ -17421,34 +17955,85 @@ function ofcCalcular(cat, sel) {
       '.f66-tr{display:flex;justify-content:space-between;gap:14px;align-items:center}.f66-tr span{display:inline-flex;gap:6px;align-items:center}.f66-tr b{margin:0;display:inline}',
       '.f66-tr.off{opacity:.45}.f66-tr.tot{border-top:1px solid var(--line);margin-top:3px;padding-top:3px}',
       '.f66-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}',
-      '#admCharts .k-dia,#admCharts .k-br{cursor:pointer;border-radius:6px}#admCharts .k-br:hover,#admCharts .k-dia:hover{background:var(--acc2)}',
-      '#admCharts .f66-sel{outline:2px solid var(--acc);outline-offset:1px;background:var(--acc2)}',
+      '[data-f67]{cursor:pointer;border-radius:6px}.k-br[data-f67]:hover,.k-dia[data-f67]:hover{background:var(--acc2)}',
+      '[data-f67]:focus-visible,.s46-stack:focus-visible,.s46-hb:focus-visible,.s46-meter:focus-visible{outline:2px solid var(--acc);outline-offset:2px}',
+      '.f67-sel{outline:2px solid var(--acc);outline-offset:1px;background:var(--acc2)}.r53 td.f67-sel{outline-offset:-2px}',
+      '.f67-tag{display:inline-block;padding:0 8px;border-radius:99px;font-size:.88em;font-weight:700;line-height:1.5;background:var(--bg);color:var(--ink);border:1px solid var(--line);white-space:nowrap;vertical-align:baseline}',
+      '.f67-tag.c{border-color:var(--acc);background:var(--acc2)}',
+      '.f67-pinbox,.f66-pinbox{display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:8px;padding:10px 12px;border:1px solid var(--acc);border-radius:12px;background:var(--acc2);color:var(--ink)}',
+      '.f67-pbt{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;min-width:0;flex:1 1 220px}.f67-pbt>b{flex:0 0 100%}',
+      '.f67-pn{flex:0 0 100%;margin:0;color:color-mix(in srgb,var(--mut) 70%,var(--ink))}',
+      '.f67-tn{margin-top:4px;padding-top:4px;border-top:1px solid var(--line);color:var(--mut);font-size:.9em}',
+      '.f67-u{opacity:1}',
+      '.f67-split{display:flex;gap:3px;height:30px;margin:12px 0 0}.f67-sg{display:flex;align-items:center;justify-content:center;min-width:34px;border-radius:8px;font-weight:700;font-size:.85em;cursor:pointer;color:var(--on-acc)}',
+      '.f67-sg.c{background:var(--acc)}.f67-sg.d{background:color-mix(in srgb,var(--ink) 62%,var(--bg));color:var(--bg)}.f67-sg.f67-sel{outline-offset:2px;background-clip:padding-box}',
+      '.s46-stack[data-f67k],.s46-hb[data-f67k]{cursor:pointer}.s46-stack[data-f67k]{box-sizing:content-box;padding:7px 0}',
+      '.s46-hb[data-f67k]:hover{background:var(--acc2);border-radius:6px}',
+      '.r53 .f67-hit:focus-visible{outline:2px solid var(--acc)}.r53 .f67-hits .f67-hit:hover{fill:var(--ink);fill-opacity:.07}',
+      '.f67-agv{margin:12px 0 0}.f67-agv .f66-hint{flex:1 1 220px}.f66-o:disabled{opacity:.5;cursor:not-allowed}',
+      'body.f67-aconc .r53>.r53-sec:not(:first-child):not(.f67-conc){display:none}',
+      '.r53 tr.tot td[data-f67],.r53 tr[data-f67]{cursor:pointer}.r53 tr[data-f67]:hover td{background:var(--acc2)}',
       '@media(max-width:560px){.f66-seg{width:100%}.f66-o{flex:1 1 auto;padding:8px 10px}.s46-tb .f66-mes{width:100%;min-width:0}}'
     ].join('');
     document.head.appendChild(s);
   }
 
-  /* ============================== 8 · ARRANQUE ============================== */
+  /* ============================== 9 · ARRANQUE ============================== */
   var tmr = null;
   function repara() {
     tmr = null;
-    try { pintaMes(); pintaOrigen(); ajustaSecciones(); graf(); } catch (e) { if (window.console) console.error(e); }
+    try { pintaMes(); pintaOrigen(); ajustaSecciones(); tarjetasOrigen(); etiquetasAgentes(); marcaGraficos(); graf(); pintaAgentes(); restauraPins(); } catch (e) { if (window.console) console.error(e); }
   }
   function programa() { if (tmr) return; tmr = setTimeout(repara, 60); }
   function arranca() {
-    instala(); estilos(); ganchosAdmin();
+    instala(); estilos(); ganchosMotor();
     document.addEventListener('change', alCambiarMes);
     document.addEventListener('click', alElegirOrigen);
-    document.addEventListener('pointerdown', function (e) { if (TIP && !TIP.hidden && !(e.target.closest && e.target.closest('#f66-g'))) ocultaTip(); });
+    document.addEventListener('click', alClicAgentes);
+    document.addEventListener('pointerdown', function (e) { if (TIP && !TIP.hidden && !(e.target.closest && e.target.closest('#f66-g'))) { if (!objDe(e.target)) ocultaTip(); } });
+    document.documentElement.addEventListener('mouseleave', ocultaTip);
     var mo = new MutationObserver(programa); mo.observe(document.body, { childList: true, subtree: true });
     var rz = null; window.addEventListener('resize', function () { clearTimeout(rz); rz = setTimeout(function () { if ($('f66-ch')) dibuja(); }, 200); });
     programa();
   }
-  window.f66 = { alAbrirAviso: alAbrirAviso, estado: function () { return F; } };
+  /* ============================== 9 · REVISIÓN DE LA INSTALACIÓN ============================== */
+  // Se pide a mano desde la consola del navegador (F12 → Consola): f67.revisa()
+  // Mira el propio index.html y dice qué cambios de la tanda 3b están colocados y cuáles faltan. No toca nada.
+  function revisa() {
+    var src = ''; Array.prototype.forEach.call(document.scripts, function (s) { if (!s.src) src += s.textContent + '\n'; });
+    var W = 'window.' + 'f67', cuenta = function (t) { var c = 0, i = -1; while ((i = src.indexOf(t, i + 1)) >= 0) c++; return c; };
+    var puntos = [
+      ['Cambio 1 · el Resumen entrega sus datos', W + '.datos(D)', 1],
+      ['Cambio 2 · clientes por estado según el origen', W + '.aplica(r)', 1],
+      ['Cambio 3 · saludo y resumen del día', W + '.leads(D.leads)', 1],
+      ['Cambio 4 · etiqueta 📞/🤝 en cada cliente', W + '.chip(l)', 1],
+      ['Cambio 5 · etiqueta de origen en las ventas', W + '.chipO(', 1],
+      ['Cambio 6 · Agentes entrega sus datos', 'datos: function () { return R' + '.d; }', 1],
+      ['Zona 13 · Panel de gestión sustituido', 'function det' + 'Adm(', 1],
+      ['Zona 16 · Análisis sustituido', 'function ' + 'dA(t, f, n)', 1],
+      ['Bloque 66 viejo YA quitado (si falla, verías dos selectores)', '/* 66 ' + '· RESUMEN', 0],
+      ['Bloque 67 pegado una sola vez', 'window.' + 'f66 = {', 1]
+    ];
+    var faltan = [], lin = puntos.map(function (p) {
+      var c = cuenta(p[1]), bien = p[2] === 0 ? c === 0 : (p[2] === 1 && p[0].indexOf('una sola vez') >= 0 ? c === 1 : c >= 1);
+      if (!bien) faltan.push(p[0]);
+      return (bien ? '✅ ' : '❌ ') + p[0];
+    });
+    var txt = lin.join('\n') + '\n' + (faltan.length ? '❌ REVISA ' + faltan.length + ' PUNTO(S) de la lista de arriba' : '✅ TODO COLOCADO: los 6 cambios, las 2 zonas y el bloque 67');
+    try { console.log(txt); } catch (e) { }
+    return txt;
+  }
+  window.f66 = { alAbrirAviso: alAbrirAviso, estado: function () { return F; } };      // el bloque de notificaciones llama a window.f66.alAbrirAviso
+  window.f67 = { v: 67, attr: attr, datos: datos, aplica: aplica, leads: leads, chip: chip, chipV: chipV, chipO: chipO, org: org, roles: roles,
+    origen: origenAct, selector: selector, revisa: revisa, estado: function () { return F; } };
   if (document.body) arranca(); else document.addEventListener('DOMContentLoaded', arranca);
   // al cambiar de usuario (salir y entrar) se vuelve a leer la elección de ese usuario
   var origLogin = window.loginView;
-  if (typeof origLogin === 'function') window.loginView = function () { F.mes = ''; F.ult = null; F.pin = -1; F.foco = -1; F.origen = 'TODOS'; F.origenDe = null; return origLogin.apply(this, arguments); };
+  if (typeof origLogin === 'function') window.loginView = function () {
+    F.mes = ''; F.ult = null; F.pin = -1; F.foco = -1; F.origen = 'TODOS'; F.origenDe = null; F.conc = { key: '', d: null, busy: false, err: null }; F.agVista = 'CERR'; F.agVista2 = 'act';
+    ROLES = {}; NOM = {}; LEADSALL = null; LEADIDX = {}; CT = {}; PINS = {}; document.body.classList.remove('f67-aconc');
+    return origLogin.apply(this, arguments);
+  };
 })();
  </script>
 </body>
