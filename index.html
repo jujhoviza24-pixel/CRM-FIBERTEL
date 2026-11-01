@@ -17370,7 +17370,7 @@ function ofcCalcular(cat, sel) {
     Array.prototype.forEach.call(document.querySelectorAll('.s46-sec'), function (s) {
       var h3 = s.querySelector('.s46-sh h3'); if (!h3 || clean(h3.textContent) !== '¿De dónde vienen las ventas?') return;
       var po = F.ult.por_origen, z = { servicios: 0, ventas: 0, activados: 0, tramite: 0, caidos: 0 }, c = po.CONC || z, r = po.CERR || z;
-      var sig = [c.servicios, c.activados, c.tramite, c.caidos, rvar sig = [c.servicios, c.activados, c.tramite, c.caidos, r.servicios, r.activados, r.tramite, r.caidos, c.recuperadas, r.recuperadas].join('|');
+            var sig = [c.servicios, c.activados, c.tramite, c.caidos, r.servicios, r.activados, r.tramite, r.caidos, c.recuperadas, r.recuperadas].join('|');
       if (s.getAttribute('data-f67k') === sig) return;
       var sv = window.svc49, et = sv && F.ult.clases && F.ult.clases[0] ? sv.etiquetaAct(F.ult.clases[0]) : 'Activos', tot = c.activados + r.activados;
       function dc(nom, x, otro) {
