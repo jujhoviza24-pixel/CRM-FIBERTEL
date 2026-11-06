@@ -18769,7 +18769,7 @@ function ofcCalcular(cat, sel) {
     window[p[0]] = function () { var r = o.apply(this, arguments); try { quizas(p[1]); } catch (e) { console.error(e); } return r; };
   });
 })();
-      /* 71 · Planilla mensual: «📒 Planilla» (admin) y «💵 Mis pagos» (concertador, cerrador y back)
+     /* 71 · Planilla mensual: «📒 Planilla» (admin) y «💵 Mis pagos» (concertador, cerrador y back)
    Va al final del script de index.html: después del último bloque (por ejemplo, el 70) y antes de que cierre el script.
    Necesita el SQL 71 en Supabase.
    · Admin: cada persona del mes con su total, lo pagado y lo que falta. Registra pagos (medio, n.º de operación,
@@ -18960,7 +18960,8 @@ function ofcCalcular(cat, sel) {
       '<div><label>Tipo</label><select id="p71-atip"><option value="DESCUENTO">Descuento</option><option value="EXTRA">Extra</option></select></div>' +
       '<div><label>Monto (S/)</label><input id="p71-amon" type="number" min="0.01" step="0.01"></div><div><button type="button" class="sec" data-a="addadj" style="width:100%">Agregar</button></div></div>';
     if (p.rol === 'supervisor' && !d.cerrado) x += '<h4>Sueldo mensual del supervisor</h4><div class="d15-form"><div><label>Sueldo (S/)</label><input id="p71-sue" type="number" min="0" step="0.01" value="' +
-      (N(p.sueldo) > 0 ? n2(p.sueldo) : '') + '"></div><div><button type="button" class="sec" data-a="sueldo" style="width:100%">Guardar sueldo</button></div></div>';
+      (N(p.sueldo) > 0 ? n2(p.sueldo) : '') + '"></div><div><button type="button" class="sec" data-a="sueldo" style="width:100%">Guardar sueldo</button></div></div>' +
+      '<p class="meta" style="margin-top:6px">Vale desde ' + h(mesDe(ST.per)) + ' en adelante, hasta que lo cambies.</p>';
     return x + '</div>';
   }
   function historialTxt(x) {
@@ -18970,6 +18971,7 @@ function ofcCalcular(cat, sel) {
     else if (x.accion === 'PAGO') q += 'registró ' + soles(d.monto) + ' a ' + h(d.persona || '') + ' (' + h(medioTxt(d.medio)) + ')';
     else if (x.accion === 'ANULADO') q += 'anuló el pago de ' + soles(d.monto) + ' a ' + h(d.persona || '');
     else if (x.accion === 'INCLUIDO') q += 'incluyó a ' + h(d.persona || '');
+    else if (x.accion === 'SUELDO') q += 'puso el sueldo de ' + h(d.persona || '') + ' en ' + soles(d.monto);
     else q += h(x.accion);
     return '<li><b>' + h(fechaHora(x.at)) + '</b> · ' + q + (x.motivo ? ' · <i>motivo: ' + h(x.motivo) + '</i>' : '') + '</li>';
   }
@@ -19157,9 +19159,9 @@ function ofcCalcular(cat, sel) {
     }
     if (a === 'sueldo') {
       var v = parseFloat($('p71-sue').value); if (isNaN(v) || v < 0) return aviso('Escribe un sueldo válido', true);
-      b.disabled = true; r = await sb.rpc('fijar_sueldo', { p_agente: p.id, p_monto: Math.round(v * 100) / 100 }); b.disabled = false;
+      b.disabled = true; r = await sb.rpc('planilla_sueldo_supervisor', { p_periodo: ST.per, p_persona: p.id, p_monto: Math.round(v * 100) / 100 }); b.disabled = false;
       if (r.error) return aviso(error(r.error), true);
-      aviso('Sueldo guardado'); return cargar();
+      reemplazar(r.data); aviso('Sueldo de ' + p.nombre + ' guardado'); return pintar();
     }
   }
   function cambio(ev) {
