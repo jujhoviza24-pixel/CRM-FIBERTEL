@@ -5950,7 +5950,7 @@ function ventaForm(l) {
       ['con', '💬', 'Contraoferta', ['pa'], 'CONTRA'],
       ['ofe', '✉️', 'Ofertas', ['ofe']],
       ['cha', '🛡️', 'Admin chat', ['cha']],
-      ['pag', '💳', 'Pagos', ['liq', 'pe']],
+      ['pag', '💳', 'Pagos', ['liq', 'pe', 'sor']],
       ['cfg', '⚙️', 'Configuración', ['cfg', 'svo', 'equ', 'pb', 'in', 'sue', 'com', 'reg', 'nt', 'sa']]
     ],
     cerrador: [
@@ -5958,7 +5958,7 @@ function ventaForm(l) {
       ['cli', '🗂️', 'Mis clientes', ['tab', 'bol', 'cof']],
       ['inc', '🛠️', 'Incidencias', ['inc']],
       ['ofe', '✉️', 'Ofertas', ['ofe']],
-      ['pag', '💰', 'Ventas y pagos', ['ven', 'liq']]
+      ['pag', '💰', 'Ventas y pagos', ['ven', 'liq']], ['sor', '🎟️', 'Sorteo', ['sor']]
     ],
     back: [
       ['res', '🏠', 'Resumen', ['res']],
@@ -5973,7 +5973,7 @@ function ventaForm(l) {
     concertador: [
       ['res', '🏠', 'Resumen', ['res']],
       ['cli', '➕', 'Clientes', ['nue', 'lis']],
-      ['ven', '💰', 'Ventas y pago', ['ven', 'mp']]
+      ['ven', '💰', 'Ventas y pago', ['ven', 'mp']], ['sor', '🎟️', 'Sorteo', ['sor']]
     ]
   };
 
@@ -18445,6 +18445,329 @@ function ofcCalcular(cat, sel) {
 
   window.f68 = { v: 68, revisa: revisa, carga: carga, marca: marca, chip: chip, fila: fila, thConc: thConc, tdConc: tdConc, filasMes: filasMes, sco: sco, mapa: function () { return M; }, lista: function () { return L; }, mias: function () { return MI; },
     refresca: function () { M.t = 0; L.t = 0; MI.t = 0; return carga(true).then(function () { cargaLista(true); cargaMias(true); }); } };
+})();
+  /* 70 · Sorteo mensual (concertadores y/o cerradores)
+   Va al final del script de index.html: después del último bloque y antes de que cierre el script.
+   Necesita el SQL 70 en Supabase.
+   · Admin: pestaña «🎟️ Sorteo» con dos casillas («Mostrar a concertadores» / «Mostrar a cerradores») y su premio,
+     el mes y el grupo, y los botones «Cerrar tickets», «🎲 Sortear» y «Repetir sorteo» (con motivo).
+   · Concertador / cerrador: ve la pestaña SOLO si el admin marcó su casilla. Ve sus tickets, los de todos,
+     el resultado (con la animación la primera vez) y el historial.
+   · El azar lo pone la base de datos, nunca el navegador. Gana el TERCER ticket que sale. */
+(function () {
+  var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  var ST = { grupo: 'concertador', per: null, d: null, busy: false, anim: false };
+
+  function $(i) { return document.getElementById(i); }
+  function h(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function aviso(t, mal) { if (typeof window.toast === 'function') window.toast(t, mal); else alert(t); }
+  function error(x) {
+    var t = String(x && ((x.code || '') + ' ' + (x.message || '')) || '');
+    if (/PGRST202|PGRST205|42883|42P01/.test(t)) return 'Falta ejecutar el SQL 70 (sorteo) en Supabase';
+    return (x && x.message) || 'No se pudo completar';
+  }
+  function limaHoy() { var d = new Date(Date.now() - 5 * 3600000); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 }; }
+  function perStr(y, m) { return y + '-' + (m < 10 ? '0' : '') + m + '-01'; }
+  function mesDe(per) { var p = String(per || '').split('-'); return (MESES[parseInt(p[1], 10) - 1] || '') + ' ' + p[0]; }
+  function enLima(iso, op) { try { return new Date(iso).toLocaleString('es-PE', Object.assign({ timeZone: 'America/Lima' }, op)); } catch (e) { return ''; } }
+  function fechaHora(iso) { return enLima(iso, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+  function soles(n) { return 'S/ ' + Number(n || 0).toFixed(2).replace(/\.00$/, ''); }
+  function grupoTxt(g, plural) { return g === 'cerrador' ? (plural ? 'cerradores' : 'cerrador') : (plural ? 'concertadores' : 'concertador'); }
+  function ticketDe(g) { return g === 'cerrador' ? 'cada venta del mes en la MATRIZ (sin contar las anuladas)' : 'cada cliente que registras en el mes'; }
+  function clave(d) { return 's70v:' + d.grupo + ':' + d.periodo + ':' + (d.sorteado_at || ''); }
+  function visto(d) { try { return localStorage.getItem(clave(d)) === '1'; } catch (e) { return true; } }
+  function marcaVisto(d) { try { localStorage.setItem(clave(d), '1'); } catch (e) { } }
+
+  var css = document.createElement('style');
+  css.textContent = [
+    '.s70-cab{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:16px;border-radius:14px;margin:0 0 12px;background:color-mix(in srgb,var(--acc,#2563eb) 12%,transparent);border:1px solid color-mix(in srgb,var(--acc,#2563eb) 30%,transparent)}',
+    '.s70-cab>div{display:flex;flex-direction:column}.s70-cab b{font-size:2em;line-height:1.1}',
+    '.s70-mio{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:0 0 12px;padding:12px 14px;border-radius:12px;border:1px solid color-mix(in srgb,currentColor 18%,transparent)}',
+    '.s70-mio b{font-size:1.8em}.s70-mio small{flex-basis:100%;opacity:.75}',
+    '.s70-nota{margin:0 0 12px}',
+    '.s70-res{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:0 0 10px;width:100%}',
+    '.s70-tk{display:flex;flex-direction:column;align-items:center;gap:2px;padding:14px 10px;border-radius:12px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);text-align:center;transition:transform .3s,opacity .3s}',
+    '.s70-tk b{font-size:1.8em}.s70-tk em{font-style:normal;font-weight:700;opacity:.7}',
+    '.s70-tk.gana{border:2px solid var(--warn,#d97706);background:color-mix(in srgb,var(--warn,#d97706) 14%,transparent);transform:scale(1.04)}.s70-tk.gana em{opacity:1}',
+    '.s70-tk.oculto{opacity:.4}',
+    '.s70-show{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0}.s70-show>b{font-size:2em}',
+    '.s70-acc{margin:0 0 14px}.s70-acc .meta{margin-top:6px}',
+    '.s70-cfgf{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;margin:6px 0}',
+    '.s70-sw{display:flex;gap:8px;align-items:center;font-weight:700;cursor:pointer}.s70-sw input{width:18px;height:18px}',
+    '.s70-pr{display:flex;gap:6px;align-items:center}.s70-pr input{max-width:90px;margin:0}',
+    '.s70-yo td{font-weight:800}.s70-h{margin:0;padding-left:18px}.s70-h li{margin:4px 0}',
+    /* ¡FELICITACIONES! flotando, sin fondo, encima de todo y sin bloquear clics */
+    '#s70-fiesta{position:fixed;inset:0;z-index:100000;pointer-events:none;display:flex;align-items:center;justify-content:center}',
+    '#s70-fiesta canvas{position:absolute;inset:0}',
+    '.s70-fw{position:relative;transition:opacity .9s}#s70-fiesta.fin .s70-fw{opacity:0}',
+    '.s70-felic{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding:0 16px;animation:s70-entra .8s cubic-bezier(.2,1.6,.4,1) both,s70-flota 2.6s ease-in-out .8s infinite}',
+    /* letra de fiesta: redondeada y gruesa; cada letra de un color, con borde blanco, saltando como una ola */
+    ".s70-felic b,.s70-felic span{font-family:'Lilita One','Arial Rounded MT Bold','Trebuchet MS',system-ui,sans-serif;font-weight:400}",
+    '.s70-felic b{font-size:min(130px,calc((100vw - 24px) / 9.6));line-height:1.1;white-space:nowrap;letter-spacing:.02em;filter:drop-shadow(0 5px 6px rgba(0,0,0,.28))}',
+    '.s70-felic b i{display:inline-block;font-style:normal;-webkit-text-stroke:3px #fff;paint-order:stroke fill;animation:s70-ola 1.3s ease-in-out infinite}',
+    '.s70-felic span{font-size:clamp(20px,5vw,38px);color:#1f2937;letter-spacing:.02em;text-shadow:0 0 3px #fff,0 0 8px #fff,0 0 14px #fff}',
+    '@keyframes s70-entra{0%{transform:scale(.2) rotate(-8deg);opacity:0}100%{transform:scale(1) rotate(0);opacity:1}}',
+    '@keyframes s70-flota{0%,100%{transform:translateY(0) rotate(-1.5deg)}50%{transform:translateY(-18px) rotate(1.5deg)}}',
+    '@keyframes s70-ola{0%,100%{transform:translateY(0)}50%{transform:translateY(-14%)}}',
+    '@media (prefers-reduced-motion:reduce){.s70-felic,.s70-felic b i{animation:none}}'
+  ].join('');
+  document.head.appendChild(css);
+
+  /* ---------------------------------------------------------------- datos */
+  async function cargar() {
+    var host = $('s70'); if (!host || ST.busy || ST.anim) return;
+    if (!ST.per) { var t = limaHoy(); ST.per = perStr(t.y, t.m); }
+    ST.busy = true;
+    var r = await sb.rpc('sorteo_estado', { p_periodo: ST.per, p_grupo: ST.grupo });
+    ST.busy = false;
+    if (r.error) { host.innerHTML = '<div class="d15-vacio">' + h(error(r.error)) + '</div>'; return; }
+    ST.d = r.data;
+    if (ST.d.rol !== 'admin' && ST.d.estado === 'SORTEADO' && !visto(ST.d)) return animar(ST.d, true);   // la primera vez, con suspenso
+    pinta();
+  }
+
+  /* ---------------------------------------------------------------- pantalla */
+  function pinta() {
+    var host = $('s70'), d = ST.d; if (!host || !d) return;
+    var adm = d.rol === 'admin', g = d.grupo, mes = mesDe(d.periodo), x = '';
+    var fin = new Date(new Date(d.fin_mes).getTime() - 60000);
+    if (adm) x += cfgHtml(d) + selHtml(d);
+    x += '<div class="s70-cab"><div><small>Sorteo de ' + h(mes) + (adm ? ' · ' + grupoTxt(g, true) : '') + '</small><b>' + soles(d.premio) + '</b>' +
+      '<small>para un ' + grupoTxt(g) + '</small></div>' + chip(d) + '</div>';
+    if (d.rol === 'concertador' || d.rol === 'cerrador') {
+      var pct = d.total ? Math.round(d.mis * 1000 / d.total) / 10 : 0;
+      x += '<div class="s70-mio"><b>' + d.mis + '</b><span>' + (d.mis === 1 ? 'ticket tuyo' : 'tickets tuyos') + ' de ' + d.total +
+        (d.total ? ' · ' + pct + ' % de chance' : '') + '</span>' +
+        ((d.mis_nums || []).length ? '<small>Tus números: ' + d.mis_nums.map(function (n) { return '#' + n; }).join(', ') + '</small>' : '') + '</div>';
+    }
+    if (!d.cerrado) x += '<div class="meta s70-nota">Cada ticket es ' + ticketDe(g) + '. Los tickets se cierran el <b>' +
+      enLima(fin, { day: '2-digit', month: '2-digit' }) + ' a las 23:59</b> (hora Perú). Después se sacan 3 tickets al azar y <b>gana el tercero</b>.</div>';
+    else if (d.estado === 'CERRADO') x += '<div class="meta s70-nota">Tickets cerrados el ' + fechaHora(d.cerrado_at) + (d.cerrado_por ? ' por ' + h(d.cerrado_por) : '') +
+      '. Ya no cambian. Falta el sorteo: se sacan 3 tickets al azar y gana el tercero.</div>';
+    if (d.estado === 'SORTEADO') x += resultadoHtml(d);
+    if (adm) x += accionesHtml(d);
+    x += tablaHtml(d) + historialHtml(d) + anterioresHtml(d);
+    host.innerHTML = x;
+  }
+  function chip(d) {
+    if (d.estado === 'SORTEADO') return '<span class="badge b-ok">🏆 Sorteado</span>';
+    if (d.estado === 'CERRADO') return '<span class="badge b-warn">🔒 Tickets cerrados</span>';
+    return '<span class="badge b-ok">Abierto · contando tickets</span>';
+  }
+  function resultadoHtml(d) {
+    var s = d.sacados || [], n = s.length;
+    return '<div class="d15-sec"><h3>Resultado</h3><div class="s70-res">' + s.map(function (t, i) {
+      var gana = i === n - 1;
+      return '<div class="s70-tk' + (gana ? ' gana' : '') + '"><small>' + (i + 1) + '.º ticket</small><b>#' + h(t.num) + '</b><span>' + h(t.nombre) + '</span><em>' +
+        (gana ? '🏆 ¡Gana!' : 'Casi… no gana') + '</em></div>';
+    }).join('') + '</div><div class="meta">Sorteado el ' + fechaHora(d.sorteado_at) + (d.sorteado_por ? ' por ' + h(d.sorteado_por) : '') + ' entre ' + d.total +
+      ' tickets. <button type="button" class="sec" data-a="ver" style="margin-left:6px">▶ Ver el sorteo otra vez</button></div></div>';
+  }
+  function tablaHtml(d) {
+    var g = d.grupo, lis = d.por_persona || [];
+    if (!lis.length) return '<div class="d15-sec"><h3>Tickets por ' + grupoTxt(g) + '</h3><div class="d15-vacio">Todavía no hay tickets este mes.</div></div>';
+    return '<div class="d15-sec"><h3>Tickets por ' + grupoTxt(g) + '</h3><table class="d15-tbl"><thead><tr><th>' + (g === 'cerrador' ? 'Cerrador' : 'Concertador') +
+      '</th><th>Tickets</th><th>Chance</th></tr></thead><tbody>' + lis.map(function (p) {
+        var pct = d.total ? Math.round(p.tickets * 1000 / d.total) / 10 : 0;
+        return '<tr' + (p.id === d.yo ? ' class="s70-yo"' : '') + '><td>' + h(p.nombre) + (p.id === d.yo ? ' (tú)' : '') + '</td><td>' + p.tickets + '</td><td>' + pct + ' %</td></tr>';
+      }).join('') + '</tbody></table><div class="meta" style="margin-top:6px">Total: ' + d.total + ' tickets.' +
+      (d.cerrado ? '' : ' Se actualiza cada vez que abres esta pestaña.') + '</div></div>';
+  }
+  function historialHtml(d) {
+    var lis = d.historial || []; if (!lis.length) return '';
+    return '<div class="d15-sec"><h3>Lo que pasó en este sorteo</h3><ul class="s70-h">' + lis.map(function (x) {
+      var t = fechaHora(x.at) + ' · ' + h(x.autor || 'Admin') + ' ';
+      if (x.accion === 'CERRADO') t += 'cerró los tickets (' + h(x.detalle && x.detalle.total) + ')' + (x.detalle && x.detalle.anticipado ? ', antes de que terminara el mes' : '');
+      else if (x.accion === 'SORTEADO') t += 'hizo el sorteo: ganó <b>' + h(x.detalle && x.detalle.ganador) + '</b>';
+      else if (x.accion === 'REPETIDO') t += '<b>repitió el sorteo</b> (antes había ganado ' + h(x.detalle && x.detalle.ganador_anterior) + '). Motivo: «' + h(x.motivo) + '»';
+      return '<li>' + t + '</li>';
+    }).join('') + '</ul></div>';
+  }
+  function anterioresHtml(d) {
+    var lis = d.anteriores || []; if (!lis.length) return '';
+    return '<div class="d15-sec"><h3>Ganadores anteriores</h3><table class="d15-tbl"><tbody>' + lis.map(function (x) {
+      return '<tr><td>' + h(mesDe(x.periodo)) + '</td><td>🏆 ' + h(x.ganador) + ' (#' + h(x.num) + ')</td><td>' + soles(x.premio) + '</td><td>' + h(x.total) + ' tickets</td></tr>';
+    }).join('') + '</tbody></table></div>';
+  }
+
+  /* ---------------------------------------------------------------- solo admin */
+  function cfgHtml(d) {
+    var c = d.config || {};
+    return '<div class="d15-sec s70-cfg"><h3>¿Quién ve el sorteo?</h3>' + ['concertador', 'cerrador'].map(function (g) {
+      var k = c[g] || { activo: false, premio: 150 };
+      return '<div class="s70-cfgf"><label class="s70-sw"><input type="checkbox" data-c="act" data-g="' + g + '"' + (k.activo ? ' checked' : '') + '> Mostrar a ' + grupoTxt(g, true) + '</label>' +
+        '<label class="s70-pr">Premio S/ <input type="number" min="0" step="1" data-c="pre" data-g="' + g + '" value="' + h(k.premio) + '"></label></div>';
+    }).join('') + '<div class="meta">Si la casilla no está marcada, ese grupo no ve la pestaña. Quien ya tiene el CRM abierto la verá al recargar la página. ' +
+      'Cada grupo tiene su propio sorteo y su propio premio.</div></div>';
+  }
+  function selHtml(d) {
+    var t = limaHoy(), y = t.y, m = t.m, ops = '', i, p;
+    for (i = 0; i < 12; i++) { p = perStr(y, m); ops += '<option value="' + p + '"' + (p === d.periodo ? ' selected' : '') + '>' + mesDe(p) + '</option>'; m--; if (!m) { m = 12; y--; } }
+    return '<div class="d15-form" style="margin-bottom:12px"><div><label>Grupo</label><select data-s="grupo">' +
+      '<option value="concertador"' + (d.grupo === 'concertador' ? ' selected' : '') + '>Concertadores</option>' +
+      '<option value="cerrador"' + (d.grupo === 'cerrador' ? ' selected' : '') + '>Cerradores</option></select></div>' +
+      '<div><label>Mes</label><select data-s="per">' + ops + '</select></div></div>';
+  }
+  function accionesHtml(d) {
+    var antes = new Date(d.ahora) < new Date(d.fin_mes), x = '<div class="s70-acc">';
+    if (d.estado === 'ABIERTO') x += '<button type="button" data-a="cerrar">🔒 Cerrar los tickets de ' + h(mesDe(d.periodo)) + '</button>' +
+      (antes ? '<div class="meta">⚠ El mes todavía no termina: si cierras ahora, lo que entre después ya no cuenta.</div>' : '<div class="meta">Congela los ' + d.total + ' tickets del mes. Después podrás sortear.</div>');
+    else if (d.estado === 'CERRADO') x += '<button type="button" data-a="sortear">🎲 Sortear ahora</button><div class="meta">Se sacan 3 tickets al azar y gana el tercero. El premio pasa solo a su pago.</div>';
+    else x += '<button type="button" class="sec" data-a="repetir">↺ Repetir sorteo</button><div class="meta">Solo si hubo un error: tendrás que escribir el motivo y todos lo verán. Se le quita el premio al ganador actual.</div>';
+    return x + '</div>';
+  }
+
+  /* ---------------------------------------------------------------- acciones */
+  async function accion(ev) {
+    var b = ev.target.closest('button[data-a]'); if (!b || ST.anim || !ST.d) return;
+    var a = b.getAttribute('data-a'), d = ST.d, mes = mesDe(d.periodo), r;
+    if (a === 'ver') return animar(d, false);
+    if (a === 'cerrar') {
+      var antes = new Date(d.ahora) < new Date(d.fin_mes);
+      if (!confirm('¿Cerrar los tickets de ' + mes + ' (' + grupoTxt(d.grupo, true) + ')?\n\nEntran ' + d.total + ' tickets y el premio será de ' + soles(d.premio) + '.' +
+        (antes ? '\n\nOJO: el mes todavía no termina. Lo que entre después ya no contará.' : ''))) return;
+      b.disabled = true; r = await sb.rpc('sorteo_cerrar', { p_periodo: d.periodo, p_grupo: d.grupo, p_premio: null }); b.disabled = false;
+      if (r.error) return aviso(error(r.error), true);
+      ST.d = r.data; aviso('Tickets cerrados: ' + r.data.total); return pinta();
+    }
+    if (a === 'sortear') {
+      if (!confirm('¿Sortear ' + mes + ' entre ' + d.total + ' tickets?\n\nSe sacan 3 al azar y gana el tercero. El premio de ' + soles(d.premio) + ' pasa solo a su pago.')) return;
+      b.disabled = true; r = await sb.rpc('sorteo_sortear', { p_periodo: d.periodo, p_grupo: d.grupo }); b.disabled = false;
+      if (r.error) return aviso(error(r.error), true);
+      ST.d = r.data; return animar(r.data, false);
+    }
+    if (a === 'repetir') {
+      var mot = prompt('¿Por qué se repite el sorteo? Todos lo verán (al menos 10 letras).'); if (mot == null) return;
+      if (mot.trim().length < 10) return aviso('Escribe el motivo con al menos 10 letras', true);
+      if (!confirm('Se le quitará el premio a ' + (d.ganador_nombre || 'el ganador') + ' y el sorteo quedará listo para hacerse de nuevo.\n\n¿Seguir?')) return;
+      b.disabled = true; r = await sb.rpc('sorteo_repetir', { p_periodo: d.periodo, p_grupo: d.grupo, p_motivo: mot.trim() }); b.disabled = false;
+      if (r.error) return aviso(error(r.error), true);
+      ST.d = r.data; aviso('Listo: ya puedes sortear de nuevo'); return pinta();
+    }
+  }
+  async function cambio(ev) {
+    var t = ev.target, s = t.getAttribute('data-s'), c = t.getAttribute('data-c');
+    if (s === 'grupo') { ST.grupo = t.value; return cargar(); }
+    if (s === 'per') { ST.per = t.value; return cargar(); }
+    if (!c) return;
+    var g = t.getAttribute('data-g');
+    var act = document.querySelector('#s70 [data-c="act"][data-g="' + g + '"]'), pre = document.querySelector('#s70 [data-c="pre"][data-g="' + g + '"]');
+    var monto = parseFloat(pre && pre.value);
+    if (isNaN(monto) || monto < 0) { aviso('Escribe un premio válido', true); return cargar(); }
+    var r = await sb.rpc('sorteo_config_guardar', { p_grupo: g, p_activo: !!(act && act.checked), p_premio: monto });
+    if (r.error) { aviso(error(r.error), true); return cargar(); }
+    aviso(c === 'act' ? (act.checked ? 'Ahora los ' + grupoTxt(g, true) + ' ven el sorteo (al recargar el CRM)' : 'El sorteo quedó oculto para los ' + grupoTxt(g, true)) : 'Premio guardado');
+    cargar();
+  }
+
+  /* ---------------------------------------------------------------- el momento del sorteo */
+  function animar(d, marcar) {
+    var host = $('s70'); if (!host || !d) return;
+    var s = d.sacados || [], n = s.length, i = 0;
+    ST.anim = true;
+    host.innerHTML = '<div class="s70-show"><small>Sorteo de ' + h(mesDe(d.periodo)) + ' · ' + grupoTxt(d.grupo, true) + '</small><b>' + soles(d.premio) + '</b>' +
+      '<div class="s70-res">' + s.map(function (t, k) {
+        return '<div class="s70-tk oculto" id="s70-t' + k + '"><small>' + (k + 1) + '.º ticket</small><b>?</b><span>…</span><em>&nbsp;</em></div>';
+      }).join('') + '</div><div class="meta">' + d.total + ' tickets en juego · gana el ' + (n === 3 ? 'tercero' : 'último') + ' que sale</div></div>';
+    function paso() {
+      if (i >= n) { ST.anim = false; if (marcar) marcaVisto(d); setTimeout(function () { if (!ST.anim) pinta(); }, 2500); return; }
+      var t = s[i], el = $('s70-t' + i), gana = i === n - 1;
+      if (el) {
+        el.classList.remove('oculto'); if (gana) el.classList.add('gana');
+        el.innerHTML = '<small>' + (i + 1) + '.º ticket</small><b>#' + h(t.num) + '</b><span>' + h(t.nombre) + '</span><em>' + (gana ? '🏆 ¡Gana!' : 'Casi… no gana') + '</em>';
+      }
+      if (gana) celebrar(t, t.persona_id && t.persona_id === d.yo);
+      i++; setTimeout(paso, gana ? 0 : 1800);
+    }
+    setTimeout(paso, 1200);
+  }
+
+  /* ---------------------------------------------------------------- ¡FELICITACIONES! y confeti que revienta como bombardas */
+  function celebrar(t, esYo) {
+    var viejo = $('s70-fiesta'); if (viejo) viejo.remove();
+    var quieto = false; try { quieto = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { }
+    var capa = document.createElement('div'); capa.id = 's70-fiesta'; capa.setAttribute('aria-live', 'polite');
+    var PAL = ['#ff2d55', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#af52de'];
+    var letras = '¡FELICITACIONES!'.split('').map(function (ch, k) {
+      return '<i style="color:' + PAL[k % PAL.length] + ';animation-delay:' + (k * 0.07).toFixed(2) + 's">' + ch + '</i>';
+    }).join('');
+    capa.innerHTML = '<canvas></canvas><div class="s70-fw"><div class="s70-felic"><b aria-label="¡Felicitaciones!">' + letras + '</b><span>' +
+      h(esYo ? '¡Ganaste! Ticket #' + t.num : t.nombre + ' · ticket #' + t.num) + '</span></div></div>';
+    document.body.appendChild(capa);
+    var cv = capa.querySelector('canvas'), cx = cv.getContext ? cv.getContext('2d') : null;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2), W = 0, H = 0;
+    function medir() {
+      W = window.innerWidth; H = window.innerHeight;
+      cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+      if (cx) cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    medir(); window.addEventListener('resize', medir);
+    var COL = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#af52de', '#ff2d55', '#ffffff'];
+    var P = [], t0 = performance.now(), DUR = quieto ? 2500 : 5200, cerrado = false;
+    function quitar() { if (cerrado) return; cerrado = true; window.removeEventListener('resize', medir); capa.remove(); }
+    function bomba(x, y, cant) {                     // un estallido: todo sale desde un punto, en círculo, y luego cae
+      var base = COL[Math.floor(Math.random() * COL.length)];
+      for (var k = 0; k < cant; k++) {
+        var a = Math.random() * Math.PI * 2, v = 3 + Math.random() * 8.5;
+        P.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 1.5, g: 0.16 + Math.random() * 0.06,
+          c: Math.random() < 0.55 ? COL[Math.floor(Math.random() * COL.length)] : base,
+          w: 5 + Math.random() * 6, al: 3 + Math.random() * 4, r: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.4,
+          chispa: Math.random() < 0.3, vida: 0, max: 80 + Math.random() * 70 });
+      }
+    }
+    var tandas = quieto ? [[0, 40]] : [[0, 90], [260, 80], [520, 80], [900, 90], [1300, 70], [1750, 90], [2250, 80], [2800, 70]];
+    tandas.forEach(function (b) {
+      setTimeout(function () { if (!cerrado) bomba(W * (0.15 + Math.random() * 0.7), H * (0.18 + Math.random() * 0.35), b[1]); }, b[0]);
+    });
+    function cuadro(ahora) {
+      if (cerrado) return;
+      if (cx) {
+        cx.clearRect(0, 0, W, H);
+        for (var k = P.length - 1; k >= 0; k--) {
+          var p = P[k]; p.vida++; p.vx *= 0.985; p.vy = p.vy * 0.985 + p.g; p.x += p.vx; p.y += p.vy; p.r += p.vr;
+          var op = 1 - p.vida / p.max; if (op <= 0 || p.y > H + 40) { P.splice(k, 1); continue; }
+          cx.globalAlpha = op; cx.fillStyle = p.c;
+          if (p.chispa) { cx.beginPath(); cx.arc(p.x, p.y, 2.2, 0, 6.283); cx.fill(); }
+          else { cx.save(); cx.translate(p.x, p.y); cx.rotate(p.r); cx.fillRect(-p.w / 2, -p.al / 2, p.w, p.al * Math.abs(Math.cos(p.r * 1.7)) + 1); cx.restore(); }
+        }
+        cx.globalAlpha = 1;
+      }
+      if (ahora - t0 < DUR || P.length) requestAnimationFrame(cuadro); else quitar();
+    }
+    requestAnimationFrame(cuadro);
+    setTimeout(function () { capa.classList.add('fin'); }, DUR - 900);       // la palabra se desvanece al final
+    setTimeout(quitar, DUR + 4000);                                          // por si la pestaña quedó en segundo plano
+  }
+
+  /* ---------------------------------------------------------------- montaje */
+  // La letra de la celebración (gratuita, de Google Fonts) se pide solo a quien puede ver el sorteo.
+  // Si no carga, se usa una redondeada del sistema.
+  function fuente() {
+    if ($('s70-fuente')) return;
+    var l = document.createElement('link'); l.id = 's70-fuente'; l.rel = 'stylesheet';
+    l.href = 'https://fonts.googleapis.com/css2?family=Lilita+One&display=swap';
+    l.onload = function () { try { document.fonts.load('40px "Lilita One"', '¡FELICITACIONES!'); } catch (e) { } };
+    document.head.appendChild(l);
+  }
+  function montar() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-sor')) return;
+    fuente();
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-sor'; s.hidden = true;
+    s.innerHTML = '<div id="s70"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'sor'); bt.innerHTML = '<span>🎟️</span>Sorteo';
+    var man = $('btnManual17'); if (man && man.parentNode === bar) bar.insertBefore(bt, man); else bar.appendChild(bt);
+    bar.addEventListener('click', function (ev) { var b = ev.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'sor') { ST.per = null; cargar(); } });
+    s.addEventListener('click', accion);
+    s.addEventListener('change', cambio);
+  }
+  async function quizas(rol) {
+    if (rol === 'admin') return montar();
+    try { var r = await sb.rpc('sorteo_visible'); if (!r.error && r.data && r.data.visible) montar(); } catch (e) { }   // si el admin no lo marcó, no se muestra
+  }
+  [['concertadorView', 'concertador'], ['cerradorView', 'cerrador'], ['adminView', 'admin']].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () { var r = o.apply(this, arguments); try { quizas(p[1]); } catch (e) { console.error(e); } return r; };
+  });
 })();
  </script>
 </body>
