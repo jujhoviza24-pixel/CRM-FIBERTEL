@@ -19249,6 +19249,523 @@ function ofcCalcular(cat, sel) {
     window[p[0]] = function () { var r = o.apply(this, arguments); try { p[1](); } catch (e) { console.error(e); } return r; };
   });
 })();
+  /* 72 · Asistencia (D1) · botón para marcar en la barra de arriba (concertador, cerrador, back y supervisor),
+   «📅 Mi mes» y la pestaña «🕘 Asistencia» del admin (Hoy · Mes · Horarios · Qué cuenta como trabajo).
+   Va al final del script de index.html, después del bloque 71. Necesita el SQL 72 en Supabase.
+   · La hora de cada marca la pone el servidor.
+   · El TRABAJO lo cuenta la base de datos cuando se GUARDA una acción (cliente, estado, venta, tarea…).
+     Tener el CRM abierto o hacer clics no cuenta. Este bloque solo muestra lo que la base anotó. */
+(function () {
+  var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  var DIAS = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
+  var ROLES = [['concertador', 'Concertadores'], ['cerrador', 'Cerradores'], ['back', 'Backs'], ['supervisor', 'Supervisores']];
+  var EST = {
+    EN_TURNO: ['b-ok', '🟢 En turno'], EN_REFRIGERIO: ['b-warn', '🍽️ Refrigerio'], TRABAJO: ['b-info', '✅ Trabajó'],
+    SIN_SALIDA: ['b-warn', '⚠️ Sin salida'], SIN_MARCAR: ['b-bad', '⚠️ Trabajó sin marcar'], FALTA: ['b-bad', '❌ Falta'],
+    NO_MARCA: ['b-bad', '⏰ No marca'], PENDIENTE: ['', 'Aún no empieza'], DESCANSO: ['', 'Descanso'], SIN_HORARIO: ['', 'Sin horario']
+  };
+  var CH = null, AD = null, MO = null;
+
+  function $(i) { return document.getElementById(i); }
+  function h(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function aviso(t, mal) { if (typeof window.toast === 'function') window.toast(t, mal); else alert(t); }
+  function error(x) {
+    var t = String(x && ((x.code || '') + ' ' + (x.message || '')) || '');
+    if (/PGRST202|PGRST205|42883|42P01/.test(t)) return 'Falta ejecutar el SQL 72 (asistencia) en Supabase';
+    return (x && x.message) || 'No se pudo completar';
+  }
+  function N(n) { return Number(n || 0); }
+  function lima(ms) { var d = new Date((ms == null ? Date.now() : ms) - 5 * 3600000); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate(), iso: d.toISOString().slice(0, 10) }; }
+  function perStr(y, m) { return y + '-' + (m < 10 ? '0' : '') + m + '-01'; }
+  function cap(s) { s = String(s || ''); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function mesDe(per) { var p = String(per || '').split('-'); return (MESES[parseInt(p[1], 10) - 1] || '') + ' ' + p[0]; }
+  function hm(iso) { if (!iso) return '—'; var d = new Date(new Date(iso).getTime() - 5 * 3600000); return d.getUTCHours() + ':' + ('0' + d.getUTCMinutes()).slice(-2); }
+  function dur(min) { min = Math.max(0, Math.round(N(min))); var hh = Math.floor(min / 60), mm = min % 60; return hh ? hh + ' h ' + ('0' + mm).slice(-2) : mm + ' min'; }
+  function diaCorto(f) { var p = String(f).split('-'), d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])); return DIAS[(d.getUTCDay() + 6) % 7] + ' ' + p[2] + '/' + p[1]; }
+  function hace(iso, ahora) { if (!iso) return '—'; var m = Math.round((Date.parse(ahora || new Date().toISOString()) - Date.parse(iso)) / 60000); return m < 1 ? 'ahora' : m < 60 ? 'hace ' + m + ' min' : 'hace ' + dur(m); }
+  function diasTxt(ds) {
+    ds = (ds || []).map(Number).sort(); if (!ds.length) return '—';
+    var k = ds.join(','); if (k === '1,2,3,4,5') return 'lun a vie'; if (k === '1,2,3,4,5,6') return 'lun a sáb'; if (k === '1,2,3,4,5,6,7') return 'todos los días';
+    return ds.map(function (d) { return DIAS[d - 1]; }).join(', ');
+  }
+  function horTxt(x) { return x ? x.entrada + '–' + x.salida + ' · ' + diasTxt(x.dias) : 'sin horario'; }
+  function equipo(ua) {
+    ua = String(ua || ''); if (!ua) return '';
+    var so = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iPhone' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'otro';
+    var nav = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'navegador';
+    return nav + ' · ' + so;
+  }
+  function badge(e) { var x = EST[e] || ['', e]; return x[0] ? '<span class="badge ' + x[0] + '">' + x[1] + '</span>' : '<span class="meta">' + x[1] + '</span>'; }
+  function selMes(per, k) {
+    var p = String(per).split('-'), y = +p[0], m = +p[1], l = lima(), ys = '', i;
+    for (i = l.y; i >= l.y - 2; i--) ys += '<option' + (i === y ? ' selected' : '') + '>' + i + '</option>';
+    return '<div class="d15-form a72-sel"><div><label>Año</label><select data-a="' + k + 'y">' + ys + '</select></div><div><label>Mes</label><select data-a="' + k + 'm">' +
+      MESES.map(function (n, j) { return '<option value="' + (j + 1) + '"' + (j + 1 === m ? ' selected' : '') + '>' + cap(n) + '</option>'; }).join('') + '</select></div></div>';
+  }
+  function cambioMes(per, sel) { var p = String(per).split('-'), y = +p[0], m = +p[1], v = parseInt(sel.value, 10); if (/y$/.test(sel.getAttribute('data-a'))) y = v; else m = v; return perStr(y, m); }
+
+  var css = document.createElement('style');
+  css.textContent = [
+    /* botón de la barra */
+    '#a72-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:99px;font-weight:700;font-size:.86em;white-space:nowrap;box-shadow:none;flex:none}',
+    '#a72-chip.go{background:var(--acc);color:var(--on-acc)}#a72-chip.on{background:var(--ok-bg);color:var(--ok);border:1px solid color-mix(in srgb,var(--ok) 35%,transparent)}',
+    '#a72-chip.ref{background:var(--warn-bg);color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent)}',
+    '#a72-chip.fin{background:var(--acc2);color:var(--acc);border:1px solid var(--line)}',
+    '#a72-chip.ojo{animation:a72-pulso 1.6s ease-in-out infinite}@keyframes a72-pulso{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--bad) 55%,transparent)}50%{box-shadow:0 0 0 7px transparent}}',
+    '@media(max-width:560px){#a72-chip .t{display:none}#a72-chip{padding:7px 10px}}',
+    '#a72-pan{position:fixed;top:62px;right:12px;z-index:9400;width:min(360px,calc(100vw - 24px));background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:18px;box-shadow:var(--sh-lg,0 20px 60px rgba(0,0,0,.25));padding:16px}',
+    '#a72-pan h3{margin:0 0 2px;font-size:1.02em}#a72-pan .meta{margin:0}',
+    '.a72-r{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:.9em}.a72-r:last-of-type{border-bottom:0}.a72-r span{color:var(--mut)}',
+    '.a72-bt{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 8px}.a72-bt button{width:100%}.a72-bt button.solo{grid-column:1/-1}',
+    '.a72-nota{font-size:.78em;color:var(--mut);margin:8px 0 0;line-height:1.35}',
+    /* línea del día: cuartos de hora */
+    '.a72-ln{display:flex;gap:1px;height:16px;margin:8px 0 2px}.a72-ln i{flex:1;border-radius:2px;background:var(--line)}',
+    '.a72-ln i.w{background:var(--ok)}.a72-ln i.p{background:color-mix(in srgb,var(--bad) 30%,var(--card))}.a72-ln i.r{background:color-mix(in srgb,var(--warn) 45%,var(--card))}',
+    '.a72-ln i.x{background:var(--info)}',
+    '.a72-hr{position:relative;height:13px;font-size:.66em;color:var(--mut)}.a72-hr span{position:absolute;transform:translateX(-50%)}',
+    '.a72-ley{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:.74em;color:var(--mut);margin:4px 0 0}.a72-ley b{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}',
+    /* días y resúmenes */
+    '.a72-dia{padding:12px 4px;border-bottom:1px solid var(--line)}.a72-dia:last-child{border-bottom:0}',
+    '.a72-dh{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;font-size:.88em}.a72-dh b.f{min-width:78px;text-transform:capitalize}',
+    '.a72-dh span{color:var(--mut)}.a72-dh span b{color:var(--ink);font-variant-numeric:tabular-nums}.a72-dh .mal b{color:var(--bad)}',
+    '.a72-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:0 0 14px}',
+    '.a72-k{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:11px 13px;box-shadow:var(--sh)}',
+    '.a72-k small{display:block;color:var(--mut);font-size:.75em;font-weight:700}.a72-k b{display:block;font-size:1.35em;letter-spacing:-.02em;font-variant-numeric:tabular-nums}',
+    '.a72-k.k-mal b{color:var(--bad)}.a72-k.k-bien b{color:var(--ok)}.a72-k.k-ojo b{color:var(--warn)}',
+    '.a72-bar{height:7px;border-radius:99px;background:var(--line);overflow:hidden;min-width:60px}.a72-bar i{display:block;height:100%;background:var(--ok)}',
+    '.a72-bar.bajo i{background:var(--bad)}.a72-bar.medio i{background:var(--warn)}',
+    '.a72-sub{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}',
+    '#a72 .d15-sec,#a72-ov .d15-sec{margin:0 0 14px}.a72-sel{max-width:420px}',
+    '.a72-f{display:grid;grid-template-columns:minmax(120px,1.4fr) 112px 66px 64px minmax(120px,1.3fr) 60px 92px 64px;gap:8px;align-items:center;padding:10px 6px;border-bottom:1px solid var(--line);font-size:.88em}',
+    '.a72-f.h{font-size:.68em;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);border-bottom:2px solid var(--line2);padding-top:0}',
+    '.a72-f .p{min-width:0}.a72-f .p b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.a72-f .p small{color:var(--mut);font-size:.8em}',
+    '.a72-f .n{text-align:right;font-variant-numeric:tabular-nums}.a72-f .tr{display:flex;align-items:center;gap:8px}.a72-f .tr small{white-space:nowrap;font-variant-numeric:tabular-nums}',
+    '.a72-f .mal{color:var(--bad);font-weight:700}.a72-f .ln{grid-column:1/-1;margin-top:-4px}',
+    '.a72-m{display:none}',
+    '.a72-hor{display:grid;grid-template-columns:minmax(120px,1fr) auto 92px 92px 92px 92px auto;gap:8px;align-items:end;padding:10px 0;border-bottom:1px solid var(--line)}',
+    '.a72-hor label{font-size:.72em;color:var(--mut);display:block}.a72-dd{display:flex;gap:3px;flex-wrap:wrap}',
+    '.a72-dd label{display:inline-flex;align-items:center;justify-content:center;min-width:34px;padding:6px 4px;border:1px solid var(--line2);border-radius:8px;cursor:pointer;font-size:.8em;color:var(--ink);text-transform:capitalize}',
+    '.a72-dd input{display:none}.a72-dd label.on{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}',
+    '.a72-hor .bb{display:flex;gap:6px}',
+    '.a72-mc{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-bottom:1px dashed var(--line2);font-size:.86em}',
+    '.a72-mc.anul>span{text-decoration:line-through;opacity:.6}.a72-mc small{color:var(--mut)}',
+    'button.a72-mini{padding:5px 10px;font-size:.8em}',
+    '.a72-det summary{cursor:pointer;font-size:.82em;color:var(--acc);font-weight:700;margin-top:6px}',
+    '.a72-ac{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line);font-size:.9em}',
+    '.a72-ac label{display:flex;gap:8px;align-items:center;cursor:pointer}.a72-ac input{width:18px;height:18px}',
+    '.a72-aviso{padding:12px 14px;border-radius:12px;margin:0 0 14px;background:var(--bad-bg);color:var(--bad);font-weight:600;font-size:.9em}',
+    '.a72-ok{padding:10px 14px;border-radius:12px;margin:0 0 14px;background:var(--ok-bg);color:var(--ok);font-size:.88em}',
+    /* ventana del mes */
+    '#a72-ov{position:fixed;inset:0;z-index:9450;background:rgba(15,31,42,.45);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px}',
+    '#a72-ov>.box{width:min(980px,100%);background:var(--bg);border-radius:20px;padding:16px;box-shadow:var(--sh-lg,0 20px 60px rgba(0,0,0,.3))}',
+    '#a72-ov .top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 10px}#a72-ov .top h3{margin:0}',
+    '@media(max-width:900px){.a72-f.h{display:none}.a72-f{grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;padding:12px 6px}',
+    '.a72-f>.c{display:none}.a72-f .e{grid-column:2;grid-row:1;text-align:right}.a72-m{display:block;grid-column:1/-1;font-size:.84em;color:var(--mut)}.a72-m b{color:var(--ink)}',
+    '.a72-f .a{grid-column:1/-1;order:3}.a72-m{order:1}.a72-f .ln{order:2}}',
+    '@media(max-width:760px){.a72-hor{grid-template-columns:1fr 1fr}.a72-hor>div:first-child,.a72-hor .a72-dd,.a72-hor .bb{grid-column:1/-1}',
+    '#a72-ov{padding:0}#a72-ov>.box{border-radius:0;min-height:100%}}'
+  ].join('');
+  document.head.appendChild(css);
+
+  /* ================================================================ piezas comunes */
+  function blk(iso) { var d = new Date(new Date(iso).getTime() - 5 * 3600000); return d.getUTCHours() * 4 + Math.floor(d.getUTCMinutes() / 15); }
+  function segDia(iso) { var d = new Date(new Date(iso).getTime() - 5 * 3600000); return d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds(); }
+  function linea(d, mini) {
+    var con = {}, lo = 28, hi = 87, b0 = null, b1 = null, ref = {}, i;
+    (d.bloques || []).forEach(function (x) { con[x[0]] = x[1]; lo = Math.min(lo, x[0]); hi = Math.max(hi, x[0]); });
+    if (d.entrada) {
+      b0 = blk(d.entrada); b1 = d.fin ? (lima(Date.parse(d.fin)).iso > d.fecha ? 95 : blk(d.fin)) : b0;
+      lo = Math.min(lo, b0); hi = Math.max(hi, b1);
+      (d.refrigerios || []).forEach(function (r) { for (i = Math.ceil(segDia(r[0]) / 900); i <= Math.floor(segDia(r[1]) / 900) - 1; i++) ref[i] = 1; });
+    }
+    if (d.horario && d.horario.entrada) { var he = parseInt(d.horario.entrada, 10) * 4, hs = parseInt(d.horario.salida, 10) * 4 + 3; lo = Math.min(lo, he); hi = Math.max(hi, Math.min(95, hs)); }
+    lo = Math.max(0, lo - lo % 4); hi = Math.min(95, hi + (3 - hi % 4));
+    var c = '';
+    for (i = lo; i <= hi; i++) {
+      var dentro = b0 != null && i >= b0 && i <= b1, k = '', t = (Math.floor(i / 4)) + ':' + ('0' + (i % 4) * 15).slice(-2);
+      if (con[i] && dentro) k = 'w'; else if (con[i]) k = 'x'; else if (dentro && ref[i]) k = 'r'; else if (dentro) k = 'p';
+      c += '<i class="' + k + '" title="' + t + (con[i] ? ' · ' + con[i] + ' acción(es)' : k === 'p' ? ' · sin trabajo guardado' : k === 'r' ? ' · refrigerio' : '') + '"></i>';
+    }
+    var hr = '';
+    if (!mini) for (i = lo; i <= hi + 1; i += 8) hr += '<span style="left:' + ((i - lo) / (hi - lo + 1) * 100) + '%">' + Math.floor(i / 4) + 'h</span>';
+    return '<div class="a72-ln">' + c + '</div>' + (mini ? '' : '<div class="a72-hr">' + hr + '</div>');
+  }
+  function leyenda() {
+    return '<div class="a72-ley"><span><b style="background:var(--ok)"></b>con trabajo guardado</span><span><b style="background:color-mix(in srgb,var(--bad) 30%,var(--card))"></b>en turno sin trabajo</span>' +
+      '<span><b style="background:color-mix(in srgb,var(--warn) 45%,var(--card))"></b>refrigerio</span><span><b style="background:var(--info)"></b>trabajo fuera del turno</span><span>cada cuadrito = 15 min</span></div>';
+  }
+  function pctBar(p) { if (p == null) return '<span class="meta">—</span>'; p = N(p); return '<div class="a72-bar' + (p < 50 ? ' bajo' : p < 75 ? ' medio' : '') + '" title="' + p + ' %"><i style="width:' + Math.min(100, p) + '%"></i></div>'; }
+  function diaHtml(d, admin) {
+    var x = '<div class="a72-dia" data-f="' + h(d.fecha) + '"><div class="a72-dh"><b class="f">' + h(diaCorto(d.fecha)) + '</b>' + badge(d.estado);
+    if (d.entrada) {
+      x += '<span' + (d.tarde ? ' class="mal"' : '') + '>Entrada <b>' + hm(d.entrada) + '</b>' + (d.tarde ? ' (+' + dur(d.tardanza_min) + ')' : '') + '</span>' +
+        '<span>Salida <b>' + (d.salida ? hm(d.salida) : d.salida_estimada ? '¿' + hm(d.fin) + '?' : '—') + '</b>' + (N(d.antes_min) > 0 ? ' (−' + d.antes_min + ' min)' : '') + '</span>' +
+        '<span>Turno <b>' + dur(d.turno_min) + '</b></span>' +
+        '<span>Trabajo guardado <b>' + dur(d.trabajo_min) + (d.pct != null ? ' · ' + d.pct + ' %' : '') + '</b></span>' +
+        '<span' + (N(d.mayor_pausa_min) >= 60 ? ' class="mal"' : '') + '>Pausa más larga <b>' + dur(d.mayor_pausa_min) + '</b></span>' +
+        (N(d.refrigerio_min) ? '<span' + (N(d.refrigerio_exceso) > 0 ? ' class="mal"' : '') + '>Refrigerio <b>' + dur(d.refrigerio_min) + '</b></span>' : '');
+    }
+    x += '<span>Acciones <b>' + N(d.acciones) + '</b>' + (d.entrada && N(d.fuera_turno) ? ' (' + d.fuera_turno + ' cuartos de hora fuera del turno)' : '') + '</span></div>';
+    if (d.entrada || N(d.acciones)) x += linea(d, false);
+    if (admin || (d.tipos || []).length) {
+      var mk = (d.marcas || []).map(function (m) {
+        var an = !!m.anulado_at;
+        return '<div class="a72-mc' + (an ? ' anul' : '') + '"><span><b>' + h(cap(m.tipo.toLowerCase().replace('vuelta', 'volvió'))) + '</b> ' + hm(m.at) +
+          (m.origen === 'ADMIN' ? ' <span class="badge b-warn">puesta por ' + h(m.autor || 'admin') + '</span>' : '') +
+          (admin && (m.ip || m.dispositivo) ? ' <small title="' + h(m.dispositivo || '') + '">· ' + h(equipo(m.dispositivo)) + (m.ip ? ' · IP ' + h(m.ip) : '') + '</small>' : '') +
+          (m.motivo ? ' <small>· ' + h(m.motivo) + '</small>' : '') + '</span>' +
+          (an ? '<small class="mal">Anulada: ' + h(m.anulado_motivo || '') + '</small>' : admin ? '<button type="button" class="sec a72-mini" data-a="anular" data-id="' + h(m.id) + '">Anular</button>' : '') + '</div>';
+      }).join('');
+      var tp = (d.tipos || []).map(function (t) { return '<div class="a72-mc"><span>' + h(t.etiqueta) + '</span><b>' + t.n + '</b></div>'; }).join('');
+      x += '<details class="a72-det"><summary>' + (admin ? 'Marcas y acciones' : 'Ver acciones guardadas') + '</summary>' + (admin ? '<h4>Marcas</h4>' + (mk || '<div class="meta">Sin marcas.</div>') : '') +
+        '<h4>Trabajo guardado</h4>' + (tp || '<div class="meta">Ninguna acción guardada.</div>') +
+        (admin ? '<h4>Agregar una marca</h4><div class="d15-form"><div><label>Marca</label><select class="a72-ct"><option value="ENTRADA">Entrada</option><option value="REFRIGERIO">Refrigerio</option>' +
+          '<option value="VUELTA">Volvió del refrigerio</option><option value="SALIDA">Salida</option></select></div><div><label>Hora</label><input class="a72-ch" type="time"></div>' +
+          '<div><label>Motivo</label><input class="a72-cm" data-minus maxlength="300" placeholder="Ej. se le cortó el internet" autocomplete="off"></div>' +
+          '<div><button type="button" class="sec" data-a="agregar" style="width:100%">Agregar</button></div></div>' : '') + '</details>';
+    }
+    return x + '</div>';
+  }
+  function resumenHtml(m) {
+    return '<div class="a72-kpis"><div class="a72-k"><small>Días trabajados</small><b>' + N(m.trabajados) + ' de ' + N(m.programados) + '</b></div>' +
+      '<div class="a72-k' + (N(m.faltas) ? ' k-mal' : ' k-bien') + '"><small>Faltas</small><b>' + N(m.faltas) + '</b></div>' +
+      '<div class="a72-k' + (N(m.tardanzas) ? ' k-ojo' : ' k-bien') + '"><small>Tardanzas</small><b>' + N(m.tardanzas) + (N(m.tardanza_min) ? ' · ' + dur(m.tardanza_min) : '') + '</b></div>' +
+      '<div class="a72-k"><small>Horas en turno</small><b>' + dur(m.turno_min) + '</b></div>' +
+      '<div class="a72-k' + (m.pct != null && m.pct < 50 ? ' k-mal' : m.pct != null && m.pct < 75 ? ' k-ojo' : ' k-bien') + '"><small>Trabajo guardado</small><b>' + dur(m.trabajo_min) + (m.pct != null ? ' · ' + m.pct + ' %' : '') + '</b></div>' +
+      '<div class="a72-k"><small>Acciones guardadas</small><b>' + N(m.acciones) + '</b></div></div>' +
+      (N(m.sin_salida) || N(m.sin_marcar) ? '<p class="meta" style="margin:-4px 0 12px">' + (N(m.sin_salida) ? '⚠️ ' + m.sin_salida + ' día(s) sin marcar salida. ' : '') +
+        (N(m.sin_marcar) ? '⚠️ ' + m.sin_marcar + ' día(s) con trabajo pero sin marcar entrada.' : '') + '</p>' : '');
+  }
+
+  /* ================================================================ ventana del mes (trabajador y admin) */
+  function abrirMes(pid, nombre) {
+    var l = lima(); MO = { pid: pid || null, nombre: nombre || '', per: perStr(l.y, l.m), d: null, seq: 0 };
+    var ov = $('a72-ov'); if (ov) ov.remove();
+    ov = document.createElement('div'); ov.id = 'a72-ov'; ov.innerHTML = '<div class="box" role="dialog" aria-modal="true"></div>'; document.body.appendChild(ov);
+    ov.addEventListener('click', function (e) { if (e.target === ov || e.target.closest('[data-a="cerrarmes"]')) cerrarMes(); else accionMes(e); });
+    ov.addEventListener('change', function (e) { var a = e.target.getAttribute('data-a'); if (a === 'oy' || a === 'om') { MO.per = cambioMes(MO.per, e.target); cargarMes(); } });
+    cargarMes();
+  }
+  function cerrarMes() { var ov = $('a72-ov'); if (ov) ov.remove(); MO = null; }
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && $('a72-ov')) cerrarMes(); });
+  function pintarMes() {
+    var ov = $('a72-ov'); if (!ov || !MO) return; var box = ov.querySelector('.box'), d = MO.d && MO.d.periodo === MO.per ? MO.d : null, adm = !!MO.pid;
+    var x = '<div class="top"><h3>📅 ' + (adm ? 'Asistencia de ' + h(MO.nombre) : 'Mi asistencia') + '</h3><button type="button" class="sec" data-a="cerrarmes">✕ Cerrar</button></div>' +
+      '<div class="d15-sec">' + selMes(MO.per, 'o') + (d ? '<p class="meta" style="margin-top:8px">Horario: <b>' + h(horTxt(d.horario)) + '</b>' +
+        (d.horario ? ' · refrigerio ' + d.horario.refrigerio_min + ' min · tolerancia ' + d.horario.tolerancia_min + ' min' : '') + '</p>' : '') + '</div>';
+    if (!d) { box.innerHTML = x + '<div class="d15-vacio">' + (MO.err ? h(MO.err) : 'Cargando…') + '</div>'; return; }
+    x += resumenHtml(d) + '<div class="d15-sec"><h3>Día por día</h3>' + leyenda() +
+      ((d.dias || []).length ? d.dias.slice().reverse().map(function (dd) { return diaHtml(dd, adm); }).join('') : '<div class="d15-vacio">Nada registrado este mes.</div>') +
+      '<p class="a72-nota">Solo cuenta como trabajo lo que se guarda en el CRM: registrar clientes, cambiar estados, editar ventas, completar tareas… Tener el CRM abierto o hacer clics no cuenta.</p></div>';
+    if (adm && (d.historial || []).length) x += '<div class="d15-sec"><details><summary>Cambios hechos por el admin (' + d.historial.length + ')</summary><ul style="font-size:.86em">' +
+      d.historial.map(function (hh) {
+        var q = hh.detalle || {};
+        return '<li><b>' + h(new Date(hh.at).toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })) + '</b> · ' + h(hh.autor || '') + ' ' +
+          (hh.accion === 'MARCA_AGREGADA' ? 'agregó ' + h(String(q.tipo || '').toLowerCase()) + ' a las ' + h(q.hora) + ' del ' + h(diaCorto(hh.fecha)) :
+            hh.accion === 'MARCA_ANULADA' ? 'anuló una marca de ' + h(String(q.tipo || '').toLowerCase()) + ' del ' + h(diaCorto(hh.fecha)) : 'cambió el horario') +
+          (hh.motivo ? ' · <i>' + h(hh.motivo) + '</i>' : '') + '</li>';
+      }).join('') + '</ul></details></div>';
+    box.innerHTML = x;
+  }
+  async function cargarMes() {
+    if (!MO) return; var seq = ++MO.seq, per = MO.per; MO.err = null; pintarMes();
+    var r = MO.pid ? await sb.rpc('asistencia_persona', { p_persona: MO.pid, p_periodo: per }) : await sb.rpc('asistencia_mi_mes', { p_periodo: per });
+    if (!MO || seq !== MO.seq) return;
+    if (r.error) { MO.d = null; MO.err = error(r.error); return pintarMes(); }
+    MO.d = r.data; pintarMes();
+  }
+  async function accionMes(e) {
+    var b = e.target.closest('button[data-a]'); if (!b || !MO || !MO.pid) return;
+    var a = b.getAttribute('data-a'), dia = b.closest('.a72-dia'), r;
+    if (a === 'anular') {
+      var mo = prompt('¿Por qué anulas esta marca? (queda anotado)'); if (mo == null) return;
+      if (mo.trim().length < 5) return aviso('Escribe el motivo para anular la marca', true);
+      b.disabled = true; r = await sb.rpc('asistencia_anular_marca', { p_marca: b.getAttribute('data-id'), p_motivo: mo.trim() }); b.disabled = false;
+      if (r.error) return aviso(error(r.error), true);
+      aviso('Marca anulada'); return cargarMes();
+    }
+    if (a === 'agregar') {
+      var tipo = dia.querySelector('.a72-ct').value, hora = dia.querySelector('.a72-ch').value, mot = dia.querySelector('.a72-cm').value.trim();
+      if (!hora) return aviso('Pon la hora', true); if (mot.length < 5) return aviso('Escribe el motivo de la corrección', true);
+      b.disabled = true; r = await sb.rpc('asistencia_corregir', { p_persona: MO.pid, p_fecha: dia.getAttribute('data-f'), p_tipo: tipo, p_hora: hora, p_motivo: mot }); b.disabled = false;
+      if (r.error) return aviso(error(r.error), true);
+      aviso('Marca agregada'); return cargarMes();
+    }
+  }
+
+  /* ================================================================ TRABAJADOR · botón para marcar */
+  function minutosTurno() {
+    var d = CH.d && CH.d.hoy; if (!d) return 0;
+    var pasado = (Date.now() + CH.off - CH.t0) / 60000;                            // minutos desde que se cargó, con la hora del servidor
+    return N(d.turno_min) + (d.estado === 'EN_TURNO' ? pasado : 0);
+  }
+  function pintaChip() {
+    var b = $('a72-chip'); if (!b || !CH.d) return; var d = CH.d.hoy, e = d.estado, k, t;
+    if (e === 'EN_TURNO') { k = 'on'; t = '🟢 <span class="t">En turno · </span>' + dur(minutosTurno()); }
+    else if (e === 'EN_REFRIGERIO') {
+      var ini = (d.refrigerios || []).length ? d.refrigerios[d.refrigerios.length - 1][0] : null;
+      k = 'ref'; t = '🍽️ <span class="t">Refrigerio · </span>' + dur(ini ? (Date.now() + CH.off - Date.parse(ini)) / 60000 : 0);
+    } else if (d.entrada) { k = 'fin'; t = '✅ <span class="t">Jornada · </span>' + dur(d.turno_min); }
+    else { k = 'go'; t = '🕘 <span class="t">Marcar entrada</span>'; }
+    b.className = k + (e === 'NO_MARCA' || (e === 'EN_TURNO' && fueraDeHora()) ? ' ojo' : ''); b.innerHTML = t;
+    b.title = e === 'NO_MARCA' ? 'Ya pasó tu hora de entrada: marca tu entrada' : 'Asistencia de hoy';
+    if ($('a72-pan')) pintaPanel();
+  }
+  function fueraDeHora() {   // en turno, y ya pasó 30 min de su hora de salida: que se acuerde de marcar
+    var d = CH.d.hoy, hz = CH.d.horario; if (!hz || !d.programado) return false;
+    var p = d.fecha.split('-'), s = hz.salida.split(':');
+    return Date.now() + CH.off > Date.UTC(+p[0], +p[1] - 1, +p[2], +s[0] + 5, +s[1]) + 30 * 60000;
+  }
+  function pintaPanel() {
+    var p = $('a72-pan'); if (!p || !CH.d) return; var d = CH.d.hoy, e = d.estado, hz = CH.d.horario, bt = '';
+    if (!d.entrada) bt = '<button type="button" class="solo" data-a="ENTRADA">🕘 Marcar entrada</button>';
+    else if (e === 'EN_TURNO') bt = '<button type="button" class="sec" data-a="REFRIGERIO">🍽️ Refrigerio</button><button type="button" data-a="SALIDA">🏁 Marcar salida</button>';
+    else if (e === 'EN_REFRIGERIO') bt = '<button type="button" class="solo" data-a="VUELTA">↩️ Ya volví</button>';
+    p.innerHTML = '<h3>Asistencia · ' + h(diaCorto(d.fecha)) + '</h3><p class="meta">Tu horario: <b>' + h(horTxt(hz)) + '</b></p>' +
+      '<div style="margin-top:8px">' + (d.entrada ? '<div class="a72-r"><span>Entrada</span><b' + (d.tarde ? ' style="color:var(--bad)"' : '') + '>' + hm(d.entrada) + (d.tarde ? ' · tarde ' + dur(d.tardanza_min) : '') + '</b></div>' +
+        (d.salida ? '<div class="a72-r"><span>Salida</span><b>' + hm(d.salida) + '</b></div>' : '') +
+        (N(d.refrigerio_min) ? '<div class="a72-r"><span>Refrigerio</span><b>' + dur(d.refrigerio_min) + '</b></div>' : '') +
+        '<div class="a72-r"><span>En turno</span><b>' + dur(e === 'EN_TURNO' ? minutosTurno() : d.turno_min) + '</b></div>' : '') +
+        '<div class="a72-r"><span>Trabajo guardado</span><b>' + dur(d.trabajo_min) + (d.pct != null ? ' · ' + d.pct + ' %' : '') + '</b></div>' +
+        '<div class="a72-r"><span>Acciones guardadas</span><b>' + N(d.acciones) + '</b></div></div>' +
+      (d.entrada || N(d.acciones) ? linea(d, true) : '') +
+      '<div class="a72-bt">' + bt + '<button type="button" class="sec solo" data-a="mimes">📅 Ver mi mes</button></div>' +
+      '<p class="a72-nota">Solo cuenta como trabajo lo que guardas en el CRM (clientes, estados, ventas, tareas…). Tener el CRM abierto o hacer clics no cuenta. La hora la pone el servidor.</p>';
+  }
+  async function cargarChip() {
+    var r = await sb.rpc('asistencia_mi_estado');
+    if (r.error) { var b = $('a72-chip'); if (b) { b.className = 'fin'; b.innerHTML = '🕘'; b.title = error(r.error); } return; }
+    CH.d = r.data; CH.t0 = Date.parse(r.data.ahora); CH.off = CH.t0 - Date.now(); pintaChip();
+  }
+  async function marcar(tipo, b) {
+    if (tipo === 'SALIDA' && !confirm('¿Marcar tu salida?\n\nHoy ya no podrás volver a marcar entrada.')) return;
+    if (b) b.disabled = true;
+    var r = await sb.rpc('asistencia_marcar', { p_tipo: tipo });
+    if (b) b.disabled = false;
+    if (r.error) return aviso(error(r.error), true);
+    CH.d = r.data; CH.t0 = Date.parse(r.data.ahora); CH.off = CH.t0 - Date.now(); pintaChip();
+    var d = CH.d.hoy, hora = hm(r.data.ahora);
+    aviso(tipo === 'ENTRADA' ? 'Entrada marcada a las ' + hora + (d.tarde ? ' (tarde ' + dur(d.tardanza_min) + ')' : '') :
+      tipo === 'REFRIGERIO' ? 'Buen provecho. Refrigerio desde las ' + hora : tipo === 'VUELTA' ? '¡Ya estás de vuelta! (' + hora + ')' : 'Salida marcada a las ' + hora + '. ¡Hasta mañana!');
+  }
+  function montarChip() {
+    var u = document.querySelector('header .user'); if (!u || $('a72-chip')) return;
+    if (CH && CH.tick) clearInterval(CH.tick);
+    CH = { d: null, off: 0, t0: Date.now(), tick: null, ult: Date.now() };
+    var b = document.createElement('button'); b.type = 'button'; b.id = 'a72-chip'; b.className = 'fin'; b.innerHTML = '🕘'; b.setAttribute('aria-haspopup', 'dialog');
+    u.insertBefore(b, u.firstChild);
+    b.addEventListener('click', function (e) {
+      e.stopPropagation(); var p = $('a72-pan');
+      if (p) { p.remove(); return; }
+      p = document.createElement('div'); p.id = 'a72-pan'; p.setAttribute('role', 'dialog'); document.body.appendChild(p); pintaPanel();
+      p.addEventListener('click', function (ev) {
+        var x = ev.target.closest('button[data-a]'); if (!x) return; var a = x.getAttribute('data-a');
+        if (a === 'mimes') { p.remove(); abrirMes(null); } else marcar(a, x);
+      });
+      cargarChip();
+    });
+    document.addEventListener('click', function (e) { var p = $('a72-pan'); if (p && !p.contains(e.target) && e.target.id !== 'a72-chip' && !e.target.closest('#a72-chip')) p.remove(); });
+    CH.tick = setInterval(function () {
+      if (!$('a72-chip')) { clearInterval(CH.tick); return; }
+      if (!document.hidden && Date.now() - CH.ult > 5 * 60000) { CH.ult = Date.now(); cargarChip(); } else pintaChip();
+    }, 30000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && $('a72-chip') && Date.now() - CH.ult > 60000) { CH.ult = Date.now(); cargarChip(); } });
+    cargarChip();
+  }
+
+  /* ================================================================ ADMIN · 🕘 ASISTENCIA */
+  function subTabs() {
+    return '<div class="a72-sub">' + [['hoy', 'Hoy'], ['mes', 'Mes'], ['hor', 'Horarios'], ['acc', 'Qué cuenta como trabajo']].map(function (s) {
+      return '<button type="button" class="d15-pill' + (AD.sub === s[0] ? ' on' : '') + '" data-a="sub" data-s="' + s[0] + '">' + s[1] + '</button>';
+    }).join('') + '</div>';
+  }
+  function avisoRegistro() {
+    if (!AD.cfg) return '';
+    return AD.cfg.activo ? '' : '<div class="a72-aviso">⚠️ El registro de trabajo está APAGADO en la API: las acciones no se están contando. ' +
+      (AD.cfg.pre_request ? 'Ya había otra función (' + h(AD.cfg.pre_request) + ').' : 'Vuelve a correr el SQL 72.') + ' Avisa a Claude.</div>';
+  }
+  function pintarAdmin() {
+    var host = $('a72'); if (!host) return;
+    var x = subTabs() + avisoRegistro();
+    if (AD.sub === 'hoy') x += hoyHtml(); else if (AD.sub === 'mes') x += mesAdminHtml(); else if (AD.sub === 'hor') x += horariosHtml(); else x += accionesHtml();
+    host.innerHTML = x;
+  }
+  function filaHoy(p, ahora) {
+    var tr = p.entrada || N(p.acciones);
+    return '<div class="a72-f" data-p="' + h(p.id) + '" data-n="' + h(p.nombre) + '"><div class="p"><b>' + h(p.nombre) + '</b><small>' + h(p.rol) + ' · ' + h(p.horario ? p.horario.entrada + '–' + p.horario.salida : 'sin horario') + '</small></div>' +
+      '<div class="e">' + badge(p.estado) + '</div>' +
+      '<div class="c' + (p.tarde ? ' mal' : '') + '">' + (p.entrada ? hm(p.entrada) + (p.tarde ? ' (+' + dur(p.tardanza_min) + ')' : '') : '—') + '</div>' +
+      '<div class="c n">' + (p.entrada ? dur(p.turno_min) : '—') + '</div>' +
+      '<div class="c tr">' + (p.entrada ? pctBar(p.pct) + '<small>' + dur(p.trabajo_min) + (p.pct != null ? ' · ' + p.pct + ' %' : '') + '</small>' : '<span class="meta">—</span>') + '</div>' +
+      '<div class="c n">' + N(p.acciones) + '</div>' +
+      '<div class="c' + (p.estado === 'EN_TURNO' && p.ultima && (Date.parse(ahora) - Date.parse(p.ultima)) > 60 * 60000 ? ' mal' : '') + '">' + h(p.ultima ? hace(p.ultima, ahora) : (p.entrada ? 'nada guardado' : '—')) + '</div>' +
+      '<div class="a"><button type="button" class="sec a72-mini" data-a="vermes">Ver mes</button></div>' +
+      '<div class="a72-m">' + (p.entrada ? 'Entrada <b>' + hm(p.entrada) + '</b>' + (p.tarde ? ' (tarde ' + dur(p.tardanza_min) + ')' : '') + ' · turno <b>' + dur(p.turno_min) + '</b> · ' : '') +
+        'trabajo <b>' + dur(p.trabajo_min) + (p.pct != null ? ' (' + p.pct + ' %)' : '') + '</b> · <b>' + N(p.acciones) + '</b> acciones' + (p.ultima ? ' · última ' + h(hace(p.ultima, ahora)) : '') + '</div>' +
+      (tr ? '<div class="ln">' + linea(p, true) + '</div>' : '') + '</div>';
+  }
+  function hoyHtml() {
+    var d = AD.hoy; if (!d) return '<div class="d15-vacio">' + (AD.err ? h(AD.err) : 'Cargando…') + '</div>';
+    var P = d.personas, cnt = function (f) { return P.filter(f).length; };
+    var orden = { EN_TURNO: 1, EN_REFRIGERIO: 2, NO_MARCA: 3, SIN_MARCAR: 4, FALTA: 5, TRABAJO: 6, SIN_SALIDA: 7, PENDIENTE: 8, DESCANSO: 9, SIN_HORARIO: 10 };
+    var L = P.slice().sort(function (a, b) { return (orden[a.estado] || 99) - (orden[b.estado] || 99) || a.nombre.localeCompare(b.nombre); });
+    var u = d.ultimo_trabajo;
+    return '<div class="d15-sec"><div class="d15-sh"><h3>Hoy · ' + h(diaCorto(d.fecha)) + '</h3><span class="meta">Se actualiza solo cada 2 minutos · <button type="button" class="sec a72-mini" data-a="recargar">↻ Actualizar</button></span></div>' +
+      '<p class="meta">' + (u ? 'Último trabajo guardado en el CRM: <b>' + h(hace(u.at, d.ahora)) + '</b> (' + h(u.nombre || '') + ': ' + h(u.etiqueta || '') + ').' : 'Todavía no hay trabajo guardado registrado.') + '</p></div>' +
+      '<div class="a72-kpis"><div class="a72-k k-bien"><small>En turno</small><b>' + cnt(function (p) { return p.estado === 'EN_TURNO'; }) + '</b></div>' +
+      '<div class="a72-k k-ojo"><small>En refrigerio</small><b>' + cnt(function (p) { return p.estado === 'EN_REFRIGERIO'; }) + '</b></div>' +
+      '<div class="a72-k k-mal"><small>No marcan / faltan</small><b>' + cnt(function (p) { return p.estado === 'NO_MARCA' || p.estado === 'FALTA'; }) + '</b></div>' +
+      '<div class="a72-k k-ojo"><small>Llegaron tarde</small><b>' + cnt(function (p) { return p.tarde; }) + '</b></div>' +
+      '<div class="a72-k k-mal"><small>Trabajan sin marcar</small><b>' + cnt(function (p) { return p.estado === 'SIN_MARCAR'; }) + '</b></div>' +
+      '<div class="a72-k"><small>Sin horario</small><b>' + cnt(function (p) { return !p.horario; }) + '</b></div></div>' +
+      '<div class="d15-sec"><div class="a72-f h"><div>Persona</div><div>Estado</div><div>Entrada</div><div class="n">Turno</div><div>Trabajo guardado</div><div class="n">Acciones</div><div>Última acción</div><div></div></div>' +
+      (L.length ? L.map(function (p) { return filaHoy(p, d.ahora); }).join('') : '<div class="d15-vacio">No hay personas activas.</div>') + leyenda() + '</div>';
+  }
+  function mesAdminHtml() {
+    var d = AD.mes && AD.mes.periodo === AD.per ? AD.mes : null;
+    var x = '<div class="d15-sec"><div class="d15-sh"><h3>Asistencia de ' + h(mesDe(AD.per)) + '</h3>' + (d ? '<button type="button" class="sec a72-mini" data-a="csv">⬇️ Descargar (Excel)</button>' : '') + '</div>' + selMes(AD.per, 'a') + '</div>';
+    if (!d) return x + '<div class="d15-vacio">' + (AD.err ? h(AD.err) : 'Calculando el mes… puede tardar unos segundos') + '</div>';
+    return x + '<div class="d15-sec"><div class="a72-f h"><div>Persona</div><div>Días</div><div class="n">Faltas</div><div>Tardanzas</div><div>Trabajo guardado</div><div class="n">Acciones</div><div>Sin salida / sin marcar</div><div></div></div>' +
+      d.personas.map(function (p) {
+        return '<div class="a72-f" data-p="' + h(p.id) + '" data-n="' + h(p.nombre) + '"><div class="p"><b>' + h(p.nombre) + (p.activo ? '' : ' <span class="badge">inactivo</span>') + '</b><small>' + h(p.rol) + ' · ' + h(horTxt(p.horario)) + '</small></div>' +
+          '<div class="c">' + N(p.trabajados) + ' de ' + N(p.programados) + '</div><div class="c n' + (N(p.faltas) ? ' mal' : '') + '">' + N(p.faltas) + '</div>' +
+          '<div class="c' + (N(p.tardanzas) ? ' mal' : '') + '">' + N(p.tardanzas) + (N(p.tardanza_min) ? ' · ' + dur(p.tardanza_min) : '') + '</div>' +
+          '<div class="c tr">' + pctBar(p.pct) + '<small>' + dur(p.trabajo_min) + ' de ' + dur(p.turno_min) + '</small></div><div class="c n">' + N(p.acciones) + '</div>' +
+          '<div class="c">' + (N(p.sin_salida) || N(p.sin_marcar) ? N(p.sin_salida) + ' / ' + N(p.sin_marcar) : '—') + '</div>' +
+          '<div class="a"><button type="button" class="sec a72-mini" data-a="vermes">Ver</button></div>' +
+          '<div class="a72-m">' + N(p.trabajados) + ' de ' + N(p.programados) + ' días · <b>' + N(p.faltas) + '</b> faltas · <b>' + N(p.tardanzas) + '</b> tardanzas · trabajo <b>' +
+            dur(p.trabajo_min) + (p.pct != null ? ' (' + p.pct + ' %)' : '') + '</b></div></div>';
+      }).join('') + '<p class="meta" style="margin-top:8px">Calculado en ' + h(d.segundos) + ' s. «Trabajo guardado» = cuartos de hora del turno en los que guardó al menos una acción.</p></div>';
+  }
+  function filaHorario(k, nombre, hz, quitar) {
+    hz = hz || { dias: [1, 2, 3, 4, 5, 6], entrada: '09:00', salida: '18:00', refrigerio_min: 60, tolerancia_min: 10 };
+    return '<div class="a72-hor" data-k="' + h(k) + '"><div><b>' + h(nombre) + '</b></div><div class="a72-dd">' + DIAS.map(function (dn, i) {
+      var on = (hz.dias || []).map(Number).indexOf(i + 1) >= 0;
+      return '<label class="' + (on ? 'on' : '') + '"><input type="checkbox" value="' + (i + 1) + '"' + (on ? ' checked' : '') + '>' + dn + '</label>';
+    }).join('') + '</div>' +
+      '<div><label>Entrada</label><input type="time" class="he" value="' + h(hz.entrada) + '"></div><div><label>Salida</label><input type="time" class="hs" value="' + h(hz.salida) + '"></div>' +
+      '<div><label>Refrigerio (min)</label><input type="number" class="hr" min="0" max="240" value="' + N(hz.refrigerio_min) + '"></div>' +
+      '<div><label>Tolerancia (min)</label><input type="number" class="ht" min="0" max="120" value="' + N(hz.tolerancia_min) + '"></div>' +
+      '<div class="bb"><button type="button" class="a72-mini" data-a="horguardar">Guardar</button>' + (quitar ? '<button type="button" class="sec a72-mini" data-a="horquitar">Quitar</button>' : '') + '</div></div>';
+  }
+  function horariosHtml() {
+    var d = AD.hor; if (!d) return '<div class="d15-vacio">' + (AD.err ? h(AD.err) : 'Cargando…') + '</div>';
+    var propios = d.personas.filter(function (p) { return p.propio; }), resto = d.personas.filter(function (p) { return !p.propio; });
+    return '<div class="d15-sec"><div class="d15-sh"><h3>Horario por rol</h3><span class="meta">Hora de Perú. Mientras un rol no tenga horario, no se cuentan tardanzas ni faltas.</span></div>' +
+      '<p class="meta" style="margin:0 0 6px">Cada cambio vale <b>desde hoy</b>: los días pasados se quedan con el horario que tenían.</p>' +
+      d.roles.map(function (r) { var nm = (ROLES.filter(function (x) { return x[0] === r.rol; })[0] || [r.rol, r.rol])[1]; return filaHorario('r:' + r.rol, nm + (r.horario ? '' : ' (sin horario)'), r.horario, !!r.horario); }).join('') + '</div>' +
+      '<div class="d15-sec"><div class="d15-sh"><h3>Horarios propios</h3><span class="meta">Para quien tiene otro turno. Manda sobre el de su rol.</span></div>' +
+      (propios.length ? propios.map(function (p) { return filaHorario('p:' + p.id, p.nombre + ' · ' + p.rol, p.propio, true); }).join('') : '<div class="meta">Nadie tiene horario propio.</div>') +
+      (resto.length ? '<div class="d15-form" style="margin-top:12px"><div><label>Darle horario propio a…</label><select id="a72-np"><option value="">Elige…</option>' +
+        resto.map(function (p) { return '<option value="' + h(p.id) + '">' + h(p.nombre) + ' · ' + h(p.rol) + '</option>'; }).join('') + '</select></div>' +
+        '<div><button type="button" class="sec" data-a="hornuevo" style="width:100%">Agregar</button></div></div>' : '') + '</div>';
+  }
+  function accionesHtml() {
+    var d = AD.cfg; if (!d) return '<div class="d15-vacio">' + (AD.err ? h(AD.err) : 'Cargando…') + '</div>';
+    return (d.activo ? '<div class="a72-ok">✅ El registro de trabajo está encendido: la base anota cada acción guardada en el momento.</div>' : '') +
+      '<div class="d15-sec"><div class="d15-sh"><h3>Qué cuenta como trabajo</h3><span class="meta">Solo acciones que guardan algo. Desmarca la que no quieras contar.</span></div>' +
+      d.acciones.map(function (a) {
+        return '<div class="a72-ac"><label><input type="checkbox" data-a="accion" data-c="' + h(a.clave) + '"' + (a.activo ? ' checked' : '') + '>' + h(a.etiqueta) + '</label><span class="meta">' + N(a.n7) + ' en 7 días</span></div>';
+      }).join('') + '<p class="a72-nota">Mirar listas, abrir fichas, buscar o tener el CRM abierto nunca cuenta. Si una acción falla, tampoco.</p></div>';
+  }
+  async function cargarAdmin(sub) {
+    if (sub) AD.sub = sub; var s = AD.sub, seq = ++AD.seq, r; AD.err = null;
+    if (!AD.cfg) { r = await sb.rpc('asistencia_acciones_listar'); if (!r.error) AD.cfg = r.data; }
+    pintarAdmin();
+    if (s === 'hoy') r = await sb.rpc('asistencia_hoy');
+    else if (s === 'mes') r = await sb.rpc('asistencia_mes', { p_periodo: AD.per });
+    else if (s === 'hor') r = await sb.rpc('asistencia_horarios');
+    else r = await sb.rpc('asistencia_acciones_listar');
+    if (seq !== AD.seq) return;
+    if (r.error) { AD.err = error(r.error); return pintarAdmin(); }
+    if (s === 'hoy') AD.hoy = r.data; else if (s === 'mes') AD.mes = r.data; else if (s === 'hor') AD.hor = r.data; else AD.cfg = r.data;
+    pintarAdmin();
+  }
+  function csvMes() {
+    var d = AD.mes; if (!d) return;
+    function t(c) { c = String(c == null ? '' : c); return /^[=+\-@\t\r]/.test(c) ? "'" + c : c; }
+    var F = [['Persona', 'Rol', 'Horario', 'Días programados', 'Días trabajados', 'Faltas', 'Tardanzas', 'Minutos de tardanza', 'Horas en turno', 'Horas con trabajo guardado', '% trabajo', 'Acciones', 'Días sin salida', 'Días trabajando sin marcar']];
+    d.personas.forEach(function (p) {
+      F.push([t(p.nombre), p.rol, horTxt(p.horario), N(p.programados), N(p.trabajados), N(p.faltas), N(p.tardanzas), N(p.tardanza_min), (N(p.turno_min) / 60).toFixed(2),
+        (N(p.trabajo_min) / 60).toFixed(2), p.pct == null ? '' : p.pct, N(p.acciones), N(p.sin_salida), N(p.sin_marcar)]);
+    });
+    var txt = '﻿' + F.map(function (f) { return f.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(','); }).join('\r\n');
+    var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'asistencia-' + AD.per.slice(0, 7) + '.csv'; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }
+  async function accionAdmin(ev) {
+    var b = ev.target.closest('[data-a]'); if (!b || b.tagName === 'SELECT' || (b.tagName === 'INPUT' && b.type !== 'checkbox')) return;
+    var a = b.getAttribute('data-a'), fl = b.closest('.a72-f'), r;
+    if (a === 'sub') return cargarAdmin(b.getAttribute('data-s'));
+    if (a === 'recargar') return cargarAdmin();
+    if (a === 'csv') return csvMes();
+    if (a === 'vermes' && fl) return abrirMes(fl.getAttribute('data-p'), fl.getAttribute('data-n'));
+    if (a === 'accion') {
+      b.disabled = true; r = await sb.rpc('asistencia_accion_activar', { p_clave: b.getAttribute('data-c'), p_activo: b.checked }); b.disabled = false;
+      if (r.error) { b.checked = !b.checked; return aviso(error(r.error), true); }
+      AD.cfg = r.data; return aviso(b.checked ? 'Ahora cuenta como trabajo' : 'Ya no cuenta como trabajo');
+    }
+    var fh = b.closest('.a72-hor');
+    if (a === 'horguardar' && fh) {
+      var k = fh.getAttribute('data-k'), dias = Array.prototype.map.call(fh.querySelectorAll('.a72-dd input:checked'), function (i) { return +i.value; });
+      if (!dias.length) return aviso('Elige al menos un día', true);
+      var ent = fh.querySelector('.he').value, sal = fh.querySelector('.hs').value;
+      if (!ent || !sal) return aviso('Pon la hora de entrada y de salida', true);
+      if (sal <= ent) return aviso('La salida tiene que ser después de la entrada', true);
+      b.disabled = true;
+      r = await sb.rpc('asistencia_horario_guardar', { p_rol: k.indexOf('r:') === 0 ? k.slice(2) : null, p_persona: k.indexOf('p:') === 0 ? k.slice(2) : null, p_dias: dias,
+        p_entrada: ent, p_salida: sal, p_refrigerio: parseInt(fh.querySelector('.hr').value, 10) || 0, p_tolerancia: parseInt(fh.querySelector('.ht').value, 10) || 0 });
+      b.disabled = false;
+      if (r.error) return aviso(error(r.error), true);
+      AD.hor = r.data; AD.hoy = null; AD.mes = null; aviso('Horario guardado'); return pintarAdmin();
+    }
+    if (a === 'horquitar' && fh) {
+      var kk = fh.getAttribute('data-k'); if (!confirm('¿Quitar este horario?')) return;
+      r = await sb.rpc('asistencia_horario_quitar', { p_rol: kk.indexOf('r:') === 0 ? kk.slice(2) : null, p_persona: kk.indexOf('p:') === 0 ? kk.slice(2) : null });
+      if (r.error) return aviso(error(r.error), true);
+      AD.hor = r.data; AD.hoy = null; AD.mes = null; aviso('Horario quitado'); return pintarAdmin();
+    }
+    if (a === 'hornuevo') {
+      var sel = $('a72-np'), id = sel && sel.value; if (!id) return aviso('Elige a la persona', true);
+      var p = AD.hor.personas.filter(function (x) { return x.id === id; })[0];
+      var rolH = AD.hor.roles.filter(function (x) { return x.rol === p.rol; })[0];
+      p.propio = JSON.parse(JSON.stringify((rolH && rolH.horario) || { dias: [1, 2, 3, 4, 5, 6], entrada: '09:00', salida: '18:00', refrigerio_min: 60, tolerancia_min: 10 }));
+      p.nuevo = true; pintarAdmin(); aviso('Ajusta el horario de ' + p.nombre + ' y pulsa Guardar');
+    }
+  }
+  function cambioAdmin(ev) {
+    var s = ev.target, a = s.getAttribute('data-a');
+    if (a === 'ay' || a === 'am') { AD.per = cambioMes(AD.per, s); AD.mes = null; return cargarAdmin('mes'); }
+    if (s.type === 'checkbox' && s.closest('.a72-dd')) s.parentNode.classList.toggle('on', s.checked);
+  }
+  function montarAdmin() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-asi')) return;
+    var l = lima(); AD = { sub: 'hoy', per: perStr(l.y, l.m), hoy: null, mes: null, hor: null, cfg: null, err: null, seq: 0, tick: null };
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-asi'; s.hidden = true;
+    s.innerHTML = '<div id="a72"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'asi'); bt.innerHTML = '<span>🕘</span>Asistencia';
+    var ref = bar.querySelector('[data-k="pla"]') || bar.querySelector('[data-k="pe"]');
+    if (ref) ref.insertAdjacentElement('afterend', bt); else { var man = $('btnManual17'); if (man && man.parentNode === bar) bar.insertBefore(bt, man); else bar.appendChild(bt); }
+    bar.addEventListener('click', function (ev) { var b = ev.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'asi') cargarAdmin(); });
+    s.addEventListener('click', accionAdmin);
+    s.addEventListener('change', cambioAdmin);
+    AD.tick = setInterval(function () {
+      var sec = $('p15-asi'); if (!sec) { clearInterval(AD.tick); return; }
+      if (!sec.hidden && !document.hidden && AD.sub === 'hoy' && !$('a72-ov')) cargarAdmin();
+    }, 120000);
+  }
+
+  /* ================================================================ montaje */
+  [['adminView', montarAdmin], ['concertadorView', montarChip], ['cerradorView', montarChip], ['backView', montarChip], ['supervisorView', montarChip]].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () { var r = o.apply(this, arguments); try { p[1](); } catch (e) { console.error(e); } return r; };
+  });
+  var oL = window.loginView;
+  if (typeof oL === 'function') window.loginView = function () {
+    if (CH && CH.tick) clearInterval(CH.tick); if (AD && AD.tick) clearInterval(AD.tick);
+    var p = $('a72-pan'); if (p) p.remove(); cerrarMes(); return oL.apply(this, arguments);
+  };
+})();
  </script>
 </body>
 </html>
