@@ -4482,7 +4482,7 @@ function ventaForm(l) {
 
   function lineaHtml(l, edit) {
     var mios = (DR.pend || []).filter(function (p) { return (p.destinos || []).some(function (x) { return x.fila === l.fila; }); });
-    var mk = mios.map(function (p) { return p.estado === 'ERROR' ? '<span class="badge b-bad" title="' + esc(p.error || '') + '">⚠ no pasó a MATRIZ</span>' : '<span title="Se pasa a MATRIZ en 1 minuto">⏳ pasando a MATRIZ</span>'; }).join(' ');
+    var mk = mios.map(function (p) { return p.estado === 'ERROR' ? '<span class="badge b-bad" title="' + esc(p.error || '') + '">⚠ no pasó a MATRIZ</span>' : '<span title="Se Pasa a MATRIZ en unos segundos">⏳ pasando a MATRIZ</span>'; }).join(' ');
     return '<div class="p37-l"><div><b>' + esc(l.producto || l.tipo || 'Servicio') + '</b><small>' + (l.numero ? esc(l.numero) + ' · ' : '') + 'Origen: ' + esc(l.operador || '—') + '</small></div>' +
       '<div class="d">' + chip(l.estado || 'SIN ESTADO') + '<small>' + fd(l.fecha_estado) + '</small>' + (l.espera_fibra ? '<span title="Espera a que se active la fibra">⛓</span>' : '') + mk +
       (edit ? '<button type="button" class="sec p37-mini" data-d="lin" data-f="' + l.fila + '">Cambiar estado / datos</button>' : '') + '</div></div>';
@@ -4628,7 +4628,7 @@ function ventaForm(l) {
     if (r.error) { toast(msg(r.error), true); return false; }
     if (ov) ov.remove();
     var ids = (r.data && r.data.ids) || [];
-    if (ids.length) toastU('Guardado. Pasa a MATRIZ en 1 minuto.', function () { return deshacer(ids); }); else toast('Guardado');
+    if (ids.length) toastU('Guardado. Pasa a MATRIZ en unos segundos.', function () { return deshacer(ids); }); else toast('Guardado');
     refrescaTodo();
     return true;
   }
