@@ -5950,7 +5950,7 @@ function ventaForm(l) {
       ['con', '💬', 'Contraoferta', ['pa'], 'CONTRA'],
       ['ofe', '✉️', 'Ofertas', ['ofe']],
       ['cha', '🛡️', 'Admin chat', ['cha']],
-      ['pag', '💳', 'Pagos', ['liq', 'pe', 'sor']],
+      ['pag', '💳', 'Pagos', ['liq', 'pe', 'pla', 'sor']],
       ['cfg', '⚙️', 'Configuración', ['cfg', 'svo', 'equ', 'pb', 'in', 'sue', 'com', 'reg', 'nt', 'sa']]
     ],
     cerrador: [
@@ -5958,7 +5958,7 @@ function ventaForm(l) {
       ['cli', '🗂️', 'Mis clientes', ['tab', 'bol', 'cof']],
       ['inc', '🛠️', 'Incidencias', ['inc']],
       ['ofe', '✉️', 'Ofertas', ['ofe']],
-      ['pag', '💰', 'Ventas y pagos', ['ven', 'liq']], ['sor', '🎟️', 'Sorteo', ['sor']]
+      ['pag', '💰', 'Ventas y pagos', ['ven', 'liq', 'mpg']], ['sor', '🎟️', 'Sorteo', ['sor']]
     ],
     back: [
       ['res', '🏠', 'Resumen', ['res']],
@@ -5968,12 +5968,12 @@ function ventaForm(l) {
       ['con', '💬', 'Contraoferta', ['pa'], 'CONTRA'],
       ['ofe', '✉️', 'Ofertas', ['ofe']],
       ['lea', '🔥', 'Leads por calentar', ['col', 'tab', 'hec']],
-      ['pag', '💳', 'Mi pago', ['mp', 'ic']]
+      ['pag', '💳', 'Mi pago', ['mp', 'ic', 'mpg']]
     ],
     concertador: [
       ['res', '🏠', 'Resumen', ['res']],
       ['cli', '➕', 'Clientes', ['nue', 'lis']],
-      ['ven', '💰', 'Ventas y pago', ['ven', 'mp']], ['sor', '🎟️', 'Sorteo', ['sor']]
+      ['ven', '💰', 'Ventas y pago', ['ven', 'mp', 'mpg']], ['sor', '🎟️', 'Sorteo', ['sor']]
     ]
   };
 
@@ -18767,6 +18767,484 @@ function ofcCalcular(cat, sel) {
   [['concertadorView', 'concertador'], ['cerradorView', 'cerrador'], ['adminView', 'admin']].forEach(function (p) {
     var o = window[p[0]]; if (typeof o !== 'function') return;
     window[p[0]] = function () { var r = o.apply(this, arguments); try { quizas(p[1]); } catch (e) { console.error(e); } return r; };
+  });
+})();
+      /* 71 · Planilla mensual: «📒 Planilla» (admin) y «💵 Mis pagos» (concertador, cerrador y back)
+   Va al final del script de index.html: después del último bloque (por ejemplo, el 70) y antes de que cierre el script.
+   Necesita el SQL 71 en Supabase.
+   · Admin: cada persona del mes con su total, lo pagado y lo que falta. Registra pagos (medio, n.º de operación,
+     fecha y foto del comprobante), cierra el mes, lo reabre con motivo, anula un pago con motivo y descarga el mes (Excel).
+   · Trabajador: sus pagos con el comprobante y el botón «✔ Lo recibí».
+   · Los montos los calcula la base de datos: son los mismos de «Mi pago» y «Mi liquidación». El navegador no decide nada. */
+(function () {
+  var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  var ROLES = [['cerrador', 'Cerradores', 'Comisiones y bonos', 'Cerrador'], ['concertador', 'Concertadores', 'Comisiones', 'Concertador'], ['back', 'Backs', 'Incentivo', 'Back'],
+               ['supervisor', 'Supervisores', 'Variable', 'Supervisor']];
+  var MEDIOS = [['YAPE', 'Yape'], ['PLIN', 'Plin'], ['TRANSFERENCIA', 'Transferencia'], ['EFECTIVO', 'Efectivo'], ['OTRO', 'Otro']];
+  var EST = { PAGADO: ['b-ok', '✅ Pagado'], PARCIAL: ['b-warn', '◐ Parcial'], PENDIENTE: ['b-info', '⏳ Pendiente'], DE_MAS: ['b-bad', '⚠️ Pagado de más'], SIN_MONTO: ['', 'Sin monto'] };
+  var ST = null, MI = null;
+
+  function $(i) { return document.getElementById(i); }
+  function h(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function aviso(t, mal) { if (typeof window.toast === 'function') window.toast(t, mal); else alert(t); }
+  function error(x) {
+    var t = String(x && ((x.code || '') + ' ' + (x.message || '')) || '');
+    if (/PGRST202|PGRST205|42883|42P01/.test(t)) return 'Falta ejecutar el SQL 71 (planilla) en Supabase';
+    return (x && x.message) || 'No se pudo completar';
+  }
+  function lima() { var d = new Date(Date.now() - 5 * 3600000); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate(), iso: d.toISOString().slice(0, 10) }; }
+  function perStr(y, m) { return y + '-' + (m < 10 ? '0' : '') + m + '-01'; }
+  function perInicial() { var l = lima(); if (l.d > 15) return perStr(l.y, l.m); return l.m === 1 ? perStr(l.y - 1, 12) : perStr(l.y, l.m - 1); }   // hasta el 15 se abre el mes pasado
+  function cap(s) { s = String(s || ''); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function mesDe(per) { var p = String(per || '').split('-'); return (MESES[parseInt(p[1], 10) - 1] || '') + ' ' + p[0]; }
+  function N(n) { return Number(n || 0); }
+  function soles(n) { var v = N(n); return (v < -0.004 ? '− ' : '') + 'S/ ' + Math.abs(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function signo(n) { var v = N(n); return (v > 0.004 ? '+ ' : v < -0.004 ? '− ' : '') + 'S/ ' + Math.abs(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function n2(n) { return N(n).toFixed(2); }
+  function fecha(d) { var p = String(d || '').slice(0, 10).split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : ''; }
+  function fechaHora(iso) { try { return new Date(iso).toLocaleString('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } }
+  function medioTxt(m) { for (var i = 0; i < MEDIOS.length; i++) if (MEDIOS[i][0] === m) return MEDIOS[i][1]; return m || ''; }
+  function rolDe(r) { for (var i = 0; i < ROLES.length; i++) if (ROLES[i][0] === r) return ROLES[i]; return [r, r, 'Variable', r]; }
+  function nuevaClave() {
+    try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) { }
+    var b = new Uint8Array(16); crypto.getRandomValues(b); b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128;
+    var x = Array.prototype.map.call(b, function (v) { return (v + 256).toString(16).slice(1); }).join('');
+    return x.slice(0, 8) + '-' + x.slice(8, 12) + '-' + x.slice(12, 16) + '-' + x.slice(16, 20) + '-' + x.slice(20);
+  }
+  function selMes(per, k) {
+    var p = String(per).split('-'), y = +p[0], m = +p[1], l = lima(), ys = '', i;
+    for (i = l.y; i >= l.y - 2; i--) ys += '<option' + (i === y ? ' selected' : '') + '>' + i + '</option>';
+    return '<div class="d15-form p71-sel"><div><label>Año</label><select data-a="' + k + 'y">' + ys + '</select></div><div><label>Mes</label><select data-a="' + k + 'm">' +
+      MESES.map(function (n, j) { return '<option value="' + (j + 1) + '"' + (j + 1 === m ? ' selected' : '') + '>' + cap(n) + '</option>'; }).join('') + '</select></div></div>';
+  }
+  function cambioMes(per, sel) {
+    var p = String(per).split('-'), y = +p[0], m = +p[1], v = parseInt(sel.value, 10);
+    if (/y$/.test(sel.getAttribute('data-a'))) y = v; else m = v;
+    return perStr(y, m);
+  }
+
+  var css = document.createElement('style');
+  css.textContent = [
+    '#p71 .d15-sec,#p71m .d15-sec{margin:0 0 14px}.p71-sel{max-width:420px}',
+    '.p71-est{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:.84em;padding:5px 12px;border-radius:99px;background:var(--info-bg);color:var(--info)}',
+    '.p71-est.cer{background:var(--ok-bg);color:var(--ok)}',
+    '.p71-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0 0 14px}',
+    '.p71-k{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;box-shadow:var(--sh)}',
+    '.p71-k small{display:block;color:var(--mut);font-size:.76em;font-weight:700}.p71-k b{display:block;font-size:1.4em;letter-spacing:-.02em;font-variant-numeric:tabular-nums}',
+    '.p71-k.k-ok b{color:var(--ok)}.p71-k.k-wa b{color:var(--warn)}',
+    '.p71-acc{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 6px}.p71-acc+.meta{margin:0 0 12px}',
+    '.p71-fil{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}',
+    '.p71-f{display:grid;grid-template-columns:minmax(170px,2fr) repeat(3,minmax(92px,1fr)) 128px 172px;gap:10px;align-items:center;padding:10px 8px;border-bottom:1px solid var(--line);font-size:.9em}',
+    '.p71-f.h{font-size:.68em;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);border-bottom:2px solid var(--line2);padding-top:0}',
+    '.p71-f .p{min-width:0}.p71-f .p b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.p71-f .p small{display:block;color:var(--mut);font-size:.8em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.p71-f .n{text-align:right;font-variant-numeric:tabular-nums}.p71-f .n.t{font-weight:800}.p71-f .n.f{color:var(--warn);font-weight:700}.p71-f .n.c{color:var(--mut)}',
+    '.p71-f .a{display:flex;gap:6px;justify-content:flex-end}.p71-f.on{background:var(--acc2);border-radius:12px 12px 0 0;border-bottom-color:transparent}',
+    '.p71-m{display:none}',
+    '.p71-det{padding:2px 14px 14px;border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;margin:0 0 10px;background:color-mix(in srgb,var(--acc2) 30%,var(--card))}',
+    '.p71-det h4{margin:14px 0 6px}',
+    '.p71-r{display:flex;justify-content:space-between;gap:10px;padding:6px 2px;border-bottom:1px solid var(--line);font-size:.92em}.p71-r:last-child{border-bottom:0}',
+    '.p71-r span{color:var(--mut)}.p71-r b{font-variant-numeric:tabular-nums}.p71-r.fin span{color:var(--ink);font-weight:700}.p71-r.neg b{color:var(--bad)}.p71-r.pos b{color:var(--ok)}',
+    '.p71-pg{display:flex;justify-content:space-between;align-items:center;gap:8px 12px;flex-wrap:wrap;padding:9px 0;border-bottom:1px dashed var(--line2)}',
+    '.p71-pg:last-child{border-bottom:0}.p71-pg b{font-variant-numeric:tabular-nums}.p71-pg small{display:block;color:var(--mut);font-size:.8em}',
+    '.p71-pg.anul .q{text-decoration:line-through;opacity:.6}.p71-pg .w{display:flex;gap:6px;align-items:center;flex-wrap:wrap}',
+    '.p71-pg small.mal{color:var(--bad)}',
+    'button.p71-mini{padding:5px 11px;font-size:.8em}',
+    '.p71-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 18px}@media(max-width:860px){.p71-2{grid-template-columns:1fr}}',
+    '.p71-otros summary{cursor:pointer;font-weight:700;padding:4px 0}.p71-h{margin:6px 0 0;padding-left:18px;font-size:.88em}.p71-h li{margin:4px 0}',
+    '.p71-tot{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:20px 22px;border-radius:20px;margin:0 0 14px;color:var(--on-acc);',
+    'background:linear-gradient(120deg,var(--acc),color-mix(in srgb,var(--acc) 45%,#38bdf8));box-shadow:var(--sh)}',
+    '.p71-tot small{opacity:.92}.p71-big{display:block;font-size:2.2em;letter-spacing:-.03em;line-height:1.1;font-variant-numeric:tabular-nums}',
+    '.p71-chips{display:flex;gap:8px;flex-wrap:wrap}.p71-chips span{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.32);border-radius:12px;padding:6px 12px;font-size:.86em}',
+    '.p71-chips b{font-size:1em;margin-left:4px;font-variant-numeric:tabular-nums}',
+    '@media(max-width:760px){.p71-f.h{display:none}.p71-f{grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;padding:12px 8px}',
+    '.p71-f .n{display:none}.p71-f .e{grid-column:2;grid-row:1;text-align:right}',
+    '.p71-m{display:block;grid-column:1/-1;font-size:.86em;color:var(--mut)}.p71-m b{color:var(--ink);font-variant-numeric:tabular-nums}',
+    '.p71-f .a{grid-column:1/-1;justify-content:flex-start}.p71-det{padding:2px 10px 12px}.p71-big{font-size:1.9em}}'
+  ].join('');
+  document.head.appendChild(css);
+
+  /* ================================================================ piezas comunes */
+  function pagoHtml(g, admin) {
+    var an = !!g.anulado_at;
+    return '<div class="p71-pg' + (an ? ' anul' : '') + '"><div><div class="q"><b>' + soles(g.monto) + '</b> · ' + h(medioTxt(g.medio)) +
+      (g.operacion ? ' · Op. ' + h(g.operacion) : '') + ' · ' + fecha(g.fecha) + '</div>' +
+      ((g.nota || admin) ? '<small>' + (g.nota ? h(g.nota) : '') + (g.nota && admin ? ' · ' : '') + (admin ? 'registró ' + h(g.creado_por_nombre || '—') : '') + '</small>' : '') +
+      (an ? '<small class="mal">Anulado' + (g.anulado_motivo ? ': ' + h(g.anulado_motivo) : '') + (admin && g.anulado_por_nombre ? ' (' + h(g.anulado_por_nombre) + ')' : '') + '</small>' : '') + '</div>' +
+      '<div class="w">' + (g.foto ? '<button type="button" class="sec p71-mini" data-a="foto" data-f="' + h(g.foto) + '">📎 Comprobante</button>' : '') +
+      (an ? '' : g.recibido_at ? '<span class="badge b-ok">✔ Recibido ' + h(fechaHora(g.recibido_at)) + '</span>' :
+        admin ? '<span class="badge b-info">Sin confirmar</span>' : '<button type="button" class="p71-mini" data-a="recibi" data-id="' + h(g.id) + '">✔ Lo recibí</button>') +
+      (admin && !an ? '<button type="button" class="sec p71-mini" data-a="anular" data-id="' + h(g.id) + '">Anular</button>' : '') + '</div></div>';
+  }
+  async function verFoto(ruta) {
+    var w = null; try { w = window.open('', '_blank'); } catch (e) { }
+    var r = await sb.storage.from('planilla').createSignedUrl(ruta, 600);
+    if (r.error || !r.data || !r.data.signedUrl) { if (w) w.close(); return aviso('No se pudo abrir el comprobante', true); }
+    if (!w) return aviso('Tu navegador bloqueó la ventana: permite las ventanas emergentes para ver el comprobante', true);
+    try { w.opener = null; } catch (e) { }
+    w.location.href = r.data.signedUrl;
+  }
+
+  /* ================================================================ ADMIN · 📒 PLANILLA */
+  function persona(id) { var L = (ST.d && ST.d.personas) || []; for (var i = 0; i < L.length; i++) if (L[i].id === id) return L[i]; return null; }
+  function sumar() {
+    var d = ST.d, t = 0, p = 0, f = 0;
+    d.personas.forEach(function (x) { t += N(x.total); p += N(x.pagado); f += Math.max(N(x.saldo), 0); });
+    d.total = t; d.pagado = p; d.falta = f;
+  }
+  function reemplazar(pj) {
+    var L = ST.d.personas, i, ok = false;
+    for (i = 0; i < L.length; i++) if (L[i].id === pj.id) { L[i] = pj; ok = true; }
+    if (!ok) L.push(pj);
+    ST.d.inactivos = (ST.d.inactivos || []).filter(function (x) { return x.id !== pj.id; });
+    sumar();
+  }
+  function estadoMes(d) {
+    if (!d) return '';
+    if (d.cerrado) return '<span class="p71-est cer">🔒 Cerrado el ' + h(fechaHora(d.cerrado_at)) + (d.cerrado_por_nombre ? ' por ' + h(d.cerrado_por_nombre) : '') + '</span>';
+    return '<span class="p71-est">' + (d.en_curso ? '🟢 Mes en curso: los montos aún pueden cambiar' : '🟡 Abierto: los montos se calculan en vivo hasta que lo cierres') + '</span>';
+  }
+  function partes(p) {
+    var r = rolDe(p.rol), a = N(p.extras) - N(p.descuentos), t = [];
+    if (N(p.sueldo)) t.push('Sueldo ' + soles(p.sueldo));
+    if (N(p.variable)) t.push(r[2] + ' ' + soles(p.variable));
+    if (Math.abs(a) > 0.004) t.push('Ajustes ' + signo(a));
+    return t.join(' · ') || 'Sin sueldo ni comisiones';
+  }
+  function fila(p) {
+    var e = EST[p.estado] || ['', p.estado], on = ST.abierto === p.id, falta = Math.max(N(p.saldo), 0);
+    return '<div class="p71-f' + (on ? ' on' : '') + '" data-p="' + h(p.id) + '">' +
+      '<div class="p"><b>' + h(p.nombre) + (p.activo ? '' : ' <span class="badge">ya no está activo</span>') + '</b><small' +
+      (p.aviso && p.rol !== 'supervisor' ? ' title="' + h(p.aviso) + '">⚠️ Sin cálculo del CRM: solo sueldo y ajustes' : '>' + h(partes(p))) + '</small></div>' +
+      '<div class="n t">' + soles(p.total) + '</div><div class="n">' + soles(p.pagado) + '</div><div class="n ' + (falta > 0.004 ? 'f' : 'c') + '">' + soles(falta) + '</div>' +
+      '<div class="e">' + (e[0] ? '<span class="badge ' + e[0] + '">' + e[1] + '</span>' : '<span class="meta">' + e[1] + '</span>') + '</div>' +
+      '<div class="p71-m">Total <b>' + soles(p.total) + '</b> · Pagado <b>' + soles(p.pagado) + '</b> · Falta <b>' + soles(falta) + '</b></div>' +
+      '<div class="a">' + (falta > 0.004 ? '<button type="button" class="p71-mini" data-a="pagar">💸 Pagar</button>' : '') +
+      '<button type="button" class="sec p71-mini" data-a="ver">' + (on ? 'Cerrar' : 'Detalle') + '</button></div></div>' + (on ? detalle(p) : '');
+  }
+  function cabecera(r) {
+    return '<div class="p71-f h"><div>' + h(r[1]) + '</div><div class="n">Total</div><div class="n">Pagado</div><div class="n">Falta</div><div>Estado</div><div></div></div>';
+  }
+  function formPago(p) {
+    var l = lima();
+    return '<h4>💸 Registrar un pago</h4><div class="d15-form">' +
+      '<div><label>Monto (S/)</label><input id="p71-mon" type="number" min="0.01" step="0.01" value="' + n2(Math.max(N(p.saldo), 0)) + '"></div>' +
+      '<div><label>Medio</label><select id="p71-med">' + MEDIOS.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === ST.medio ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
+      '<div><label>N.º de operación</label><input id="p71-op" data-minus maxlength="60" placeholder="Opcional" autocomplete="off"></div>' +
+      '<div><label>Fecha del pago</label><input id="p71-fec" type="date" value="' + l.iso + '" max="' + l.iso + '"></div>' +
+      '<div><label>Nota</label><input id="p71-not" data-minus maxlength="300" placeholder="Opcional, ej. adelanto de quincena" autocomplete="off"></div>' +
+      '<div><label>Foto del comprobante</label><input id="p71-foto" type="file" accept="image/*,application/pdf"></div>' +
+      '<div><button type="button" data-a="guardar" style="width:100%">Guardar pago</button></div></div>' +
+      (ST.d.en_curso ? '<div class="meta" style="margin-top:6px">El mes sigue en curso: este pago queda como adelanto.</div>' : '');
+  }
+  function detalle(p) {
+    var d = ST.d, r = rolDe(p.rol), falta = N(p.saldo), x = '<div class="p71-det"><div class="p71-2"><div>';
+    x += '<h4>Pagos del mes</h4>' + (p.pagos.length ? p.pagos.map(function (g) { return pagoHtml(g, true); }).join('') : '<div class="meta">Todavía no hay pagos registrados.</div>');
+    if (p.estado === 'PAGADO') x += '<p class="meta" style="margin-top:8px">✅ Pagado completo' + (p.rol === 'concertador' && d.cerrado ? ': sus comisiones del mes quedaron como PAGADAS.' : '.') + '</p>';
+    if (p.estado === 'DE_MAS') x += '<p class="meta" style="margin-top:8px;color:var(--bad)">⚠️ Se le pagó ' + soles(-falta) + ' de más. Si fue un error, anula el pago equivocado y regístralo bien.</p>';
+    x += '</div><div><h4>Cómo sale el total</h4>' +
+      '<div class="p71-r"><span>Sueldo</span><b>' + soles(p.sueldo) + '</b></div>' +
+      (N(p.variable) || p.rol !== 'supervisor' ? '<div class="p71-r"><span>' + h(r[2]) + '</span><b>' + soles(p.variable) + '</b></div>' : '') +
+      (N(p.extras) ? '<div class="p71-r pos"><span>Extras</span><b>+ ' + soles(p.extras) + '</b></div>' : '') +
+      (N(p.descuentos) ? '<div class="p71-r neg"><span>Descuentos</span><b>− ' + soles(p.descuentos) + '</b></div>' : '') +
+      '<div class="p71-r fin"><span>A pagar</span><b>' + soles(p.total) + '</b></div>' +
+      (d.cerrado ? '<p class="meta" style="margin-top:6px">Monto congelado al cerrar el mes.</p>' : '<p class="meta" style="margin-top:6px">Es el mismo cálculo de su «' + (p.rol === 'cerrador' ? 'Mi liquidación' : 'Mi pago') + '».</p>') +
+      '</div></div>';
+    if (falta > 0.004) x += formPago(p);
+    x += '<h4>Extras y descuentos del mes</h4>' + ((p.ajustes || []).length ? p.ajustes.map(function (a) {
+      return '<div class="p71-r ' + (a.tipo === 'DESCUENTO' ? 'neg' : 'pos') + '"><span>' + h(a.concepto) + '</span><b>' + (a.tipo === 'DESCUENTO' ? '− ' : '+ ') + soles(a.monto) +
+        (d.cerrado ? '' : ' <button type="button" class="sec p71-mini" data-a="deladj" data-id="' + h(a.id) + '">Quitar</button>') + '</b></div>';
+    }).join('') : '<div class="meta">Sin extras ni descuentos.</div>');
+    if (d.cerrado) x += '<p class="meta" style="margin-top:6px">Mes cerrado: para cambiar extras o descuentos, reábrelo.</p>';
+    else x += '<div class="d15-form" style="margin-top:8px"><div><label>Concepto</label><input id="p71-acon" data-minus maxlength="120" placeholder="Ej. tardanza, adelanto, bono puntual" autocomplete="off"></div>' +
+      '<div><label>Tipo</label><select id="p71-atip"><option value="DESCUENTO">Descuento</option><option value="EXTRA">Extra</option></select></div>' +
+      '<div><label>Monto (S/)</label><input id="p71-amon" type="number" min="0.01" step="0.01"></div><div><button type="button" class="sec" data-a="addadj" style="width:100%">Agregar</button></div></div>';
+    if (p.rol === 'supervisor' && !d.cerrado) x += '<h4>Sueldo mensual del supervisor</h4><div class="d15-form"><div><label>Sueldo (S/)</label><input id="p71-sue" type="number" min="0" step="0.01" value="' +
+      (N(p.sueldo) > 0 ? n2(p.sueldo) : '') + '"></div><div><button type="button" class="sec" data-a="sueldo" style="width:100%">Guardar sueldo</button></div></div>';
+    return x + '</div>';
+  }
+  function historialTxt(x) {
+    var d = x.detalle || {}, q = h(x.autor || '—') + ' ';
+    if (x.accion === 'CERRADO') q += 'cerró el mes (' + N(d.personas) + ' personas, ' + soles(d.total) + ')';
+    else if (x.accion === 'REABIERTO') q += 'reabrió el mes';
+    else if (x.accion === 'PAGO') q += 'registró ' + soles(d.monto) + ' a ' + h(d.persona || '') + ' (' + h(medioTxt(d.medio)) + ')';
+    else if (x.accion === 'ANULADO') q += 'anuló el pago de ' + soles(d.monto) + ' a ' + h(d.persona || '');
+    else if (x.accion === 'INCLUIDO') q += 'incluyó a ' + h(d.persona || '');
+    else q += h(x.accion);
+    return '<li><b>' + h(fechaHora(x.at)) + '</b> · ' + q + (x.motivo ? ' · <i>motivo: ' + h(x.motivo) + '</i>' : '') + '</li>';
+  }
+  function pintar() {
+    var host = $('p71'); if (!host) return;
+    var d = ST.d && ST.d.periodo === ST.per ? ST.d : null;
+    var x = '<div class="d15-sec"><div class="d15-sh"><h3>📒 Planilla de ' + h(mesDe(ST.per)) + '</h3>' + estadoMes(d) + '</div>' + selMes(ST.per, 'a') + '</div>';
+    if (!d) { host.innerHTML = x + '<div class="d15-vacio">' + (ST.err ? h(ST.err) : 'Calculando la planilla… puede tardar unos segundos') + '</div>'; return; }
+    var conMonto = d.personas.filter(function (p) { return p.estado !== 'SIN_MONTO'; });
+    var pagadas = conMonto.filter(function (p) { return p.estado === 'PAGADO' || p.estado === 'DE_MAS'; }).length;
+    var falta = conMonto.filter(function (p) { return p.estado === 'PENDIENTE' || p.estado === 'PARCIAL'; }).length;
+    x += '<div class="p71-kpis"><div class="p71-k"><small>Total del mes</small><b>' + soles(d.total) + '</b></div>' +
+      '<div class="p71-k k-ok"><small>Pagado</small><b>' + soles(d.pagado) + '</b></div>' +
+      '<div class="p71-k' + (N(d.falta) > 0.004 ? ' k-wa' : ' k-ok') + '"><small>Falta pagar</small><b>' + soles(d.falta) + '</b></div>' +
+      '<div class="p71-k"><small>Personas pagadas</small><b>' + pagadas + ' de ' + conMonto.length + '</b></div></div>';
+    x += '<div class="p71-acc">' + (d.puede_cerrar ? '<button type="button" data-a="cerrar">🔒 Cerrar el mes</button>' : '') +
+      (d.cerrado ? '<button type="button" class="sec" data-a="reabrir">↺ Reabrir el mes</button>' : '') +
+      '<button type="button" class="sec" data-a="csv">⬇️ Descargar (Excel)</button><button type="button" class="sec" data-a="recargar">↻ Actualizar</button>' +
+      (ST.cargando ? '<span class="meta">Actualizando…</span>' : '') + '</div>' +
+      '<div class="meta">' + (d.cerrado ? 'Los montos están congelados. Los pagos se siguen registrando normal.' :
+        d.en_curso ? 'Se cierra desde el 1 del mes siguiente. Ya puedes registrar adelantos.' : 'Cuando ya estén todas las ventas y ajustes del mes, ciérralo para congelar los montos.') +
+      (d.segundos != null ? ' · Calculado en ' + h(d.segundos) + ' s.' : '') + '</div>';
+    x += '<div class="p71-fil">' + [['todos', 'Todos', conMonto.length], ['falta', 'Falta pagar', falta], ['pag', 'Pagados', pagadas]].map(function (f) {
+      return '<button type="button" class="d15-pill' + (ST.filtro === f[0] ? ' on' : '') + '" data-a="fil" data-f="' + f[0] + '">' + f[1] + '<b>' + f[2] + '</b></button>';
+    }).join('') + '</div>';
+    function pasa(p) {
+      if (ST.filtro === 'falta') return p.estado === 'PENDIENTE' || p.estado === 'PARCIAL';
+      if (ST.filtro === 'pag') return p.estado === 'PAGADO' || p.estado === 'DE_MAS';
+      return true;
+    }
+    var hay = false;
+    ROLES.concat([['', 'Otros', 'Variable', '']]).forEach(function (r) {
+      var L = conMonto.filter(function (p) { return (r[0] ? p.rol === r[0] : !ROLES.some(function (q) { return q[0] === p.rol; })) && pasa(p); });
+      if (!L.length) return; hay = true;
+      var sub = 0; L.forEach(function (p) { sub += N(p.total); });
+      x += '<div class="d15-sec"><div class="d15-sh"><h3>' + h(r[1]) + ' <span class="meta">(' + L.length + ')</span></h3><span class="meta">Total ' + soles(sub) + '</span></div>' +
+        cabecera(r) + L.map(fila).join('') + '</div>';
+    });
+    if (!hay) x += '<div class="d15-vacio">' + (conMonto.length ? 'Nadie en este filtro.' : 'Nadie tiene monto este mes.') + '</div>';
+    var sin = d.personas.filter(function (p) { return p.estado === 'SIN_MONTO'; });
+    if (sin.length) x += '<div class="d15-sec p71-otros"><details' + (sin.some(function (p) { return p.id === ST.abierto; }) ? ' open' : '') + '><summary>Sin monto este mes (' + sin.length + ')</summary>' +
+      '<p class="meta">Activos sin sueldo, sin comisiones y sin ajustes. Si a alguno le toca pago (por ejemplo, el sueldo de un supervisor), ábrelo y ponle su sueldo o un extra.</p>' +
+      cabecera(['', 'Persona']) + sin.map(fila).join('') + '</details></div>';
+    if (!d.cerrado && (d.inactivos || []).length) x += '<div class="d15-sec"><h3>¿Falta alguien que ya no está activo?</h3>' +
+      '<p class="meta">Por ejemplo, alguien que salió a mitad de mes. Quien tiene pagos, ajustes o comisiones del mes ya aparece solo.</p>' +
+      '<div class="d15-form" style="margin-top:8px"><div><label>Persona</label><select id="p71-inc"><option value="">Elige…</option>' +
+      d.inactivos.map(function (p) { return '<option value="' + h(p.id) + '">' + h(p.nombre) + ' · ' + h(rolDe(p.rol)[3]) + '</option>'; }).join('') +
+      '</select></div><div><button type="button" class="sec" data-a="incluir" style="width:100%">Incluir en este mes</button></div></div></div>';
+    if ((d.historial || []).length) x += '<div class="d15-sec p71-otros"><details><summary>Historial del mes (' + d.historial.length + ')</summary><ul class="p71-h">' + d.historial.map(historialTxt).join('') + '</ul></details></div>';
+    host.innerHTML = x;
+  }
+  async function cargar() {
+    if (!$('p71')) return;
+    if (!ST.per) ST.per = perInicial();
+    var seq = ++ST.seq, per = ST.per;
+    ST.err = null; ST.cargando = !!(ST.d && ST.d.periodo === per); pintar();
+    var r = await sb.rpc('planilla_mes', { p_periodo: per });
+    if (seq !== ST.seq) return;                                    // se pidió otro mes mientras tanto
+    ST.cargando = false;
+    if (r.error) { ST.d = null; ST.err = error(r.error); pintar(); return; }
+    ST.d = r.data;
+    if (ST.abierto && !persona(ST.abierto)) ST.abierto = null;
+    pintar();
+  }
+  function achicar(fi) {
+    return new Promise(function (ok, mal) {
+      var url = URL.createObjectURL(fi), img = new Image();
+      img.onload = function () {
+        var M = 1600, w = img.naturalWidth, hh = img.naturalHeight, k = Math.min(1, M / Math.max(w, hh, 1));
+        var c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(hh * k));
+        var cx = c.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height); cx.drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(function (b) { if (b) ok(b); else mal({ message: 'No se pudo leer la foto' }); }, 'image/jpeg', 0.72);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); mal({ message: 'No se pudo leer la foto. Prueba con una captura de pantalla o un PDF.' }); };
+      img.src = url;
+    });
+  }
+  async function subirFoto(fi, pid) {
+    var pdf = fi.type === 'application/pdf', blob = fi;
+    if (!pdf && !/^image\//.test(fi.type || '')) throw { message: 'El comprobante debe ser una foto o un PDF' };
+    if (!pdf) blob = await achicar(fi);
+    if (blob.size > 3 * 1024 * 1024) throw { message: 'El comprobante pesa más de 3 MB' };
+    var ruta = ST.per.slice(0, 7) + '/' + pid + '/' + nuevaClave() + (pdf ? '.pdf' : '.jpg');
+    var r = await sb.storage.from('planilla').upload(ruta, blob, { contentType: pdf ? 'application/pdf' : 'image/jpeg', upsert: false });
+    if (r.error) throw { message: 'No se pudo subir la foto del comprobante (' + (r.error.message || 'error') + '). El pago no se guardó.' };
+    return ruta;
+  }
+  async function guardarPago(p, b) {
+    if (!p || ST.guardando) return;
+    var mon = Math.round(parseFloat($('p71-mon').value) * 100) / 100, med = $('p71-med').value, op = $('p71-op').value.trim();
+    var fec = $('p71-fec').value, nota = $('p71-not').value.trim(), fi = $('p71-foto').files && $('p71-foto').files[0];
+    if (!(mon > 0)) return aviso('Escribe un monto válido', true);
+    if (mon > N(p.saldo) + 0.004) return aviso('Eso es más de lo que falta pagar (' + soles(p.saldo) + ')', true);
+    if (!fec) return aviso('Elige la fecha del pago', true);
+    if (fec > lima().iso) return aviso('La fecha del pago no puede ser de un día que todavía no llega', true);
+    if (!confirm('¿Registrar el pago de ' + soles(mon) + ' a ' + p.nombre + ' por ' + medioTxt(med) + '?')) return;
+    ST.guardando = true; ST.medio = med; b.disabled = true; var txt = b.textContent; b.textContent = fi ? 'Subiendo el comprobante…' : 'Guardando…';
+    try {
+      var ruta = fi ? await subirFoto(fi, p.id) : null;
+      b.textContent = 'Guardando…';
+      var r = await sb.rpc('planilla_pagar', { p_clave: ST.clave, p_periodo: ST.per, p_persona: p.id, p_monto: mon, p_fecha: fec, p_medio: med,
+        p_operacion: op || null, p_nota: nota || null, p_foto: ruta });
+      if (r.error) throw r.error;
+      reemplazar(r.data); ST.clave = nuevaClave();
+      aviso('Pago registrado: ' + soles(mon) + ' a ' + p.nombre);
+      ST.guardando = false; pintar();
+    } catch (e) { ST.guardando = false; b.disabled = false; b.textContent = txt; aviso(error(e), true); }
+  }
+  function csv() {
+    var d = ST.d; if (!d || d.periodo !== ST.per) return;
+    function t(c) { c = String(c == null ? '' : c); return /^[=+\-@\t\r]/.test(c) ? "'" + c : c; }   // que Excel no lo tome como fórmula
+    var F = [['Persona', 'Rol', 'Activo', 'Sueldo', 'Comisiones / bonos / incentivo', 'Extras', 'Descuentos', 'Total', 'Pagado', 'Falta', 'Estado', 'Pagos (fecha · medio · operación · monto)']];
+    d.personas.forEach(function (p) {
+      F.push([t(p.nombre), rolDe(p.rol)[3], p.activo ? 'Sí' : 'No', n2(p.sueldo), n2(p.variable), n2(p.extras), n2(p.descuentos), n2(p.total), n2(p.pagado), n2(Math.max(N(p.saldo), 0)),
+        (EST[p.estado] || ['', p.estado])[1].replace(/^[^A-Za-zÁÉÍÓÚáéíóúÑñ]+/, ''),
+        t(p.pagos.filter(function (g) { return !g.anulado_at; }).map(function (g) { return fecha(g.fecha) + ' · ' + medioTxt(g.medio) + (g.operacion ? ' · ' + g.operacion : '') + ' · ' + n2(g.monto); }).join(' | '))]);
+    });
+    F.push(['TOTAL', '', '', '', '', '', '', n2(d.total), n2(d.pagado), n2(d.falta), d.cerrado ? 'Mes cerrado' : 'Mes abierto', '']);
+    var txt = '﻿' + F.map(function (f) { return f.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(','); }).join('\r\n');
+    var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'planilla-' + ST.per.slice(0, 7) + '.csv'; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }
+  async function accion(ev) {
+    var b = ev.target.closest('[data-a]'); if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT') return;
+    var a = b.getAttribute('data-a'), fl = b.closest('.p71-f'), pid = fl ? fl.getAttribute('data-p') : ST.abierto, p = persona(pid), r;
+    if (a === 'ver') { ST.abierto = ST.abierto === pid ? null : pid; ST.clave = nuevaClave(); return pintar(); }
+    if (a === 'pagar') {
+      ST.abierto = pid; ST.clave = nuevaClave(); pintar();
+      var m = $('p71-mon'); if (m) { try { m.scrollIntoView({ block: 'center' }); } catch (e) { } m.focus(); m.select(); }
+      return;
+    }
+    if (a === 'fil') { ST.filtro = b.getAttribute('data-f'); return pintar(); }
+    if (a === 'recargar') return cargar();
+    if (a === 'csv') return csv();
+    if (a === 'foto') return verFoto(b.getAttribute('data-f'));
+    if (a === 'guardar') return guardarPago(p, b);
+    if (a === 'cerrar') {
+      var d = ST.d, n = d.personas.filter(function (x) { return x.estado !== 'SIN_MONTO'; }).length;
+      if (!confirm('¿Cerrar la planilla de ' + mesDe(ST.per) + '?\n\nSe congelan los montos de ' + n + ' persona(s): total ' + soles(d.total) +
+        '.\nDesde ahí no se pueden cambiar extras ni descuentos de ese mes, salvo que lo reabras con un motivo.')) return;
+      b.disabled = true; r = await sb.rpc('planilla_cerrar', { p_periodo: ST.per }); b.disabled = false;
+      if (r.error) return aviso(error(r.error), true);
+      ST.d = r.data; aviso('Planilla de ' + mesDe(ST.per) + ' cerrada'); return pintar();
+    }
+    if (a === 'reabrir') {
+      var mo = prompt('¿Por qué reabres la planilla de ' + mesDe(ST.per) + '? (queda anotado)\n\nAl reabrirla, los montos se vuelven a calcular en vivo. Los pagos registrados se quedan.');
+      if (mo == null) return;
+      if (mo.trim().length < 10) return aviso('Escribe el motivo (al menos 10 letras)', true);
+      b.disabled = true; r = await sb.rpc('planilla_reabrir', { p_periodo: ST.per, p_motivo: mo.trim() }); b.disabled = false;
+      if (r.error) return aviso(error(r.error), true);
+      ST.d = r.data; aviso('Planilla reabierta'); return pintar();
+    }
+    if (a === 'anular') {
+      var mot = prompt('¿Por qué anulas este pago? (queda anotado y lo ve el trabajador)');
+      if (mot == null) return;
+      if (mot.trim().length < 5) return aviso('Escribe el motivo para anular el pago', true);
+      b.disabled = true; r = await sb.rpc('planilla_anular_pago', { p_pago: b.getAttribute('data-id'), p_motivo: mot.trim() }); b.disabled = false;
+      if (r.error) return aviso(error(r.error), true);
+      reemplazar(r.data); ST.clave = nuevaClave(); aviso('Pago anulado'); return pintar();
+    }
+    if (a === 'incluir') {
+      var sel = $('p71-inc'), id = sel && sel.value; if (!id) return aviso('Elige a la persona', true);
+      b.disabled = true; r = await sb.rpc('planilla_incluir', { p_periodo: ST.per, p_persona: id }); b.disabled = false;
+      if (r.error) return aviso(error(r.error), true);
+      reemplazar(r.data); ST.abierto = id; aviso(r.data.nombre + ' quedó en la planilla de ' + mesDe(ST.per)); return pintar();
+    }
+    if (!p) return;
+    if (a === 'addadj') {
+      var con = $('p71-acon').value.trim(), mon = parseFloat($('p71-amon').value), tip = $('p71-atip').value;
+      if (!con) return aviso('Escribe el concepto', true);
+      if (isNaN(mon) || mon <= 0) return aviso('Escribe un monto válido', true);
+      b.disabled = true;
+      r = await sb.from('liquidacion_ajustes').insert({ agente_id: p.id, periodo: ST.per, concepto: con, tipo: tip, monto: Math.round(mon * 100) / 100 });
+      b.disabled = false;
+      if (r.error) return aviso(error(r.error), true);
+      aviso((tip === 'EXTRA' ? 'Extra' : 'Descuento') + ' agregado a ' + p.nombre); return cargar();
+    }
+    if (a === 'deladj') {
+      if (!confirm('¿Quitar este ajuste de ' + p.nombre + '?')) return;
+      r = await sb.from('liquidacion_ajustes').delete().eq('id', b.getAttribute('data-id'));
+      if (r.error) return aviso(error(r.error), true);
+      aviso('Ajuste quitado'); return cargar();
+    }
+    if (a === 'sueldo') {
+      var v = parseFloat($('p71-sue').value); if (isNaN(v) || v < 0) return aviso('Escribe un sueldo válido', true);
+      b.disabled = true; r = await sb.rpc('fijar_sueldo', { p_agente: p.id, p_monto: Math.round(v * 100) / 100 }); b.disabled = false;
+      if (r.error) return aviso(error(r.error), true);
+      aviso('Sueldo guardado'); return cargar();
+    }
+  }
+  function cambio(ev) {
+    var s = ev.target, a = s.getAttribute('data-a');
+    if (a === 'ay' || a === 'am') { ST.per = cambioMes(ST.per, s); ST.abierto = null; ST.filtro = 'todos'; cargar(); }
+  }
+
+  /* ================================================================ TRABAJADOR · 🧾 MIS PAGOS */
+  function cabMi() { return '<div class="d15-sec"><div class="d15-sh"><h3>💵 Mis pagos</h3><span class="meta">Lo que te pagaron, con su comprobante</span></div>' + selMes(MI.per, 'm') + '</div>'; }
+  function pintarMi() {
+    var host = $('p71m'); if (!host) return;
+    var d = MI.d && MI.d.periodo === MI.per ? MI.d : null;
+    if (!d) { host.innerHTML = cabMi() + '<div class="d15-vacio">' + (MI.err ? h(MI.err) : 'Cargando tus pagos…') + '</div>'; return; }
+    var e = EST[d.estado] || ['', ''], falta = Math.max(N(d.saldo), 0);
+    host.innerHTML = cabMi() +
+      '<div class="p71-tot"><div><small>' + h(cap(mesDe(d.periodo))) + '</small><b class="p71-big">' + soles(d.total) + '</b><small>a cobrar' + (d.cerrado ? '' : ' (aún puede cambiar)') + '</small></div>' +
+      '<div class="p71-chips"><span>Pagado<b>' + soles(d.pagado) + '</b></span><span>Falta<b>' + soles(falta) + '</b></span>' +
+      (d.estado !== 'SIN_MONTO' ? '<span>' + e[1] + '</span>' : '') + '</div></div>' +
+      '<div class="d15-sec"><h3>Pagos de ' + h(mesDe(d.periodo)) + '</h3>' +
+      ((d.pagos || []).length ? d.pagos.map(function (g) { return pagoHtml(g, false); }).join('') : '<div class="d15-vacio">Todavía no hay pagos registrados este mes.</div>') +
+      '<p class="meta" style="margin-top:10px">' + (d.cerrado ? '🔒 El mes está cerrado: el total ya no cambia.' : d.en_curso ? '🟢 El mes sigue en curso: el total puede cambiar hasta que se cierre.' :
+        '🟡 El mes todavía no se cierra: el total puede cambiar.') + ' Cuando te llegue un pago, pulsa «✔ Lo recibí». El detalle de cómo sale tu total está en «' +
+      (perfilRol() === 'cerrador' ? 'Mi liquidación' : 'Mi pago') + '».</p></div>' +
+      ((d.meses || []).length ? '<div class="d15-sec"><h3>Mis meses</h3><table class="d15-tbl"><thead><tr><th>Mes</th><th style="text-align:right">Total</th><th style="text-align:right">Pagado</th><th></th></tr></thead><tbody>' +
+        d.meses.map(function (m) {
+          return '<tr><td>' + h(cap(mesDe(m.periodo))) + '</td><td style="text-align:right">' + (m.cerrado ? soles(m.total) : '<span class="meta">sin cerrar</span>') + '</td><td style="text-align:right">' +
+            soles(m.pagado) + '</td><td style="text-align:right"><button type="button" class="sec p71-mini" data-a="mes" data-p="' + h(m.periodo) + '">Ver</button></td></tr>';
+        }).join('') + '</tbody></table></div>' : '');
+  }
+  function perfilRol() { try { return (typeof perfil !== 'undefined' && perfil && perfil.rol) || ''; } catch (e) { return ''; } }
+  async function cargarMi() {
+    if (!$('p71m')) return;
+    if (!MI.per) MI.per = perInicial();
+    var seq = ++MI.seq, per = MI.per; MI.err = null; pintarMi();
+    var r = await sb.rpc('planilla_mis_pagos', { p_periodo: per });
+    if (seq !== MI.seq) return;
+    if (r.error) { MI.d = null; MI.err = error(r.error); return pintarMi(); }
+    MI.d = r.data; pintarMi();
+  }
+  async function accionMi(ev) {
+    var b = ev.target.closest('[data-a]'); if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT') return;
+    var a = b.getAttribute('data-a');
+    if (a === 'foto') return verFoto(b.getAttribute('data-f'));
+    if (a === 'mes') { MI.per = b.getAttribute('data-p'); return cargarMi(); }
+    if (a === 'recibi') {
+      b.disabled = true; var r = await sb.rpc('planilla_recibido', { p_pago: b.getAttribute('data-id') });
+      if (r.error) { b.disabled = false; return aviso(error(r.error), true); }
+      MI.d = r.data; aviso('¡Gracias! Quedó marcado como recibido'); pintarMi();
+    }
+  }
+  function cambioMi(ev) {
+    var s = ev.target, a = s.getAttribute('data-a');
+    if (a === 'my' || a === 'mm') { MI.per = cambioMes(MI.per, s); cargarMi(); }
+  }
+
+  /* ================================================================ montaje */
+  function ponerTab(bar, bt, refs) {
+    for (var i = 0; i < refs.length; i++) { var r = bar.querySelector('[data-k="' + refs[i] + '"]'); if (r) { r.insertAdjacentElement('afterend', bt); return; } }
+    var man = $('btnManual17'); if (man && man.parentNode === bar) bar.insertBefore(bt, man); else bar.appendChild(bt);
+  }
+  function montarAdmin() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-pla')) return;
+    ST = { per: null, d: null, seq: 0, cargando: false, err: null, abierto: null, filtro: 'todos', clave: nuevaClave(), guardando: false, medio: 'YAPE' };
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-pla'; s.hidden = true;
+    s.innerHTML = '<div id="p71"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'pla'); bt.innerHTML = '<span>📒</span>Planilla';
+    ponerTab(bar, bt, ['pe', 'liq']);
+    bar.addEventListener('click', function (ev) { var b = ev.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'pla') cargar(); });
+    s.addEventListener('click', accion);
+    s.addEventListener('change', cambio);
+  }
+  function montarMi() {
+    var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-mpg')) return;
+    MI = { per: null, d: null, seq: 0, err: null };
+    var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-mpg'; s.hidden = true;
+    s.innerHTML = '<div id="p71m"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
+    var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'mpg'); bt.innerHTML = '<span>💵</span>Mis pagos';
+    ponerTab(bar, bt, ['mp', 'liq']);
+    bar.addEventListener('click', function (ev) { var b = ev.target.closest('.t15'); if (b && b.getAttribute('data-k') === 'mpg') cargarMi(); });
+    s.addEventListener('click', accionMi);
+    s.addEventListener('change', cambioMi);
+  }
+  [['adminView', montarAdmin], ['concertadorView', montarMi], ['cerradorView', montarMi], ['backView', montarMi]].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () { var r = o.apply(this, arguments); try { p[1](); } catch (e) { console.error(e); } return r; };
   });
 })();
  </script>
