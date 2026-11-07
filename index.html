@@ -18775,7 +18775,9 @@ function ofcCalcular(cat, sel) {
    · Admin: cada persona del mes con su total, lo pagado y lo que falta. Registra pagos (medio, n.º de operación,
      fecha y foto del comprobante), cierra el mes, lo reabre con motivo, anula un pago con motivo y descarga el mes (Excel).
    · Trabajador: sus pagos con el comprobante y el botón «✔ Lo recibí».
-   · Los montos los calcula la base de datos: son los mismos de «Mi pago» y «Mi liquidación». El navegador no decide nada. */
+   · Los montos los calcula la base de datos: son los mismos de «Mi pago» y «Mi liquidación». El navegador no decide nada.
+   · Con el SQL 76: lista «🔌 Desconectados descontados» (servicios ya pagados a un cerrador que pasaron a DESCONECTADO)
+     con el botón «Perdonar». Sin el SQL 76, la planilla funciona igual y la lista no aparece. */
 (function () {
   var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
   var ROLES = [['cerrador', 'Cerradores', 'Comisiones y bonos', 'Cerrador'], ['concertador', 'Concertadores', 'Comisiones', 'Concertador'], ['back', 'Backs', 'Incentivo', 'Back'],
@@ -18849,6 +18851,7 @@ function ofcCalcular(cat, sel) {
     '.p71-pg:last-child{border-bottom:0}.p71-pg b{font-variant-numeric:tabular-nums}.p71-pg small{display:block;color:var(--mut);font-size:.8em}',
     '.p71-pg.anul .q{text-decoration:line-through;opacity:.6}.p71-pg .w{display:flex;gap:6px;align-items:center;flex-wrap:wrap}',
     '.p71-pg small.mal{color:var(--bad)}',
+    '.p71-dx .p71-pg small{margin-top:2px}.p71-dx .p71-pg .w{flex-shrink:0}',
     'button.p71-mini{padding:5px 11px;font-size:.8em}',
     '.p71-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 18px}@media(max-width:860px){.p71-2{grid-template-columns:1fr}}',
     '.p71-otros summary{cursor:pointer;font-weight:700;padding:4px 0}.p71-h{margin:6px 0 0;padding-left:18px;font-size:.88em}.p71-h li{margin:4px 0}',
@@ -18886,6 +18889,8 @@ function ofcCalcular(cat, sel) {
   }
 
   /* ================================================================ ADMIN · 📒 PLANILLA */
+  function falta76(x) { return /PGRST202|42883|planilla_desconectados/.test(String(x && ((x.code || '') + ' ' + (x.message || '')) || '')); }
+  function dxDeAjuste(id) { var L = (ST.dx && ST.dx.periodo === ST.per && ST.dx.lista) || []; for (var i = 0; i < L.length; i++) if (L[i].ajuste_id === id) return L[i]; return null; }
   function persona(id) { var L = (ST.d && ST.d.personas) || []; for (var i = 0; i < L.length; i++) if (L[i].id === id) return L[i]; return null; }
   function sumar() {
     var d = ST.d, t = 0, p = 0, f = 0;
@@ -18948,12 +18953,16 @@ function ofcCalcular(cat, sel) {
       (N(p.extras) ? '<div class="p71-r pos"><span>Extras</span><b>+ ' + soles(p.extras) + '</b></div>' : '') +
       (N(p.descuentos) ? '<div class="p71-r neg"><span>Descuentos</span><b>− ' + soles(p.descuentos) + '</b></div>' : '') +
       '<div class="p71-r fin"><span>A pagar</span><b>' + soles(p.total) + '</b></div>' +
+      (N(p.devuelto_desconectados) > 0.004 ? '<p class="meta" style="margin-top:6px">Incluye ' + soles(p.devuelto_desconectados) +
+        ' de servicios de este mes que pasaron a desconectado y ya se le descontaron (o perdonaron) en otro mes: así no se le cobra dos veces.</p>' : '') +
       (d.cerrado ? '<p class="meta" style="margin-top:6px">Monto congelado al cerrar el mes.</p>' : '<p class="meta" style="margin-top:6px">Es el mismo cálculo de su «' + (p.rol === 'cerrador' ? 'Mi liquidación' : 'Mi pago') + '».</p>') +
       '</div></div>';
     if (falta > 0.004) x += formPago(p);
     x += '<h4>Extras y descuentos del mes</h4>' + ((p.ajustes || []).length ? p.ajustes.map(function (a) {
+      var dx = dxDeAjuste(a.id);
       return '<div class="p71-r ' + (a.tipo === 'DESCUENTO' ? 'neg' : 'pos') + '"><span>' + h(a.concepto) + '</span><b>' + (a.tipo === 'DESCUENTO' ? '− ' : '+ ') + soles(a.monto) +
-        (d.cerrado ? '' : ' <button type="button" class="sec p71-mini" data-a="deladj" data-id="' + h(a.id) + '">Quitar</button>') + '</b></div>';
+        (d.cerrado ? '' : dx ? (dx.puede_perdonar ? ' <button type="button" class="sec p71-mini" data-a="perdonar" data-d="' + h(dx.id) + '">Perdonar</button>' : '')
+                             : ' <button type="button" class="sec p71-mini" data-a="deladj" data-id="' + h(a.id) + '">Quitar</button>') + '</b></div>';
     }).join('') : '<div class="meta">Sin extras ni descuentos.</div>');
     if (d.cerrado) x += '<p class="meta" style="margin-top:6px">Mes cerrado: para cambiar extras o descuentos, reábrelo.</p>';
     else x += '<div class="d15-form" style="margin-top:8px"><div><label>Concepto</label><input id="p71-acon" data-minus maxlength="120" placeholder="Ej. tardanza, adelanto, bono puntual" autocomplete="off"></div>' +
@@ -18972,8 +18981,29 @@ function ofcCalcular(cat, sel) {
     else if (x.accion === 'ANULADO') q += 'anuló el pago de ' + soles(d.monto) + ' a ' + h(d.persona || '');
     else if (x.accion === 'INCLUIDO') q += 'incluyó a ' + h(d.persona || '');
     else if (x.accion === 'SUELDO') q += 'puso el sueldo de ' + h(d.persona || '') + ' en ' + soles(d.monto);
+    else if (x.accion === 'PERDONADO') q += 'perdonó el descuento por desconectado de ' + h(d.persona || '') + ' (' + soles(d.monto) + (d.producto ? ', ' + h(d.producto) : '') + ')';
     else q += h(x.accion);
     return '<li><b>' + h(fechaHora(x.at)) + '</b> · ' + q + (x.motivo ? ' · <i>motivo: ' + h(x.motivo) + '</i>' : '') + '</li>';
+  }
+  function desconectados() {
+    var X = ST.dx; if (!X || X.periodo !== ST.per) return '';
+    if (X.err) return '<div class="d15-sec p71-dx"><h3>🔌 Desconectados descontados</h3><div class="meta">' + h(X.err) + '</div></div>';
+    var L = X.lista || [], tot = 0;
+    if (!L.length && !N(X.vigilados)) return '';
+    L.forEach(function (s) { if (s.estado === 'DESCONTADO') tot += N(s.monto); });
+    var x = '<div class="d15-sec p71-dx"><div class="d15-sh"><h3>🔌 Desconectados descontados <span class="meta">(' + L.length + ')</span></h3>' +
+      (tot > 0.004 ? '<span class="meta">Total − ' + soles(tot) + '</span>' : '') + '</div>' +
+      '<p class="meta">Servicios que ya se le pagaron a un cerrador y pasaron a DESCONECTADO hasta 6 meses después de activarse: se le descuenta lo mismo que se le pagó por cada uno. ' +
+      'Ahora se vigilan ' + N(X.vigilados) + ' servicio(s) pagado(s).</p>';
+    if (!L.length) return x + '<div class="meta">Ninguno en ' + h(mesDe(ST.per)) + '.</div></div>';
+    return x + L.map(function (s) {
+      var est = s.estado === 'PERDONADO' ? '<span class="badge b-info">Perdonado</span>' : s.estado === 'QUITADO' ? '<span class="badge">Quitado a mano</span>' : '<span class="badge b-bad">Descontado</span>';
+      return '<div class="p71-pg' + (s.estado === 'DESCONTADO' ? '' : ' anul') + '"><div><b class="q">' + h(s.nombre) + ' · − ' + soles(s.monto) + '</b>' +
+        '<small>' + h(s.producto || 'Servicio') + ' · venta ' + h(s.id_venta) + (s.numero ? ' · n.º ' + h(s.numero) : '') + (s.cliente ? ' · ' + h(s.cliente) : '') + '</small>' +
+        '<small>Pagado en ' + h(mesDe(s.periodo_pagado)) + ' · activo desde el ' + h(fecha(s.activo_desde)) + ' · desconectado el ' + h(fecha(s.fecha_desconexion)) + '</small>' +
+        (s.estado === 'PERDONADO' ? '<small>Perdonado' + (s.perdonado_por_nombre ? ' por ' + h(s.perdonado_por_nombre) : '') + (s.motivo ? ': ' + h(s.motivo) : '') + '</small>' : '') +
+        '</div><div class="w">' + est + (s.puede_perdonar ? '<button type="button" class="sec p71-mini" data-a="perdonar" data-d="' + h(s.id) + '">Perdonar</button>' : '') + '</div></div>';
+    }).join('') + '</div>';
   }
   function pintar() {
     var host = $('p71'); if (!host) return;
@@ -19011,6 +19041,7 @@ function ofcCalcular(cat, sel) {
         cabecera(r) + L.map(fila).join('') + '</div>';
     });
     if (!hay) x += '<div class="d15-vacio">' + (conMonto.length ? 'Nadie en este filtro.' : 'Nadie tiene monto este mes.') + '</div>';
+    x += desconectados();
     var sin = d.personas.filter(function (p) { return p.estado === 'SIN_MONTO'; });
     if (sin.length) x += '<div class="d15-sec p71-otros"><details' + (sin.some(function (p) { return p.id === ST.abierto; }) ? ' open' : '') + '><summary>Sin monto este mes (' + sin.length + ')</summary>' +
       '<p class="meta">Activos sin sueldo, sin comisiones y sin ajustes. Si a alguno le toca pago (por ejemplo, el sueldo de un supervisor), ábrelo y ponle su sueldo o un extra.</p>' +
@@ -19028,6 +19059,9 @@ function ofcCalcular(cat, sel) {
     if (!ST.per) ST.per = perInicial();
     var seq = ++ST.seq, per = ST.per;
     ST.err = null; ST.cargando = !!(ST.d && ST.d.periodo === per); pintar();
+    var q = await sb.rpc('planilla_desconectados', { p_periodo: per });   // revisa desconectados antes de calcular (SQL 76)
+    if (seq !== ST.seq) return;
+    ST.dx = q.error ? (falta76(q.error) ? null : { periodo: per, err: 'No se pudo revisar los desconectados: ' + ((q.error && q.error.message) || '') }) : q.data;
     var r = await sb.rpc('planilla_mes', { p_periodo: per });
     if (seq !== ST.seq) return;                                    // se pidió otro mes mientras tanto
     ST.cargando = false;
@@ -19134,6 +19168,15 @@ function ofcCalcular(cat, sel) {
       if (r.error) return aviso(error(r.error), true);
       reemplazar(r.data); ST.clave = nuevaClave(); aviso('Pago anulado'); return pintar();
     }
+    if (a === 'perdonar') {
+      var did = Number(b.getAttribute('data-d'));
+      var mt = prompt('¿Por qué perdonas este descuento por desconectado? (queda anotado)\n\nSe le quita el descuento al cerrador en este mes.');
+      if (mt == null) return;
+      if (mt.trim().length < 5) return aviso('Escribe el motivo para perdonar el descuento', true);
+      b.disabled = true; r = await sb.rpc('planilla_desconectado_perdonar', { p_id: did, p_motivo: mt.trim() }); b.disabled = false;
+      if (r.error) return aviso(falta76(r.error) ? 'Falta ejecutar el SQL 76 en Supabase' : error(r.error), true);
+      ST.dx = r.data; aviso('Descuento perdonado'); return cargar();
+    }
     if (a === 'incluir') {
       var sel = $('p71-inc'), id = sel && sel.value; if (!id) return aviso('Elige a la persona', true);
       b.disabled = true; r = await sb.rpc('planilla_incluir', { p_periodo: ST.per, p_persona: id }); b.disabled = false;
@@ -19224,7 +19267,7 @@ function ofcCalcular(cat, sel) {
   }
   function montarAdmin() {
     var bar = $('tabs15'), panels = $('panels15'); if (!bar || !panels || $('p15-pla')) return;
-    ST = { per: null, d: null, seq: 0, cargando: false, err: null, abierto: null, filtro: 'todos', clave: nuevaClave(), guardando: false, medio: 'YAPE' };
+    ST = { per: null, d: null, dx: null, seq: 0, cargando: false, err: null, abierto: null, filtro: 'todos', clave: nuevaClave(), guardando: false, medio: 'YAPE' };
     var s = document.createElement('section'); s.className = 'p15'; s.id = 'p15-pla'; s.hidden = true;
     s.innerHTML = '<div id="p71"><div class="d15-vacio">Se carga al abrir la pestaña…</div></div>'; panels.appendChild(s);
     var bt = document.createElement('button'); bt.className = 't15'; bt.type = 'button'; bt.setAttribute('data-k', 'pla'); bt.innerHTML = '<span>📒</span>Planilla';
