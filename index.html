@@ -20536,6 +20536,90 @@ function ofcCalcular(cat, sel) {
   var oA = window.adminView;
   if (typeof oA === 'function') window.adminView = function () { var r = oA.apply(this, arguments); try { montar(); } catch (e) { console.error(e); } return r; };
 })();
+    /* 75 · Búsqueda completa en «Seguimiento» y «Contraoferta» (back, admin y supervisor)
+   Va al final del script de index.html, después del bloque 74. No necesita SQL nuevo.
+   Antes, al escribir un cliente, DNI, teléfono o número, solo se buscaba en «En seguimiento» (clientes con algún servicio
+   sin OK), y un cliente ya activo no aparecía. Ahora la búsqueda mira las TRES listas (en seguimiento, listos y cerrados)
+   y cada resultado que no está en seguimiento lleva su marca: «✅ Listo (todo OK)» o «🔒 Cerrado». */
+(function () {
+  var VISTAS = ['PENDIENTES', 'LISTOS', 'CERRADOS'];
+  var ETQ = { LISTOS: '✅ Listo (todo OK)', CERRADOS: '🔒 Cerrado' };
+  var ORIGEN = {}, BUSCANDO = false;
+
+  function esSeguimiento(n) { return n === 'back_seguimiento' || n === 'back_seguimiento_mes'; }
+  function instala() {
+    if (typeof sb === 'undefined' || !sb || typeof sb.rpc !== 'function' || sb.__b75) return;
+    sb.__b75 = 1;
+    var orig = sb.rpc;
+    sb.rpc = function (n, a, o) {
+      var self = this;
+      try {
+        // solo la lista grande (no la búsqueda puntual de un cliente por su código) y solo cuando hay texto que buscar
+        if (esSeguimiento(n) && a && (a.p_limit || 0) >= 20) {
+          var q = String(a.p_texto || '').trim();
+          if (q.length >= 3 && a.p_vista === 'PENDIENTES') {
+            return Promise.all(VISTAS.map(function (v) {
+              var b = {}; for (var k in a) if (Object.prototype.hasOwnProperty.call(a, k)) b[k] = a[k];
+              b.p_vista = v; b.p_offset = 0;
+              return Promise.resolve(orig.call(self, n, b, o)).then(function (r) { return r; }, function (e) { return { error: e }; });
+            })).then(function (R) {
+              var base = R[0];
+              if (!base || base.error || !base.data) return base;                 // si la lista principal falla, se devuelve tal cual
+              var vistos = {}, ventas = [];
+              ORIGEN = {}; BUSCANDO = true;
+              R.forEach(function (r, i) {
+                ((r && r.data && r.data.ventas) || []).forEach(function (x) {
+                  if (!x || vistos[x.id_venta]) return;
+                  vistos[x.id_venta] = 1; ventas.push(x);
+                  if (i > 0) ORIGEN[x.id_venta] = VISTAS[i];
+                });
+              });
+              var d = {}; for (var k in base.data) if (Object.prototype.hasOwnProperty.call(base.data, k)) d[k] = base.data[k];
+              d.ventas = ventas; d.total = ventas.length;
+              var res = {}; for (var j in base) if (Object.prototype.hasOwnProperty.call(base, j)) res[j] = base[j];
+              res.data = d;
+              setTimeout(marcar, 0); setTimeout(marcar, 300);
+              return res;
+            });
+          }
+          ORIGEN = {}; BUSCANDO = false;                                         // lista normal, sin búsqueda
+        }
+      } catch (e) { }
+      return orig.call(self, n, a, o);
+    };
+  }
+  function marcar() {
+    var out = document.getElementById('p37-out');
+    if (out) {
+      Object.keys(ORIGEN).forEach(function (id) {
+        var sel = 'tr[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : String(id).replace(/"/g, '\\"')) + '"]';
+        var tr = out.querySelector(sel); if (!tr || tr.querySelector('.b75')) return;
+        var td = tr.children[3] || tr.lastElementChild; if (!td) return;
+        var s = document.createElement('span'); s.className = 'badge b75 ' + (ORIGEN[id] === 'CERRADOS' ? 'b-info' : 'b-ok');
+        s.textContent = ETQ[ORIGEN[id]]; s.style.marginLeft = '6px'; s.style.whiteSpace = 'nowrap';
+        td.appendChild(s);
+      });
+      vigila(out);
+    }
+    var av = document.getElementById('p37-aviso');
+    if (av) {
+      var nota = document.getElementById('b75-nota');
+      if (BUSCANDO && !nota) { nota = document.createElement('div'); nota.id = 'b75-nota'; nota.className = 'meta'; nota.style.marginTop = '4px';
+        nota.textContent = '🔎 La búsqueda mira las tres listas: en seguimiento, listos y cerrados.'; av.appendChild(nota); }
+      else if (!BUSCANDO && nota) nota.remove();
+    }
+  }
+  // la lista se vuelve a pintar al marcar filas o abrir un cliente: se reponen las marcas
+  function vigila(out) {
+    if (!out || out.__b75) return; out.__b75 = 1;
+    new MutationObserver(function () { if (BUSCANDO) setTimeout(marcar, 0); }).observe(out, { childList: true });
+  }
+  [['adminView'], ['backView'], ['supervisorView'], ['cerradorView']].forEach(function (p) {
+    var o = window[p[0]]; if (typeof o !== 'function') return;
+    window[p[0]] = function () { var r = o.apply(this, arguments); try { instala(); } catch (e) { console.error(e); } return r; };
+  });
+  try { instala(); } catch (e) { }
+})();
  </script>
 </body>
 </html>
